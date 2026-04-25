@@ -11,24 +11,30 @@ public sealed class TextPipeline
 
     private readonly ITranslationCache _cache;
     private readonly TranslationJobQueue _queue;
-    private readonly RuntimeConfig _config;
+    private readonly Func<RuntimeConfig> _configProvider;
 
     public TextPipeline(ITranslationCache cache, TranslationJobQueue queue, RuntimeConfig config)
+        : this(cache, queue, () => config)
+    {
+    }
+
+    public TextPipeline(ITranslationCache cache, TranslationJobQueue queue, Func<RuntimeConfig> configProvider)
     {
         _cache = cache;
         _queue = queue;
-        _config = config;
+        _configProvider = configProvider;
     }
 
     public PipelineDecision Process(CapturedText capturedText)
     {
-        if (!_config.Enabled || !TextFilter.ShouldTranslate(capturedText.SourceText))
+        var config = _configProvider();
+        if (!config.Enabled || !TextFilter.ShouldTranslate(capturedText.SourceText))
         {
             return PipelineDecision.Ignored();
         }
 
         var normalized = TextNormalizer.NormalizeForCache(capturedText.SourceText);
-        var key = TranslationCacheKey.Create(normalized, _config.TargetLanguage, _config.Provider, PromptPolicyVersion);
+        var key = TranslationCacheKey.Create(normalized, config.TargetLanguage, config.Provider, PromptPolicyVersion);
         if (_cache.TryGet(key, out var translatedText))
         {
             return PipelineDecision.UseCachedTranslation(translatedText);

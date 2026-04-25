@@ -37,4 +37,18 @@ public sealed class TextPipelineTests
         queue.TryDequeueBatch(1, 100, out var batch).Should().BeTrue();
         batch[0].Priority.Should().Be(TranslationPriority.VisibleUi);
     }
+
+    [Fact]
+    public void Process_reads_latest_runtime_config_from_provider()
+    {
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var pipeline = new TextPipeline(new MemoryTranslationCache(), queue, () => config);
+
+        config = config with { Enabled = false };
+        var decision = pipeline.Process(new CapturedText("ui-3", "Options", isVisible: true));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.Ignored);
+        queue.PendingCount.Should().Be(0);
+    }
 }

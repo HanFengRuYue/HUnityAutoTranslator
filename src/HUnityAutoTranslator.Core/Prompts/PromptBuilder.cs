@@ -19,6 +19,7 @@ public static class PromptBuilder
 
         return $"""
 你是游戏本地化翻译引擎。目标语言：{options.TargetLanguage}。
+自动判断源语言；无论源语言是什么，都翻译为目标语言。
 只输出译文，不要解释，不要寒暄，不要添加引号、Markdown 或“翻译如下”等前缀。
 不要改变占位符、控制符、换行符、Unity 富文本标签或 TextMeshPro 标签。
 允许自然本地化，避免机器翻译腔；菜单和按钮要短，对话要符合角色口吻。

@@ -12,23 +12,28 @@ internal sealed class UguiTextScanner : ITextCaptureModule
     private readonly TextPipeline _pipeline;
     private readonly UnityMainThreadResultApplier _applier;
     private readonly ManualLogSource _logger;
-    private readonly RuntimeConfig _config;
+    private readonly Func<RuntimeConfig> _configProvider;
     private Type? _textType;
     private PropertyInfo? _textProperty;
     private bool _enabled;
     private bool _warned;
 
     public UguiTextScanner(TextPipeline pipeline, UnityMainThreadResultApplier applier, ManualLogSource logger, RuntimeConfig config)
+        : this(pipeline, applier, logger, () => config)
+    {
+    }
+
+    public UguiTextScanner(TextPipeline pipeline, UnityMainThreadResultApplier applier, ManualLogSource logger, Func<RuntimeConfig> configProvider)
     {
         _pipeline = pipeline;
         _applier = applier;
         _logger = logger;
-        _config = config;
+        _configProvider = configProvider;
     }
 
     public string Name => "UGUI";
 
-    public bool IsEnabled => _enabled && _config.EnableUgui;
+    public bool IsEnabled => _enabled && _configProvider().EnableUgui;
 
     public void Start()
     {
@@ -51,7 +56,7 @@ internal sealed class UguiTextScanner : ITextCaptureModule
         try
         {
             var objects = UnityEngine.Object.FindObjectsOfType(_textType);
-            var count = Math.Min(objects.Length, _config.MaxScanTargetsPerTick);
+            var count = Math.Min(objects.Length, _configProvider().MaxScanTargetsPerTick);
             for (var i = 0; i < count; i++)
             {
                 Process(objects[i]);

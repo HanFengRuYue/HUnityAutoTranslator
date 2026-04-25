@@ -16,6 +16,9 @@ public sealed class Plugin : BaseUnityPlugin
 {
     private ControlPanelService? _controlPanel;
     private LocalHttpServer? _httpServer;
+    private TranslationWorkerHost? _workerHost;
+    private MemoryTranslationCache? _cache;
+    private TranslationJobQueue? _queue;
     private ResultDispatcher? _dispatcher;
     private UnityMainThreadResultApplier? _resultApplier;
     private TextCaptureCoordinator? _captureCoordinator;
@@ -27,20 +30,26 @@ public sealed class Plugin : BaseUnityPlugin
         {
             _controlPanel = ControlPanelService.CreateDefault();
             var config = _controlPanel.GetConfig();
-            var cache = new MemoryTranslationCache();
-            var queue = new TranslationJobQueue();
+            _cache = new MemoryTranslationCache();
+            _queue = new TranslationJobQueue();
             _dispatcher = new ResultDispatcher();
             _resultApplier = new UnityMainThreadResultApplier();
-            var pipeline = new TextPipeline(cache, queue, config);
+            var pipeline = new TextPipeline(_cache, _queue, _controlPanel.GetConfig);
             _captureCoordinator = new TextCaptureCoordinator(new ITextCaptureModule[]
             {
-                new UguiTextScanner(pipeline, _resultApplier, Logger, config),
-                new TmpTextScanner(pipeline, _resultApplier, Logger, config),
-                new ImguiHookInstaller(pipeline, cache, Logger, config)
+                new UguiTextScanner(pipeline, _resultApplier, Logger, _controlPanel.GetConfig),
+                new TmpTextScanner(pipeline, _resultApplier, Logger, _controlPanel.GetConfig),
+                new ImguiHookInstaller(pipeline, _cache, Logger, _controlPanel.GetConfig)
             });
             _captureCoordinator.Start();
-            _httpServer = new LocalHttpServer(_controlPanel, Logger);
-            _httpServer.Start("127.0.0.1", 0);
+            _workerHost = new TranslationWorkerHost(_controlPanel, _queue, _dispatcher, _cache, Logger);
+            _workerHost.Start();
+            _httpServer = new LocalHttpServer(
+                _controlPanel,
+                () => _queue.PendingCount,
+                () => _cache.Count,
+                Logger);
+            _httpServer.Start(config.HttpHost, config.HttpPort);
             Logger.LogInfo($"{MyPluginInfo.PLUGIN_NAME} loaded. Control panel: {_httpServer.Url}");
         }
         catch (Exception ex)
@@ -52,6 +61,7 @@ public sealed class Plugin : BaseUnityPlugin
     private void OnDestroy()
     {
         _captureCoordinator?.Dispose();
+        _workerHost?.Dispose();
         _httpServer?.Dispose();
     }
 

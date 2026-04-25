@@ -15,22 +15,27 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
     private readonly TextPipeline _pipeline;
     private readonly ITranslationCache _cache;
     private readonly ManualLogSource _logger;
-    private readonly RuntimeConfig _config;
+    private readonly Func<RuntimeConfig> _configProvider;
     private Harmony? _harmony;
     private bool _enabled;
     private bool _warned;
 
     public ImguiHookInstaller(TextPipeline pipeline, ITranslationCache cache, ManualLogSource logger, RuntimeConfig config)
+        : this(pipeline, cache, logger, () => config)
+    {
+    }
+
+    public ImguiHookInstaller(TextPipeline pipeline, ITranslationCache cache, ManualLogSource logger, Func<RuntimeConfig> configProvider)
     {
         _pipeline = pipeline;
         _cache = cache;
         _logger = logger;
-        _config = config;
+        _configProvider = configProvider;
     }
 
     public string Name => "IMGUI";
 
-    public bool IsEnabled => _enabled && _config.EnableImgui;
+    public bool IsEnabled => _enabled && _configProvider().EnableImgui;
 
     public void Start()
     {
@@ -104,7 +109,8 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
 
     private string TranslateOrQueue(string text)
     {
-        var key = TranslationCacheKey.Create(text, _config.TargetLanguage, _config.Provider, TextPipeline.PromptPolicyVersion);
+        var config = _configProvider();
+        var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
         if (_cache.TryGet(key, out var translated))
         {
             return translated;

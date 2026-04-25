@@ -11,6 +11,7 @@ public sealed class PromptPolicyTests
         var prompt = PromptBuilder.BuildSystemPrompt(new PromptOptions("zh-Hans", TranslationStyle.Localized, "保持角色口吻"));
 
         prompt.Should().Contain("只输出译文");
+        prompt.Should().Contain("自动判断源语言");
         prompt.Should().Contain("不要解释");
         prompt.Should().Contain("不要改变占位符");
         prompt.Should().Contain("允许自然本地化");
