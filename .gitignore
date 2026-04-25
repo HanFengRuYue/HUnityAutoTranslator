@@ -1,0 +1,8 @@
+.superpowers/
+bin/
+obj/
+artifacts/
+publish/
+*.user
+*.suo
+*.tmp
