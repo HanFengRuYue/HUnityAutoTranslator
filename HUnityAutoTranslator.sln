@@ -11,6 +11,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HUnityAutoTranslator.Core.Tests", "tests\HUnityAutoTranslator.Core.Tests\HUnityAutoTranslator.Core.Tests.csproj", "{2396CDE7-CC7C-4C7D-9BC8-1D012057863A}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "HUnityAutoTranslator.Plugin", "src\HUnityAutoTranslator.Plugin\HUnityAutoTranslator.Plugin.csproj", "{AB32E9C2-B940-40A4-B7DD-E4BB817A8C33}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -45,6 +47,18 @@ Global
 		{2396CDE7-CC7C-4C7D-9BC8-1D012057863A}.Release|x64.Build.0 = Release|Any CPU
 		{2396CDE7-CC7C-4C7D-9BC8-1D012057863A}.Release|x86.ActiveCfg = Release|Any CPU
 		{2396CDE7-CC7C-4C7D-9BC8-1D012057863A}.Release|x86.Build.0 = Release|Any CPU
+		{AB32E9C2-B940-40A4-B7DD-E4BB817A8C33}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{AB32E9C2-B940-40A4-B7DD-E4BB817A8C33}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{AB32E9C2-B940-40A4-B7DD-E4BB817A8C33}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{AB32E9C2-B940-40A4-B7DD-E4BB817A8C33}.Debug|x64.Build.0 = Debug|Any CPU
+		{AB32E9C2-B940-40A4-B7DD-E4BB817A8C33}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{AB32E9C2-B940-40A4-B7DD-E4BB817A8C33}.Debug|x86.Build.0 = Debug|Any CPU
+		{AB32E9C2-B940-40A4-B7DD-E4BB817A8C33}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{AB32E9C2-B940-40A4-B7DD-E4BB817A8C33}.Release|Any CPU.Build.0 = Release|Any CPU
+		{AB32E9C2-B940-40A4-B7DD-E4BB817A8C33}.Release|x64.ActiveCfg = Release|Any CPU
+		{AB32E9C2-B940-40A4-B7DD-E4BB817A8C33}.Release|x64.Build.0 = Release|Any CPU
+		{AB32E9C2-B940-40A4-B7DD-E4BB817A8C33}.Release|x86.ActiveCfg = Release|Any CPU
+		{AB32E9C2-B940-40A4-B7DD-E4BB817A8C33}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -52,5 +66,6 @@ Global
 	GlobalSection(NestedProjects) = preSolution
 		{25138210-5A5C-4FD9-B607-5A10E1C5F424} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 		{2396CDE7-CC7C-4C7D-9BC8-1D012057863A} = {0AB3BF05-4346-4AA6-1389-037BE0695223}
+		{AB32E9C2-B940-40A4-B7DD-E4BB817A8C33} = {827E0CD3-B72D-47B6-A68D-7590B98EB39B}
 	EndGlobalSection
 EndGlobal
