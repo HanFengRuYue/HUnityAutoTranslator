@@ -11,42 +11,72 @@ internal static class ControlPanelHtml
   <title>HUnityAutoTranslator 控制面板</title>
   <style>
     :root {
-      color-scheme: light dark;
-      --bg: #f7f7f4;
-      --panel: #ffffff;
-      --ink: #1f2328;
-      --muted: #667085;
-      --line: #d9dde3;
-      --accent: #0f766e;
+      color-scheme: dark;
+      --bg: #0d0f12;
+      --bg-top: #10141a;
+      --header-bg: rgba(18, 22, 28, 0.94);
+      --panel: #171b21;
+      --panel-strong: #1d232b;
+      --field: #101419;
+      --field-hover: #141a21;
+      --ink: #eef3f7;
+      --muted: #9aa6b2;
+      --line: #2c3540;
+      --line-strong: #40505f;
+      --accent: #0d9488;
+      --accent-hover: #14b8a6;
+      --accent-soft: rgba(20, 184, 166, 0.14);
       --accent-ink: #ffffff;
-      --warn: #b54708;
-      --ok: #067647;
+      --warn: #f97316;
+      --warn-soft: rgba(249, 115, 22, 0.14);
+      --ok: #22c55e;
+      --ok-soft: rgba(34, 197, 94, 0.13);
+      --focus: #67e8f9;
+      --shadow: 0 18px 54px rgba(0, 0, 0, 0.26);
     }
-    @media (prefers-color-scheme: dark) {
+    @media (prefers-color-scheme: light) {
       :root {
-        --bg: #151719;
-        --panel: #202327;
-        --ink: #f0f2f4;
-        --muted: #a3aab5;
-        --line: #343942;
+        color-scheme: light;
+        --bg: #f4f6f8;
+        --bg-top: #eef2f6;
+        --header-bg: rgba(255, 255, 255, 0.94);
+        --panel: #ffffff;
+        --panel-strong: #f8fafc;
+        --field: #ffffff;
+        --field-hover: #f8fafc;
+        --ink: #17202a;
+        --muted: #667085;
+        --line: #d8dee6;
+        --line-strong: #b8c2ce;
+        --accent-soft: rgba(13, 148, 136, 0.11);
+        --warn-soft: rgba(249, 115, 22, 0.12);
+        --ok-soft: rgba(34, 197, 94, 0.12);
+        --shadow: 0 18px 44px rgba(15, 23, 42, 0.08);
       }
     }
     * { box-sizing: border-box; }
+    html {
+      min-height: 100%;
+      background: var(--bg);
+    }
     body {
       margin: 0;
-      background: var(--bg);
+      min-height: 100%;
+      background: linear-gradient(180deg, var(--bg-top) 0, var(--bg) 320px);
       color: var(--ink);
       font-family: "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
       letter-spacing: 0;
+      font-size: 14px;
     }
     header {
       display: flex;
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      padding: 18px 24px;
+      padding: 18px 32px;
       border-bottom: 1px solid var(--line);
-      background: var(--panel);
+      background: var(--header-bg);
+      backdrop-filter: blur(16px);
       position: sticky;
       top: 0;
       z-index: 2;
@@ -57,25 +87,30 @@ internal static class ControlPanelHtml
       line-height: 1.2;
     }
     main {
-      max-width: 1180px;
+      max-width: 1420px;
       margin: 0 auto;
-      padding: 24px;
+      padding: 30px 24px 48px;
       display: grid;
       grid-template-columns: repeat(12, 1fr);
-      gap: 16px;
+      gap: 20px;
+      align-items: stretch;
     }
     section {
       grid-column: span 6;
+      display: flex;
+      flex-direction: column;
       background: var(--panel);
       border: 1px solid var(--line);
       border-radius: 8px;
-      padding: 18px;
+      padding: 22px;
+      box-shadow: var(--shadow);
     }
     section.wide { grid-column: span 12; }
     h2 {
-      margin: 0 0 14px;
-      font-size: 16px;
+      margin: 0 0 18px;
+      font-size: 17px;
       line-height: 1.3;
+      letter-spacing: 0;
     }
     label {
       display: grid;
@@ -86,66 +121,120 @@ internal static class ControlPanelHtml
     }
     input, select {
       width: 100%;
-      min-height: 38px;
+      min-height: 46px;
       border: 1px solid var(--line);
       border-radius: 6px;
-      padding: 8px 10px;
-      background: transparent;
+      padding: 10px 12px;
+      background: var(--field);
       color: var(--ink);
       font: inherit;
+      outline: none;
+      transition: border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease;
+    }
+    input:hover, select:hover {
+      background: var(--field-hover);
+      border-color: var(--line-strong);
+    }
+    input:focus, select:focus {
+      border-color: var(--focus);
+      box-shadow: 0 0 0 3px rgba(103, 232, 249, 0.16);
+    }
+    input::placeholder {
+      color: #748290;
+      opacity: 1;
+    }
+    select {
+      appearance: none;
+      padding-right: 42px;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%239aa6b2' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 14px center;
+      background-size: 16px;
+    }
+    select option {
+      background: var(--field);
+      color: var(--ink);
+    }
+    select option:checked {
+      background: var(--accent);
+      color: var(--accent-ink);
     }
     .grid {
       display: grid;
       grid-template-columns: repeat(2, minmax(0, 1fr));
-      gap: 12px;
+      gap: 14px;
     }
     .switches {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 10px;
+      margin-top: 14px;
     }
     .check {
       display: flex;
       align-items: center;
       gap: 8px;
-      min-height: 38px;
+      min-height: 46px;
       border: 1px solid var(--line);
       border-radius: 6px;
-      padding: 8px 10px;
+      padding: 10px 12px;
+      background: var(--field);
       color: var(--ink);
       margin: 0;
+      transition: border-color 120ms ease, background-color 120ms ease;
     }
-    .check input { width: 16px; min-height: 16px; }
+    .check:hover {
+      background: var(--field-hover);
+      border-color: var(--line-strong);
+    }
+    .check input {
+      width: 16px;
+      min-height: 16px;
+      accent-color: var(--accent-hover);
+    }
     .row {
       display: flex;
       gap: 10px;
       align-items: center;
       flex-wrap: wrap;
+      margin-top: 16px;
     }
     button {
-      min-height: 38px;
+      min-height: 46px;
       border: 1px solid var(--accent);
       border-radius: 6px;
-      padding: 8px 14px;
+      padding: 10px 18px;
       background: var(--accent);
       color: var(--accent-ink);
       font: inherit;
+      font-weight: 650;
       cursor: pointer;
+      transition: background-color 120ms ease, border-color 120ms ease, color 120ms ease, transform 120ms ease;
+    }
+    button:hover {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+      transform: translateY(-1px);
+    }
+    button:active {
+      transform: translateY(0);
     }
     button.secondary {
-      background: transparent;
-      color: var(--accent);
+      background: var(--accent-soft);
+      color: var(--accent-hover);
     }
+    button.secondary:hover { color: var(--accent-ink); }
     .stat {
       display: grid;
       grid-template-columns: repeat(4, minmax(0, 1fr));
-      gap: 10px;
+      gap: 12px;
     }
     .tile {
       border: 1px solid var(--line);
       border-radius: 6px;
-      padding: 10px;
-      min-height: 68px;
+      padding: 14px;
+      min-height: 86px;
+      background: var(--panel-strong);
     }
     .tile span {
       color: var(--muted);
@@ -153,15 +242,37 @@ internal static class ControlPanelHtml
     }
     .tile strong {
       display: block;
-      margin-top: 6px;
-      font-size: 18px;
+      margin-top: 10px;
+      font-size: 22px;
+      line-height: 1.1;
     }
     .status {
       color: var(--muted);
       font-size: 13px;
     }
+    header .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 4px 10px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      background: var(--field);
+    }
     .ok { color: var(--ok); }
     .warn { color: var(--warn); }
+    .tile strong.ok {
+      width: fit-content;
+      padding: 2px 10px;
+      border-radius: 999px;
+      background: var(--ok-soft);
+    }
+    .tile strong.warn {
+      width: fit-content;
+      padding: 2px 10px;
+      border-radius: 999px;
+      background: var(--warn-soft);
+    }
     @media (max-width: 760px) {
       header { align-items: flex-start; flex-direction: column; }
       main { padding: 14px; grid-template-columns: 1fr; }
@@ -222,18 +333,20 @@ internal static class ControlPanelHtml
           <option value="2">OpenAI 兼容</option>
         </select>
       </label>
-      <label>Base URL
-        <input id="baseUrl" autocomplete="off">
-      </label>
-      <label>Endpoint
-        <input id="endpoint" autocomplete="off">
-      </label>
-      <label>模型
-        <input id="model" autocomplete="off">
-      </label>
-      <label>API Key
-        <input id="apiKey" type="password" autocomplete="off" placeholder="留空不会覆盖已有密钥">
-      </label>
+      <div class="grid">
+        <label>Base URL
+          <input id="baseUrl" autocomplete="off">
+        </label>
+        <label>Endpoint
+          <input id="endpoint" autocomplete="off">
+        </label>
+        <label>模型
+          <input id="model" autocomplete="off">
+        </label>
+        <label>API Key
+          <input id="apiKey" type="password" autocomplete="off" placeholder="留空不会覆盖已有密钥">
+        </label>
+      </div>
       <div class="row">
         <button id="save">保存配置</button>
         <button id="saveKey" class="secondary">更新密钥</button>
