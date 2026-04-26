@@ -80,6 +80,30 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Ai_settings_save_and_provider_utility_persist_pending_api_key()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("async function saveConfigOnly()");
+        htmlSource.Should().Contain("async function savePendingApiKey()");
+        htmlSource.Should().Contain("const apiKey = $(\"apiKey\").value.trim();");
+        htmlSource.Should().Contain("if (!apiKey) return false;");
+        htmlSource.Should().Contain("await saveConfigOnly();");
+        htmlSource.Should().Contain("await savePendingApiKey();");
+        htmlSource.Should().Contain("showToast(\"未填写新密钥，已保留当前密钥。\", \"info\")");
+    }
+
+    [Fact]
+    public void DeepSeek_presets_use_current_official_v4_model_ids()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("1: { baseUrl: \"https://api.deepseek.com\", endpoint: \"/chat/completions\", model: \"deepseek-v4-flash\" }");
+        htmlSource.Should().Contain("[\"deepseek-v4-flash\", \"DeepSeek V4 Flash\"");
+        htmlSource.Should().Contain("[\"deepseek-v4-pro\", \"DeepSeek V4 Pro\"");
+    }
+
+    [Fact]
     public void Refresh_failure_marks_plugin_status_as_disconnected()
     {
         var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));

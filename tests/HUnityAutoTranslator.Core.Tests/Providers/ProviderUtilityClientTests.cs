@@ -22,6 +22,20 @@ public sealed class ProviderUtilityClientTests
     }
 
     [Fact]
+    public async Task FetchModelsAsync_reports_api_key_hint_for_unauthorized_response()
+    {
+        var handler = new CaptureHandler("""{"error":{"message":"Unauthorized"}}""", HttpStatusCode.Unauthorized);
+        var client = new ProviderUtilityClient(new HttpClient(handler), () => null);
+
+        var result = await client.FetchModelsAsync(ProviderProfile.DefaultDeepSeek(), CancellationToken.None);
+
+        result.Succeeded.Should().BeFalse();
+        result.Message.Should().Contain("401");
+        result.Message.Should().Contain("API Key");
+        result.Models.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task FetchBalanceAsync_parses_deepseek_balance()
     {
         var handler = new CaptureHandler("""{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"110.00","granted_balance":"10.00","topped_up_balance":"100.00"}]}""");
@@ -55,10 +69,12 @@ public sealed class ProviderUtilityClientTests
     private sealed class CaptureHandler : HttpMessageHandler
     {
         private readonly string _json;
+        private readonly HttpStatusCode _statusCode;
 
-        public CaptureHandler(string json)
+        public CaptureHandler(string json, HttpStatusCode statusCode = HttpStatusCode.OK)
         {
             _json = json;
+            _statusCode = statusCode;
         }
 
         public string RequestPath { get; private set; } = string.Empty;
@@ -68,7 +84,7 @@ public sealed class ProviderUtilityClientTests
         {
             RequestPath = request.RequestUri?.AbsolutePath ?? string.Empty;
             RequestQuery = request.RequestUri?.Query ?? string.Empty;
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            return Task.FromResult(new HttpResponseMessage(_statusCode)
             {
                 Content = new StringContent(_json, Encoding.UTF8, "application/json")
             });

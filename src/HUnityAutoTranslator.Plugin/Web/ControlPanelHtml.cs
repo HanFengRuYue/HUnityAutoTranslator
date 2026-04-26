@@ -1196,6 +1196,8 @@ internal static class ControlPanelHtml
 
     async function runProviderUtility(label, action) {
       try {
+        await saveConfigOnly();
+        await savePendingApiKey();
         await action();
       } catch (error) {
         showToast(`${label}失败：${error.message || error}`, "danger");
@@ -1386,16 +1388,32 @@ ${style}`;
       }
     }
 
-    async function saveConfig() {
+    async function saveConfigOnly() {
       applyState(await api("/api/config", { method: "POST", body: JSON.stringify(readConfig()) }));
-      showToast("配置已保存。", "ok");
+    }
+
+    async function savePendingApiKey() {
+      const apiKey = $("apiKey").value.trim();
+      if (!apiKey) return false;
+      applyState(await api("/api/key", { method: "POST", body: JSON.stringify({ ApiKey: apiKey }) }));
+      $("apiKey").value = "";
+      return true;
+    }
+
+    async function saveConfig() {
+      await saveConfigOnly();
+      const keyUpdated = await savePendingApiKey();
+      showToast(keyUpdated ? "配置和密钥已保存。" : "配置已保存。", "ok");
       promptTouched = false;
     }
 
     async function saveKey() {
-      applyState(await api("/api/key", { method: "POST", body: JSON.stringify({ ApiKey: $("apiKey").value }) }));
-      $("apiKey").value = "";
-      showToast("密钥状态已更新。", "ok");
+      if (await savePendingApiKey()) {
+        showToast("密钥状态已更新。", "ok");
+        return;
+      }
+
+      showToast("未填写新密钥，已保留当前密钥。", "info");
     }
 
     async function loadGlossaryTerms() {

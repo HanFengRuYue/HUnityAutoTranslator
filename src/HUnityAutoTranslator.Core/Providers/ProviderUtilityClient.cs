@@ -25,7 +25,7 @@ public sealed class ProviderUtilityClient
         var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            return new ProviderModelsResult(false, $"获取模型列表失败（HTTP {(int)response.StatusCode}）。", Array.Empty<ProviderModelInfo>());
+            return new ProviderModelsResult(false, BuildFailureMessage("获取模型列表失败", response.StatusCode), Array.Empty<ProviderModelInfo>());
         }
 
         var data = JObject.Parse(json)["data"] as JArray ?? new JArray();
@@ -50,7 +50,7 @@ public sealed class ProviderUtilityClient
         var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            return new ProviderBalanceResult(false, $"查询余额/成本失败（HTTP {(int)response.StatusCode}）。", Array.Empty<ProviderBalanceInfo>());
+            return new ProviderBalanceResult(false, BuildFailureMessage("查询余额/成本失败", response.StatusCode), Array.Empty<ProviderBalanceInfo>());
         }
 
         if (profile.Kind == ProviderKind.DeepSeek)
@@ -99,5 +99,13 @@ public sealed class ProviderUtilityClient
         }
 
         return request;
+    }
+
+    private static string BuildFailureMessage(string prefix, System.Net.HttpStatusCode statusCode)
+    {
+        var status = (int)statusCode;
+        return status == 401
+            ? $"{prefix}（HTTP 401）。请确认 API Key 已保存且属于当前服务商。"
+            : $"{prefix}（HTTP {status}）。";
     }
 }

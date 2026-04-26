@@ -32,4 +32,15 @@ public sealed class RuntimeConfigTests
         config.ReplacementFontFile.Should().BeNull();
         config.FontSamplingPointSize.Should().Be(90);
     }
+
+    [Fact]
+    public void DefaultDeepSeek_profile_uses_current_official_flash_model()
+    {
+        var profile = ProviderProfile.DefaultDeepSeek();
+
+        profile.Kind.Should().Be(ProviderKind.DeepSeek);
+        profile.BaseUrl.Should().Be("https://api.deepseek.com");
+        profile.Endpoint.Should().Be("/chat/completions");
+        profile.Model.Should().Be("deepseek-v4-flash");
+    }
 }
