@@ -40,4 +40,31 @@ public sealed class TranslationWritebackTrackerTests
         tracker.IsRememberedTranslation("title", "IMPORTANT").Should().BeFalse();
         tracker.IsRememberedTranslation("missing", "IMPORTANT_ZH").Should().BeFalse();
     }
+
+    [Fact]
+    public void TryGetReplacement_replaces_previous_manual_translation_with_latest_text()
+    {
+        var tracker = new TranslationWritebackTracker();
+        tracker.Remember("title", "Start Game", "开始游戏");
+
+        tracker.Remember("title", "Start Game", "开始", "开始游戏");
+
+        tracker.IsRememberedTranslation("title", "开始游戏").Should().BeFalse();
+        tracker.IsRememberedTranslation("title", "开始").Should().BeTrue();
+        tracker.TryGetReplacement("title", "开始游戏", out var replacement).Should().BeTrue();
+        replacement.Should().Be("开始");
+        tracker.TryGetReplacement("title", "Start Game", out replacement).Should().BeTrue();
+        replacement.Should().Be("开始");
+    }
+
+    [Fact]
+    public void TryGetReplacement_does_not_apply_manual_translation_to_unrelated_text()
+    {
+        var tracker = new TranslationWritebackTracker();
+        tracker.Remember("title", "Start Game", "开始", "开始游戏");
+
+        tracker.TryGetReplacement("title", "Options", out _).Should().BeFalse();
+        tracker.TryGetReplacement("title", "开始", out _).Should().BeFalse();
+        tracker.TryGetReplacement("missing", "Start Game", out _).Should().BeFalse();
+    }
 }

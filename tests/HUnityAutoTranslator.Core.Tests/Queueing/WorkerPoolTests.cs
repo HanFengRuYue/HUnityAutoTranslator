@@ -447,7 +447,6 @@ public sealed class WorkerPoolTests
 
         public IReadOnlyList<TranslationCacheEntry> GetPendingTranslations(
             string targetLanguage,
-            ProviderProfile provider,
             string promptPolicyVersion,
             int limit)
         {

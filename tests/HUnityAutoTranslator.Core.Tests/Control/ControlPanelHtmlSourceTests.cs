@@ -104,6 +104,31 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Ai_settings_keep_deepseek_thinking_selection_when_state_omits_field()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("function hasStateField(");
+        htmlSource.Should().Contain("function setKnownSelectValue(");
+        htmlSource.Should().Contain("setKnownSelectValue(\"deepSeekThinkingMode\", state.DeepSeekThinkingMode);");
+        htmlSource.Should().NotContain("$(\"deepSeekThinkingMode\").value = state.DeepSeekThinkingMode || \"enabled\";");
+    }
+
+    [Fact]
+    public void Control_panel_refresh_does_not_default_missing_config_fields()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("setStateTextValue(state, \"baseUrl\", \"BaseUrl\")");
+        htmlSource.Should().Contain("setStateNumberValues(state);");
+        htmlSource.Should().Contain("setStateCheckboxValues(state);");
+        htmlSource.Should().Contain("setKnownSelectValue(\"providerKind\", state.ProviderKind);");
+        htmlSource.Should().Contain("setKnownSelectValue(\"outputVerbosity\", state.OutputVerbosity);");
+        htmlSource.Should().NotContain("$(\"providerKind\").value = String(state.ProviderKind);");
+        htmlSource.Should().NotContain("$(id).checked = Boolean(state[id[0].toUpperCase() + id.slice(1)]);");
+    }
+
+    [Fact]
     public void Refresh_failure_marks_plugin_status_as_disconnected()
     {
         var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
@@ -176,6 +201,23 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Plugin_settings_show_automatic_font_fallbacks_as_placeholders_only()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("const defaultFontNamePlaceholder");
+        htmlSource.Should().Contain("const defaultFontFilePlaceholder");
+        htmlSource.Should().Contain("function applyAutomaticFontPlaceholders(state)");
+        htmlSource.Should().Contain("state.AutomaticReplacementFontName");
+        htmlSource.Should().Contain("state.AutomaticReplacementFontFile");
+        htmlSource.Should().Contain("applyAutomaticFontPlaceholders(state);");
+        htmlSource.Should().Contain("ReplacementFontName: $(\"replacementFontName\").value");
+        htmlSource.Should().Contain("ReplacementFontFile: $(\"replacementFontFile\").value");
+        htmlSource.Should().NotContain("ReplacementFontName: state.AutomaticReplacementFontName");
+        htmlSource.Should().NotContain("ReplacementFontFile: state.AutomaticReplacementFontFile");
+    }
+
+    [Fact]
     public void Font_replacement_service_retries_tmp_candidates_and_caches_failures()
     {
         var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
@@ -185,6 +227,10 @@ public sealed class ControlPanelHtmlSourceTests
         serviceSource.Should().Contain("EnumerateFontCandidates");
         serviceSource.Should().Contain("foreach (var candidate in EnumerateFontCandidates(config, key, context))");
         serviceSource.Should().Contain("TMP fallback font asset could not be created from any candidate");
+        serviceSource.Should().Contain("Action<string?, string?> automaticFontFallbackReporter");
+        serviceSource.Should().Contain("ReportAutomaticFontFallbacks(config);");
+        serviceSource.Should().Contain("ResolveFirstUsableAutomaticFontName");
+        serviceSource.Should().Contain("ResolveFirstUsableAutomaticFontFile");
     }
 
     [Fact]
@@ -287,6 +333,19 @@ public sealed class ControlPanelHtmlSourceTests
         htmlSource.Should().Contain("/api/translations/highlight");
         serverSource.Should().Contain("path == \"/api/translations/highlight\"");
         serverSource.Should().Contain("TranslationHighlightRequest.FromEntry");
+    }
+
+    [Fact]
+    public void Translation_editor_save_publishes_manual_writeback_for_known_targets()
+    {
+        var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+        var highlighterSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextHighlighter.cs"));
+
+        serverSource.Should().Contain("TryGetExistingTranslation(entry");
+        serverSource.Should().Contain("PublishManualWriteback(entry, previousTranslatedText)");
+        serverSource.Should().Contain("previousTranslatedText:");
+        serverSource.Should().Contain("TryResolveTargetId");
+        highlighterSource.Should().Contain("TryResolveTargetId");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)

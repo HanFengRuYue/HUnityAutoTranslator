@@ -40,6 +40,23 @@ internal sealed class UnityTextHighlighter
             return TranslationHighlightResult.UnsupportedTarget();
         }
 
+        if (!TryResolveTargetId(request, out var targetId))
+        {
+            return TranslationHighlightResult.TargetNotFound();
+        }
+
+        _pendingTargetIds.Enqueue(targetId);
+        return TranslationHighlightResult.Queued(targetId);
+    }
+
+    public bool TryResolveTargetId(TranslationHighlightRequest request, out string targetId)
+    {
+        targetId = string.Empty;
+        if (!TranslationHighlightMatcher.IsSupported(request))
+        {
+            return false;
+        }
+
         TranslationHighlightTarget? match;
         lock (_snapshotGate)
         {
@@ -48,11 +65,11 @@ internal sealed class UnityTextHighlighter
 
         if (match == null)
         {
-            return TranslationHighlightResult.TargetNotFound();
+            return false;
         }
 
-        _pendingTargetIds.Enqueue(match.TargetId);
-        return TranslationHighlightResult.Queued(match.TargetId);
+        targetId = match.TargetId;
+        return true;
     }
 
     public void Tick()

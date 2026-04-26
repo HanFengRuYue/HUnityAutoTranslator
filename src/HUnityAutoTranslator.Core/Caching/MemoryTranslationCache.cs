@@ -42,15 +42,15 @@ public sealed class MemoryTranslationCache : ITranslationCache
         context ??= TranslationCacheContext.Empty;
         _items.AddOrUpdate(
             TranslationCacheLookupKey.Create(key, context),
-            _ => ToEntry(key, translatedText: null, context, now, now),
+            _ => ToPendingEntry(key, context, now, now),
             (_, existing) => existing.TranslatedText != null
                 ? existing
                 : existing with
                 {
-                    ProviderKind = key.ProviderKind.ToString(),
-                    ProviderBaseUrl = key.ProviderBaseUrl,
-                    ProviderEndpoint = key.ProviderEndpoint,
-                    ProviderModel = key.ProviderModel,
+                    ProviderKind = string.Empty,
+                    ProviderBaseUrl = string.Empty,
+                    ProviderEndpoint = string.Empty,
+                    ProviderModel = string.Empty,
                     PromptPolicyVersion = key.PromptPolicyVersion,
                     SceneName = context.SceneName,
                     ComponentHierarchy = context.ComponentHierarchy,
@@ -83,7 +83,6 @@ public sealed class MemoryTranslationCache : ITranslationCache
 
     public IReadOnlyList<TranslationCacheEntry> GetPendingTranslations(
         string targetLanguage,
-        ProviderProfile provider,
         string promptPolicyVersion,
         int limit)
     {
@@ -92,10 +91,6 @@ public sealed class MemoryTranslationCache : ITranslationCache
             .Where(row =>
                 row.TranslatedText == null &&
                 string.Equals(row.TargetLanguage, targetLanguage, StringComparison.Ordinal) &&
-                string.Equals(row.ProviderKind, provider.Kind.ToString(), StringComparison.Ordinal) &&
-                string.Equals(row.ProviderBaseUrl, provider.BaseUrl, StringComparison.Ordinal) &&
-                string.Equals(row.ProviderEndpoint, provider.Endpoint, StringComparison.Ordinal) &&
-                string.Equals(row.ProviderModel, provider.Model, StringComparison.Ordinal) &&
                 string.Equals(row.PromptPolicyVersion, promptPolicyVersion, StringComparison.Ordinal))
             .OrderBy(row => row.CreatedUtc)
             .Take(take)
@@ -243,6 +238,29 @@ public sealed class MemoryTranslationCache : ITranslationCache
             key.ProviderModel,
             key.PromptPolicyVersion,
             translatedText,
+            TranslationCacheLookupKey.NormalizeContextPart(context.SceneName),
+            TranslationCacheLookupKey.NormalizeContextPart(context.ComponentHierarchy),
+            context.ComponentType,
+            ReplacementFont: null,
+            createdUtc,
+            updatedUtc);
+    }
+
+    private static TranslationCacheEntry ToPendingEntry(
+        TranslationCacheKey key,
+        TranslationCacheContext context,
+        DateTimeOffset createdUtc,
+        DateTimeOffset updatedUtc)
+    {
+        return new TranslationCacheEntry(
+            key.SourceText,
+            key.TargetLanguage,
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            string.Empty,
+            key.PromptPolicyVersion,
+            TranslatedText: null,
             TranslationCacheLookupKey.NormalizeContextPart(context.SceneName),
             TranslationCacheLookupKey.NormalizeContextPart(context.ComponentHierarchy),
             context.ComponentType,

@@ -46,6 +46,7 @@ internal sealed class UnityTextFontReplacementService
     private readonly ITranslationCache _cache;
     private readonly ManualLogSource _logger;
     private readonly Func<RuntimeConfig> _configProvider;
+    private readonly Action<string?, string?> _automaticFontFallbackReporter;
     private readonly Dictionary<string, Font> _unityFonts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, object> _tmpFontAssets = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, string> _failedTmpFontAssetKeys = new(StringComparer.OrdinalIgnoreCase);
@@ -57,16 +58,19 @@ internal sealed class UnityTextFontReplacementService
     public UnityTextFontReplacementService(
         ITranslationCache cache,
         ManualLogSource logger,
-        Func<RuntimeConfig> configProvider)
+        Func<RuntimeConfig> configProvider,
+        Action<string?, string?> automaticFontFallbackReporter)
     {
         _cache = cache;
         _logger = logger;
         _configProvider = configProvider;
+        _automaticFontFallbackReporter = automaticFontFallbackReporter;
     }
 
     public void InstallStartupFallbacks()
     {
         var config = _configProvider();
+        ReportAutomaticFontFallbacks(config);
         if (!config.EnableFontReplacement || !config.ReplaceTmpFonts)
         {
             return;
@@ -82,6 +86,7 @@ internal sealed class UnityTextFontReplacementService
     public void ApplyToUgui(UnityEngine.Object component, TranslationCacheKey key, TranslationCacheContext context)
     {
         var config = _configProvider();
+        ReportAutomaticFontFallbacks(config);
         if (!config.EnableFontReplacement || !config.ReplaceUguiFonts)
         {
             return;
@@ -99,6 +104,7 @@ internal sealed class UnityTextFontReplacementService
     public void ApplyToTmp(UnityEngine.Object component, TranslationCacheKey key, TranslationCacheContext context)
     {
         var config = _configProvider();
+        ReportAutomaticFontFallbacks(config);
         if (!config.EnableFontReplacement || !config.ReplaceTmpFonts)
         {
             return;
@@ -123,6 +129,7 @@ internal sealed class UnityTextFontReplacementService
     public void ApplyToImgui(TranslationCacheKey key, TranslationCacheContext context)
     {
         var config = _configProvider();
+        ReportAutomaticFontFallbacks(config);
         if (!config.EnableFontReplacement || !config.ReplaceImguiFonts)
         {
             return;
@@ -135,6 +142,55 @@ internal sealed class UnityTextFontReplacementService
         }
 
         GUI.skin.font = resolved.Font;
+    }
+
+    private void ReportAutomaticFontFallbacks(RuntimeConfig config)
+    {
+        if (!config.EnableFontReplacement ||
+            !config.AutoUseCjkFallbackFonts ||
+            !string.IsNullOrWhiteSpace(config.ReplacementFontName) ||
+            !string.IsNullOrWhiteSpace(config.ReplacementFontFile))
+        {
+            _automaticFontFallbackReporter(null, null);
+            return;
+        }
+
+        _automaticFontFallbackReporter(
+            ResolveFirstUsableAutomaticFontName(config.FontSamplingPointSize),
+            ResolveFirstUsableAutomaticFontFile(config.FontSamplingPointSize));
+    }
+
+    private string? ResolveFirstUsableAutomaticFontName(int size)
+    {
+        foreach (var fontName in CandidateFontNames)
+        {
+            var candidate = FontCandidate.Create("auto-name", fontName, warnOnUnityFailure: false);
+            if (candidate != null && ResolveExplicitFont(candidate, size) != null)
+            {
+                return fontName;
+            }
+        }
+
+        return null;
+    }
+
+    private string? ResolveFirstUsableAutomaticFontFile(int size)
+    {
+        foreach (var fontFile in CandidateFontFiles)
+        {
+            if (!File.Exists(fontFile))
+            {
+                continue;
+            }
+
+            var candidate = FontCandidate.Create("auto-file", fontFile, warnOnUnityFailure: false);
+            if (candidate != null && ResolveExplicitFont(candidate, size) != null)
+            {
+                return fontFile;
+            }
+        }
+
+        return null;
     }
 
     private ResolvedFont? ResolveFont(RuntimeConfig config, TranslationCacheKey? key, TranslationCacheContext? context)

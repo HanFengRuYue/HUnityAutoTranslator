@@ -82,7 +82,11 @@ internal sealed class UnityMainThreadResultApplier
                 continue;
             }
 
-            _writebacks.Remember(result.TargetId, result.SourceText, result.TranslatedText);
+            _writebacks.Remember(
+                result.TargetId,
+                result.SourceText,
+                result.TranslatedText,
+                result.PreviousTranslatedText);
             if (TryApplyRemembered(target))
             {
                 applied++;

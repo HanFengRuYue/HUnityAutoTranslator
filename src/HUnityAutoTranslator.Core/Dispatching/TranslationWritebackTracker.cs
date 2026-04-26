@@ -4,7 +4,7 @@ public sealed class TranslationWritebackTracker
 {
     private readonly Dictionary<string, RememberedTranslation> _remembered = new(StringComparer.Ordinal);
 
-    public void Remember(string targetId, string sourceText, string translatedText)
+    public void Remember(string targetId, string sourceText, string translatedText, string? previousTranslatedText = null)
     {
         if (string.IsNullOrEmpty(targetId)
             || string.IsNullOrEmpty(sourceText)
@@ -13,7 +13,10 @@ public sealed class TranslationWritebackTracker
             return;
         }
 
-        _remembered[targetId] = new RememberedTranslation(sourceText, translatedText);
+        _remembered[targetId] = new RememberedTranslation(
+            sourceText,
+            translatedText,
+            string.IsNullOrEmpty(previousTranslatedText) ? null : previousTranslatedText);
     }
 
     public void Forget(string targetId)
@@ -42,7 +45,8 @@ public sealed class TranslationWritebackTracker
             return false;
         }
 
-        if (string.Equals(currentText, remembered.SourceText, StringComparison.Ordinal))
+        if (string.Equals(currentText, remembered.SourceText, StringComparison.Ordinal) ||
+            string.Equals(currentText, remembered.PreviousTranslatedText, StringComparison.Ordinal))
         {
             replacement = remembered.TranslatedText;
             return true;
@@ -53,5 +57,8 @@ public sealed class TranslationWritebackTracker
         return false;
     }
 
-    private sealed record RememberedTranslation(string SourceText, string TranslatedText);
+    private sealed record RememberedTranslation(
+        string SourceText,
+        string TranslatedText,
+        string? PreviousTranslatedText);
 }

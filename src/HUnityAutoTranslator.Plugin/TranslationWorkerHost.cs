@@ -142,7 +142,6 @@ internal sealed class TranslationWorkerHost : IDisposable
         _nextPendingResumeUtc = now + PendingResumeInterval;
         var pending = _cache.GetPendingTranslations(
             config.TargetLanguage,
-            config.Provider,
             TextPipeline.PromptPolicyVersion,
             PendingResumeBatchSize);
 
@@ -154,7 +153,8 @@ internal sealed class TranslationWorkerHost : IDisposable
                 row.SourceText,
                 TranslationPriority.Normal,
                 new TranslationCacheContext(row.SceneName, row.ComponentHierarchy, row.ComponentType),
-                publishResult: false)))
+                publishResult: false,
+                targetLanguage: row.TargetLanguage)))
             {
                 enqueued++;
             }

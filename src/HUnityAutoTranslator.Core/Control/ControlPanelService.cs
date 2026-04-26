@@ -11,6 +11,8 @@ public sealed class ControlPanelService
     private string? _apiKey;
     private bool _apiKeyConfigured;
     private string? _lastError;
+    private string? _automaticReplacementFontName;
+    private string? _automaticReplacementFontFile;
     private ProviderStatus _providerStatus = new("unchecked", "尚未检测", null);
 
     private ControlPanelService(RuntimeConfig config, IControlPanelSettingsStore? settingsStore, ControlPanelMetrics metrics)
@@ -101,6 +103,8 @@ public sealed class ControlPanelService
                 _config.AutoUseCjkFallbackFonts,
                 _config.ReplacementFontName,
                 _config.ReplacementFontFile,
+                _automaticReplacementFontName,
+                _automaticReplacementFontFile,
                 _config.FontSamplingPointSize,
                 _lastError);
         }
@@ -153,6 +157,15 @@ public sealed class ControlPanelService
         lock (_gate)
         {
             _providerStatus = providerStatus;
+        }
+    }
+
+    public void SetAutomaticFontFallbacks(string? name, string? file)
+    {
+        lock (_gate)
+        {
+            _automaticReplacementFontName = SelectOptionalText(name, fallback: null);
+            _automaticReplacementFontFile = SelectOptionalText(file, fallback: null);
         }
     }
 
@@ -247,9 +260,11 @@ public sealed class ControlPanelService
         var fontSamplingPointSize = request.FontSamplingPointSize.HasValue
             ? Clamp(request.FontSamplingPointSize.Value, 16, 180)
             : _config.FontSamplingPointSize;
-        var temperature = request.Temperature.HasValue
-            ? Clamp(request.Temperature.Value, 0.0, 2.0)
-            : _config.Temperature;
+        var temperature = request.ClearTemperature == true
+            ? null
+            : request.Temperature.HasValue
+                ? Clamp(request.Temperature.Value, 0.0, 2.0)
+                : _config.Temperature;
         var customInstruction = request.CustomInstruction == null
             ? _config.CustomInstruction
             : (string.IsNullOrWhiteSpace(request.CustomInstruction) ? null : request.CustomInstruction.Trim());

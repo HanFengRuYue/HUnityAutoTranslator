@@ -888,6 +888,7 @@ internal static class ControlPanelHtml
             </label>
             <label class="provider-option" data-providers="0"><span>OpenAI 推理强度</span>
               <select id="reasoningEffort">
+                <option value="none">none</option>
                 <option value="low">low</option>
                 <option value="medium">medium</option>
                 <option value="high">high</option>
@@ -1086,6 +1087,8 @@ internal static class ControlPanelHtml
       1: [["deepseek-v4-flash", "DeepSeek V4 Flash"], ["deepseek-v4-pro", "DeepSeek V4 Pro"], ["deepseek-chat", "DeepSeek Chat"], ["deepseek-reasoner", "DeepSeek Reasoner"], ["custom", "手动填写"]],
       2: [["local-model", "本地/兼容模型"], ["custom", "手动填写"]]
     };
+    const defaultFontNamePlaceholder = "\u7559\u7a7a\u81ea\u52a8\u9009\u62e9\uff0c\u5982 Microsoft YaHei / Noto Sans SC";
+    const defaultFontFilePlaceholder = "\u7559\u7a7a\u81ea\u52a8\u9009\u62e9\uff0c\u5982 C:\\Windows\\Fonts\\msyh.ttc";
     const textFields = ["targetLanguage", "baseUrl", "endpoint", "model", "replacementFontName", "replacementFontFile"];
     const numberFields = [
       "maxConcurrentRequests", "requestsPerMinute", "maxBatchCharacters",
@@ -1231,6 +1234,7 @@ internal static class ControlPanelHtml
     }
 
     function readConfig() {
+      const temperatureText = $("temperature").value.trim();
       return {
         TargetLanguage: $("targetLanguage").value,
         Style: Number($("style").value),
@@ -1248,7 +1252,8 @@ internal static class ControlPanelHtml
         ReasoningEffort: activeReasoningEffort(),
         OutputVerbosity: $("outputVerbosity").value,
         DeepSeekThinkingMode: $("deepSeekThinkingMode").value,
-        Temperature: numberValue("temperature"),
+        Temperature: temperatureText === "" ? null : Number(temperatureText),
+        ClearTemperature: isControlVisible("temperature") && temperatureText === "",
         CustomPrompt: $("customPrompt").value,
         MaxSourceTextLength: numberValue("maxSourceTextLength"),
         TranslationContextMaxExamples: numberValue("translationContextMaxExamples"),
@@ -1283,6 +1288,11 @@ internal static class ControlPanelHtml
       return $("providerKind").value === "1" ? $("deepSeekReasoningEffort").value : $("reasoningEffort").value;
     }
 
+    function isControlVisible(id) {
+      const option = $(id).closest(".provider-option");
+      return !option || !option.hidden;
+    }
+
     function markPanelDisconnected(error) {
       const message = error && error.message ? error.message : String(error || "未知错误");
       $("status").textContent = "连接失败：" + message;
@@ -1290,6 +1300,46 @@ internal static class ControlPanelHtml
       setText("enabledText", "连接中断");
       $("enabledText").className = "danger-text";
       setText("lastError", "与插件丢失连接：" + message);
+    }
+
+    function applyAutomaticFontPlaceholders(state) {
+      const replacementFontName = $("replacementFontName");
+      const replacementFontFile = $("replacementFontFile");
+      if (!replacementFontName || !replacementFontFile) return;
+
+      const hasCustomFont = Boolean((state.ReplacementFontName || "").trim() || (state.ReplacementFontFile || "").trim());
+      const canUseAutomatic = !hasCustomFont && Boolean(state.EnableFontReplacement) && Boolean(state.AutoUseCjkFallbackFonts);
+      const automaticName = canUseAutomatic ? (state.AutomaticReplacementFontName || "").trim() : "";
+      const automaticFile = canUseAutomatic ? (state.AutomaticReplacementFontFile || "").trim() : "";
+      replacementFontName.placeholder = automaticName ? `自动使用：${automaticName}` : defaultFontNamePlaceholder;
+      replacementFontFile.placeholder = automaticFile ? `自动使用：${automaticFile}` : defaultFontFilePlaceholder;
+    }
+
+    function hasStateField(state, key) {
+      return Object.prototype.hasOwnProperty.call(state, key);
+    }
+
+    function stateKeyFromInputId(id) {
+      return id[0].toUpperCase() + id.slice(1);
+    }
+
+    function setStateTextValue(state, id, key) {
+      if (!hasStateField(state, key) || !$(id)) return;
+      $(id).value = state[key] || "";
+    }
+
+    function setStateNumberValues(state) {
+      for (const id of numberFields) {
+        const key = stateKeyFromInputId(id);
+        if ($(id) && hasStateField(state, key)) $(id).value = state[key] ?? "";
+      }
+    }
+
+    function setStateCheckboxValues(state) {
+      for (const id of checks) {
+        const key = stateKeyFromInputId(id);
+        if ($(id) && hasStateField(state, key)) $(id).checked = Boolean(state[key]);
+      }
     }
 
     function applyState(state) {
@@ -1314,27 +1364,28 @@ internal static class ControlPanelHtml
       renderRecentTranslations(state.RecentTranslations || []);
       if (isEditing()) return;
 
-      setSelectValue("targetLanguage", state.TargetLanguage || "zh-Hans", state.TargetLanguage || "zh-Hans");
-      if (!$("glossaryTargetLanguage").value) $("glossaryTargetLanguage").value = state.TargetLanguage || "zh-Hans";
-      $("style").value = String(state.Style || 0);
-      $("providerKind").value = String(state.ProviderKind);
-      $("baseUrl").value = state.BaseUrl || "";
-      $("endpoint").value = state.Endpoint || "";
-      $("model").value = state.Model || "";
-      $("replacementFontName").value = state.ReplacementFontName || "";
-      $("replacementFontFile").value = state.ReplacementFontFile || "";
-      for (const id of numberFields) {
-        if ($(id)) $(id).value = state[id[0].toUpperCase() + id.slice(1)] ?? "";
+      if (hasStateField(state, "TargetLanguage")) {
+        setSelectValue("targetLanguage", state.TargetLanguage || "zh-Hans", state.TargetLanguage || "zh-Hans");
+        if (!$("glossaryTargetLanguage").value) $("glossaryTargetLanguage").value = state.TargetLanguage || "zh-Hans";
       }
-      $("reasoningEffort").value = normalizeOpenAiEffort(state.ReasoningEffort || "low");
-      $("deepSeekReasoningEffort").value = normalizeDeepSeekEffort(state.ReasoningEffort || "high");
-      $("outputVerbosity").value = state.OutputVerbosity || "low";
-      $("deepSeekThinkingMode").value = state.DeepSeekThinkingMode || "enabled";
-      for (const id of checks) {
-        if ($(id)) $(id).checked = Boolean(state[id[0].toUpperCase() + id.slice(1)]);
+      setKnownSelectValue("style", state.Style);
+      setKnownSelectValue("providerKind", state.ProviderKind);
+      setStateTextValue(state, "baseUrl", "BaseUrl");
+      setStateTextValue(state, "endpoint", "Endpoint");
+      setStateTextValue(state, "model", "Model");
+      setStateTextValue(state, "replacementFontName", "ReplacementFontName");
+      setStateTextValue(state, "replacementFontFile", "ReplacementFontFile");
+      applyAutomaticFontPlaceholders(state);
+      setStateNumberValues(state);
+      if (hasStateField(state, "ReasoningEffort")) {
+        setKnownSelectValue("reasoningEffort", state.ReasoningEffort);
+        setKnownSelectValue("deepSeekReasoningEffort", normalizeDeepSeekEffort(state.ReasoningEffort));
       }
+      setKnownSelectValue("outputVerbosity", state.OutputVerbosity);
+      setKnownSelectValue("deepSeekThinkingMode", state.DeepSeekThinkingMode);
+      setStateCheckboxValues(state);
       updateProviderUi(false);
-      if (!promptTouched) {
+      if (!promptTouched && hasStateField(state, "CustomPrompt")) {
         $("customPrompt").value = state.CustomPrompt || buildDefaultPrompt();
       }
     }
@@ -1347,12 +1398,23 @@ internal static class ControlPanelHtml
       select.value = value;
     }
 
+    function setKnownSelectValue(id, value) {
+      const select = $(id);
+      const normalized = value === null || value === undefined ? "" : String(value).trim();
+      if (!normalized) return;
+      const match = Array.from(select.options).find(option => option.value.toLowerCase() === normalized.toLowerCase());
+      if (match) select.value = match.value;
+    }
+
     function normalizeOpenAiEffort(value) {
-      return ["low", "medium", "high", "xhigh"].includes(value) ? value : "low";
+      return ["none", "low", "medium", "high", "xhigh"].includes(value) ? value : "low";
     }
 
     function normalizeDeepSeekEffort(value) {
-      return value === "max" || value === "xhigh" ? "max" : "high";
+      const normalized = value === null || value === undefined ? "" : String(value).trim().toLowerCase();
+      if (normalized === "max" || normalized === "xhigh") return "max";
+      if (["low", "medium", "high"].includes(normalized)) return "high";
+      return "";
     }
 
     function buildDefaultPrompt() {
