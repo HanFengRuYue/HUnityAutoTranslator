@@ -4,6 +4,7 @@ using HarmonyLib;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Pipeline;
+using UnityEngine.SceneManagement;
 
 namespace HUnityAutoTranslator.Plugin.Capture;
 
@@ -46,6 +47,7 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
             PatchStringTextMethods(typeof(UnityEngine.GUI));
             PatchStringTextMethods(typeof(UnityEngine.GUILayout));
             _enabled = true;
+            _logger.LogInfo("IMGUI capture enabled.");
         }
         catch (Exception ex)
         {
@@ -116,8 +118,21 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
             return translated;
         }
 
-        _pipeline.Process(new CapturedText("imgui:" + key.Value, text, isVisible: true));
+        var context = new TranslationCacheContext(GetActiveSceneName(), ComponentHierarchy: null, ComponentType: "IMGUI");
+        _pipeline.Process(new CapturedText("imgui:" + key.SourceText, text, isVisible: true, context));
         return text;
+    }
+
+    private static string? GetActiveSceneName()
+    {
+        try
+        {
+            return SceneManager.GetActiveScene().name;
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private void WarnOnce(string message)

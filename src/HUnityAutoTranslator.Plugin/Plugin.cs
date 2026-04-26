@@ -17,24 +17,32 @@ public sealed class Plugin : BaseUnityPlugin
     private ControlPanelService? _controlPanel;
     private LocalHttpServer? _httpServer;
     private TranslationWorkerHost? _workerHost;
-    private MemoryTranslationCache? _cache;
+    private ITranslationCache? _cache;
     private TranslationJobQueue? _queue;
     private ResultDispatcher? _dispatcher;
     private UnityMainThreadResultApplier? _resultApplier;
     private TextCaptureCoordinator? _captureCoordinator;
+    private ControlPanelMetrics? _metrics;
     private float _nextScanTime;
+    private float _nextSkippedWritebackLogTime;
+    private bool _openedControlPanel;
 
     private void Awake()
     {
         try
         {
-            _controlPanel = ControlPanelService.CreateDefault();
+            var dataDirectory = Path.Combine(Paths.ConfigPath, MyPluginInfo.PLUGIN_NAME);
+            var settingsPath = Path.Combine(dataDirectory, "settings.json");
+            var cachePath = Path.Combine(dataDirectory, "translation-cache.sqlite");
+            _metrics = new ControlPanelMetrics();
+            _controlPanel = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(settingsPath), _metrics);
             var config = _controlPanel.GetConfig();
-            _cache = new MemoryTranslationCache();
+            _cache = new SqliteTranslationCache(cachePath);
             _queue = new TranslationJobQueue();
             _dispatcher = new ResultDispatcher();
             _resultApplier = new UnityMainThreadResultApplier();
-            var pipeline = new TextPipeline(_cache, _queue, _controlPanel.GetConfig);
+            TmpFallbackFontInstaller.TryInstall(Logger);
+            var pipeline = new TextPipeline(_cache, _queue, _controlPanel.GetConfig, _metrics);
             _captureCoordinator = new TextCaptureCoordinator(new ITextCaptureModule[]
             {
                 new UguiTextScanner(pipeline, _resultApplier, Logger, _controlPanel.GetConfig),
@@ -42,15 +50,19 @@ public sealed class Plugin : BaseUnityPlugin
                 new ImguiHookInstaller(pipeline, _cache, Logger, _controlPanel.GetConfig)
             });
             _captureCoordinator.Start();
-            _workerHost = new TranslationWorkerHost(_controlPanel, _queue, _dispatcher, _cache, Logger);
+            _workerHost = new TranslationWorkerHost(_controlPanel, _queue, _dispatcher, _cache, _metrics, Logger);
             _workerHost.Start();
             _httpServer = new LocalHttpServer(
                 _controlPanel,
-                () => _queue.PendingCount,
-                () => _cache.Count,
+                _cache,
+                _queue,
+                _dispatcher,
                 Logger);
             _httpServer.Start(config.HttpHost, config.HttpPort);
             Logger.LogInfo($"{MyPluginInfo.PLUGIN_NAME} loaded. Control panel: {_httpServer.Url}");
+            OpenControlPanelIfConfigured();
+            Logger.LogInfo($"Persistent settings: {settingsPath}");
+            Logger.LogInfo($"Translation cache: {cachePath} ({_cache.Count} entries)");
         }
         catch (Exception ex)
         {
@@ -58,11 +70,29 @@ public sealed class Plugin : BaseUnityPlugin
         }
     }
 
+    private void OpenControlPanelIfConfigured()
+    {
+        if (_openedControlPanel || _controlPanel == null || _httpServer == null)
+        {
+            return;
+        }
+
+        if (!_controlPanel.GetConfig().AutoOpenControlPanel)
+        {
+            Logger.LogInfo("Control panel auto-open is disabled by settings.");
+            return;
+        }
+
+        _openedControlPanel = true;
+        SystemBrowserLauncher.TryOpen(_httpServer.Url, Logger);
+    }
+
     private void OnDestroy()
     {
         _captureCoordinator?.Dispose();
         _workerHost?.Dispose();
         _httpServer?.Dispose();
+        (_cache as IDisposable)?.Dispose();
     }
 
     private void Update()
@@ -73,16 +103,35 @@ public sealed class Plugin : BaseUnityPlugin
         }
 
         var config = _controlPanel.GetConfig();
-        if (_dispatcher != null && _resultApplier != null)
-        {
-            var results = _dispatcher.Drain(config.MaxWritebacksPerFrame);
-            _resultApplier.Apply(results);
-        }
-
         if (_captureCoordinator != null && Time.unscaledTime >= _nextScanTime)
         {
             _captureCoordinator.Tick();
             _nextScanTime = Time.unscaledTime + (float)config.ScanInterval.TotalSeconds;
+        }
+    }
+
+    private void LateUpdate()
+    {
+        if (_controlPanel == null)
+        {
+            return;
+        }
+
+        var config = _controlPanel.GetConfig();
+        if (_dispatcher != null && _resultApplier != null)
+        {
+            var results = _dispatcher.Drain(config.MaxWritebacksPerFrame);
+            var applied = _resultApplier.Apply(results);
+            _resultApplier.ReapplyRemembered(config.MaxWritebacksPerFrame);
+            if (applied > 0)
+            {
+                Logger.LogInfo($"Applied {applied} translated text result(s).");
+            }
+            else if (results.Count > 0 && Time.unscaledTime >= _nextSkippedWritebackLogTime)
+            {
+                Logger.LogWarning($"Skipped {results.Count} translated text result(s) because targets were gone or changed before writeback.");
+                _nextSkippedWritebackLogTime = Time.unscaledTime + 5f;
+            }
         }
     }
 }

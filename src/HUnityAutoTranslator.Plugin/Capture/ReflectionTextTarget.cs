@@ -36,6 +36,40 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
         }
     }
 
+    public string? SceneName
+    {
+        get
+        {
+            try
+            {
+                var component = _component as Component;
+                return component?.gameObject.scene.name;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
+    public string? HierarchyPath
+    {
+        get
+        {
+            try
+            {
+                var component = _component as Component;
+                return component == null ? null : BuildHierarchyPath(component.transform);
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
+    public string ComponentType => _component.GetType().FullName ?? _component.GetType().Name;
+
     public string? GetText()
     {
         try
@@ -51,5 +85,16 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
     public void SetText(string value)
     {
         _textProperty.SetValue(_component, value, null);
+    }
+
+    private static string BuildHierarchyPath(Transform transform)
+    {
+        var names = new Stack<string>();
+        for (var current = transform; current != null; current = current.parent)
+        {
+            names.Push(current.name);
+        }
+
+        return string.Join("/", names);
     }
 }

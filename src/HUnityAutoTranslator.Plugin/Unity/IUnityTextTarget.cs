@@ -8,6 +8,12 @@ internal interface IUnityTextTarget
 
     bool IsVisible { get; }
 
+    string? SceneName { get; }
+
+    string? HierarchyPath { get; }
+
+    string ComponentType { get; }
+
     string? GetText();
 
     void SetText(string value);

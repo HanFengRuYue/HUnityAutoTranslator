@@ -1,5 +1,6 @@
 using System.Reflection;
 using BepInEx.Logging;
+using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Plugin.Unity;
@@ -58,7 +59,10 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         if (!_enabled)
         {
             _logger.LogInfo("TextMeshPro type not found; TMP capture disabled.");
+            return;
         }
+
+        _logger.LogInfo($"TMP capture enabled with type {_textType!.FullName}.");
     }
 
     public void Tick()
@@ -98,10 +102,16 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         }
 
         _applier.Register(target);
-        var decision = _pipeline.Process(new CapturedText(target.Id, text, target.IsVisible));
+        if (_applier.IsRememberedTranslation(target.Id, text))
+        {
+            return;
+        }
+
+        var context = new TranslationCacheContext(target.SceneName, target.HierarchyPath, target.ComponentType);
+        var decision = _pipeline.Process(new CapturedText(target.Id, text, target.IsVisible, context));
         if (decision.Kind == PipelineDecisionKind.UseCachedTranslation && decision.TranslatedText != null)
         {
-            target.SetText(decision.TranslatedText);
+            _applier.RememberAndApply(target, text, decision.TranslatedText);
         }
     }
 
