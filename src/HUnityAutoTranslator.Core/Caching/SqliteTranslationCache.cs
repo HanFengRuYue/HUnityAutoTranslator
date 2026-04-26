@@ -8,7 +8,7 @@ namespace HUnityAutoTranslator.Core.Caching;
 
 public sealed class SqliteTranslationCache : ITranslationCache, IDisposable
 {
-    private const int SchemaVersion = 4;
+    private const int SchemaVersion = 5;
     private static int s_sqliteInitialized;
     private static readonly Dictionary<string, string> SortColumns = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -147,10 +147,10 @@ INSERT INTO translations (
 VALUES (
     $source_text,
     $target_language,
-    $provider_kind,
-    $provider_base_url,
-    $provider_endpoint,
-    $provider_model,
+    NULL,
+    NULL,
+    NULL,
+    NULL,
     $prompt_policy_version,
     NULL,
     $scene_name,
@@ -165,17 +165,17 @@ ON CONFLICT(
     scene_name,
     component_hierarchy)
 DO UPDATE SET
-    provider_kind = CASE WHEN translations.translated_text IS NULL THEN excluded.provider_kind ELSE translations.provider_kind END,
-    provider_base_url = CASE WHEN translations.translated_text IS NULL THEN excluded.provider_base_url ELSE translations.provider_base_url END,
-    provider_endpoint = CASE WHEN translations.translated_text IS NULL THEN excluded.provider_endpoint ELSE translations.provider_endpoint END,
-    provider_model = CASE WHEN translations.translated_text IS NULL THEN excluded.provider_model ELSE translations.provider_model END,
+    provider_kind = CASE WHEN translations.translated_text IS NULL THEN NULL ELSE translations.provider_kind END,
+    provider_base_url = CASE WHEN translations.translated_text IS NULL THEN NULL ELSE translations.provider_base_url END,
+    provider_endpoint = CASE WHEN translations.translated_text IS NULL THEN NULL ELSE translations.provider_endpoint END,
+    provider_model = CASE WHEN translations.translated_text IS NULL THEN NULL ELSE translations.provider_model END,
     prompt_policy_version = CASE WHEN translations.translated_text IS NULL THEN excluded.prompt_policy_version ELSE translations.prompt_policy_version END,
     scene_name = CASE WHEN translations.translated_text IS NULL THEN excluded.scene_name ELSE translations.scene_name END,
     component_hierarchy = CASE WHEN translations.translated_text IS NULL THEN excluded.component_hierarchy ELSE translations.component_hierarchy END,
     component_type = CASE WHEN translations.translated_text IS NULL THEN excluded.component_type ELSE translations.component_type END,
     updated_utc = CASE WHEN translations.translated_text IS NULL THEN excluded.updated_utc ELSE translations.updated_utc END;
 """;
-        AddKeyParameters(command, key);
+        AddPendingParameters(command, key);
         command.Parameters.AddWithValue("$scene_name", TranslationCacheLookupKey.NormalizeContextPart(context.SceneName));
         command.Parameters.AddWithValue("$component_hierarchy", TranslationCacheLookupKey.NormalizeContextPart(context.ComponentHierarchy));
         command.Parameters.AddWithValue("$component_type", ToDbValue(context.ComponentType));
@@ -249,7 +249,6 @@ DO UPDATE SET
 
     public IReadOnlyList<TranslationCacheEntry> GetPendingTranslations(
         string targetLanguage,
-        ProviderProfile provider,
         string promptPolicyVersion,
         int limit)
     {
@@ -274,19 +273,11 @@ SELECT source_text,
 FROM translations
 WHERE translated_text IS NULL
   AND target_language = $target_language
-  AND provider_kind = $provider_kind
-  AND provider_base_url = $provider_base_url
-  AND provider_endpoint = $provider_endpoint
-  AND provider_model = $provider_model
   AND prompt_policy_version = $prompt_policy_version
 ORDER BY created_utc ASC
 LIMIT $limit;
 """;
         command.Parameters.AddWithValue("$target_language", targetLanguage);
-        command.Parameters.AddWithValue("$provider_kind", provider.Kind.ToString());
-        command.Parameters.AddWithValue("$provider_base_url", provider.BaseUrl);
-        command.Parameters.AddWithValue("$provider_endpoint", provider.Endpoint);
-        command.Parameters.AddWithValue("$provider_model", provider.Model);
         command.Parameters.AddWithValue("$prompt_policy_version", promptPolicyVersion);
         command.Parameters.AddWithValue("$limit", take);
 
@@ -629,6 +620,12 @@ WHERE source_text = $source_text
             return;
         }
 
+        if (CanMigrateProviderMetadataNullability(connection, columns))
+        {
+            MigrateProviderMetadataNullability(connection);
+            return;
+        }
+
         ResetSchema(connection);
     }
 
@@ -674,16 +671,82 @@ COMMIT;
         CreateCurrentSchema(connection);
     }
 
+    private static void MigrateProviderMetadataNullability(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+BEGIN IMMEDIATE;
+ALTER TABLE translations RENAME TO translations_old;
+CREATE TABLE translations (
+    source_text TEXT NOT NULL,
+    target_language TEXT NOT NULL,
+    provider_kind TEXT NULL,
+    provider_base_url TEXT NULL,
+    provider_endpoint TEXT NULL,
+    provider_model TEXT NULL,
+    prompt_policy_version TEXT NOT NULL,
+    translated_text TEXT NULL,
+    scene_name TEXT NOT NULL,
+    component_hierarchy TEXT NOT NULL,
+    component_type TEXT NULL,
+    replacement_font TEXT NULL,
+    created_utc TEXT NOT NULL,
+    updated_utc TEXT NOT NULL,
+    PRIMARY KEY (
+        source_text,
+        target_language,
+        scene_name,
+        component_hierarchy)
+);
+INSERT INTO translations (
+    source_text,
+    target_language,
+    provider_kind,
+    provider_base_url,
+    provider_endpoint,
+    provider_model,
+    prompt_policy_version,
+    translated_text,
+    scene_name,
+    component_hierarchy,
+    component_type,
+    replacement_font,
+    created_utc,
+    updated_utc)
+SELECT
+    source_text,
+    target_language,
+    CASE WHEN translated_text IS NULL THEN NULL ELSE provider_kind END,
+    CASE WHEN translated_text IS NULL THEN NULL ELSE provider_base_url END,
+    CASE WHEN translated_text IS NULL THEN NULL ELSE provider_endpoint END,
+    CASE WHEN translated_text IS NULL THEN NULL ELSE provider_model END,
+    prompt_policy_version,
+    translated_text,
+    scene_name,
+    component_hierarchy,
+    component_type,
+    replacement_font,
+    created_utc,
+    updated_utc
+FROM translations_old;
+DROP TABLE translations_old;
+CREATE INDEX IF NOT EXISTS ix_translations_updated_utc ON translations (updated_utc);
+PRAGMA user_version={SchemaVersion};
+COMMIT;
+""";
+        command.ExecuteNonQuery();
+    }
+
     private static string CreateCurrentSchemaSql()
     {
         return $"""
 CREATE TABLE IF NOT EXISTS translations (
     source_text TEXT NOT NULL,
     target_language TEXT NOT NULL,
-    provider_kind TEXT NOT NULL,
-    provider_base_url TEXT NOT NULL,
-    provider_endpoint TEXT NOT NULL,
-    provider_model TEXT NOT NULL,
+    provider_kind TEXT NULL,
+    provider_base_url TEXT NULL,
+    provider_endpoint TEXT NULL,
+    provider_model TEXT NULL,
     prompt_policy_version TEXT NOT NULL,
     translated_text TEXT NULL,
     scene_name TEXT NOT NULL,
@@ -736,6 +799,32 @@ PRAGMA user_version={SchemaVersion};
 
     private static bool IsCurrentSchema(SqliteConnection connection, HashSet<string> columns)
     {
+        return HasCurrentContextSchemaColumns(columns)
+            && !IsColumnNotNull(connection, "translated_text")
+            && !IsColumnNotNull(connection, "provider_kind")
+            && !IsColumnNotNull(connection, "provider_base_url")
+            && !IsColumnNotNull(connection, "provider_endpoint")
+            && !IsColumnNotNull(connection, "provider_model")
+            && IsColumnNotNull(connection, "scene_name")
+            && IsColumnNotNull(connection, "component_hierarchy")
+            && IsCurrentPrimaryKey(connection);
+    }
+
+    private static bool CanMigrateProviderMetadataNullability(SqliteConnection connection, HashSet<string> columns)
+    {
+        return HasCurrentContextSchemaColumns(columns)
+            && !IsColumnNotNull(connection, "translated_text")
+            && IsColumnNotNull(connection, "scene_name")
+            && IsColumnNotNull(connection, "component_hierarchy")
+            && IsCurrentPrimaryKey(connection)
+            && (IsColumnNotNull(connection, "provider_kind")
+                || IsColumnNotNull(connection, "provider_base_url")
+                || IsColumnNotNull(connection, "provider_endpoint")
+                || IsColumnNotNull(connection, "provider_model"));
+    }
+
+    private static bool HasCurrentContextSchemaColumns(HashSet<string> columns)
+    {
         return columns.Contains("source_text")
             && columns.Contains("target_language")
             && columns.Contains("provider_kind")
@@ -747,12 +836,9 @@ PRAGMA user_version={SchemaVersion};
             && columns.Contains("scene_name")
             && columns.Contains("component_hierarchy")
             && columns.Contains("component_type")
+            && columns.Contains("replacement_font")
             && columns.Contains("created_utc")
-            && columns.Contains("updated_utc")
-            && !IsColumnNotNull(connection, "translated_text")
-            && IsColumnNotNull(connection, "scene_name")
-            && IsColumnNotNull(connection, "component_hierarchy")
-            && IsCurrentPrimaryKey(connection);
+            && columns.Contains("updated_utc");
     }
 
     private static bool IsCurrentPrimaryKey(SqliteConnection connection)
@@ -786,6 +872,13 @@ PRAGMA user_version={SchemaVersion};
         command.Parameters.AddWithValue("$prompt_policy_version", key.PromptPolicyVersion);
     }
 
+    private static void AddPendingParameters(SqliteCommand command, TranslationCacheKey key)
+    {
+        command.Parameters.AddWithValue("$source_text", key.SourceText);
+        command.Parameters.AddWithValue("$target_language", key.TargetLanguage);
+        command.Parameters.AddWithValue("$prompt_policy_version", key.PromptPolicyVersion);
+    }
+
     private static void AddLookupParameters(SqliteCommand command, TranslationCacheKey key, TranslationCacheContext context)
     {
         command.Parameters.AddWithValue("$source_text", key.SourceText);
@@ -808,10 +901,10 @@ PRAGMA user_version={SchemaVersion};
     {
         command.Parameters.AddWithValue("$source_text", entry.SourceText);
         command.Parameters.AddWithValue("$target_language", entry.TargetLanguage);
-        command.Parameters.AddWithValue("$provider_kind", entry.ProviderKind);
-        command.Parameters.AddWithValue("$provider_base_url", entry.ProviderBaseUrl);
-        command.Parameters.AddWithValue("$provider_endpoint", entry.ProviderEndpoint);
-        command.Parameters.AddWithValue("$provider_model", entry.ProviderModel);
+        command.Parameters.AddWithValue("$provider_kind", ToDbValue(entry.ProviderKind));
+        command.Parameters.AddWithValue("$provider_base_url", ToDbValue(entry.ProviderBaseUrl));
+        command.Parameters.AddWithValue("$provider_endpoint", ToDbValue(entry.ProviderEndpoint));
+        command.Parameters.AddWithValue("$provider_model", ToDbValue(entry.ProviderModel));
         command.Parameters.AddWithValue("$prompt_policy_version", entry.PromptPolicyVersion);
         command.Parameters.AddWithValue("$scene_name", TranslationCacheLookupKey.NormalizeContextPart(entry.SceneName));
         command.Parameters.AddWithValue("$component_hierarchy", TranslationCacheLookupKey.NormalizeContextPart(entry.ComponentHierarchy));
@@ -874,10 +967,10 @@ PRAGMA user_version={SchemaVersion};
         return new TranslationCacheEntry(
             SourceText: reader.GetString(0),
             TargetLanguage: reader.GetString(1),
-            ProviderKind: reader.GetString(2),
-            ProviderBaseUrl: reader.GetString(3),
-            ProviderEndpoint: reader.GetString(4),
-            ProviderModel: reader.GetString(5),
+            ProviderKind: reader.IsDBNull(2) ? string.Empty : reader.GetString(2),
+            ProviderBaseUrl: reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+            ProviderEndpoint: reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+            ProviderModel: reader.IsDBNull(5) ? string.Empty : reader.GetString(5),
             PromptPolicyVersion: reader.GetString(6),
             TranslatedText: reader.IsDBNull(7) ? null : reader.GetString(7),
             SceneName: reader.IsDBNull(8) ? string.Empty : reader.GetString(8),
@@ -900,10 +993,10 @@ PRAGMA user_version={SchemaVersion};
             rows.Add(new TranslationCacheEntry(
                 Required(item, "source_text", "SourceText"),
                 Required(item, "target_language", "TargetLanguage"),
-                Required(item, "provider_kind", "ProviderKind"),
-                Required(item, "provider_base_url", "ProviderBaseUrl"),
-                Required(item, "provider_endpoint", "ProviderEndpoint"),
-                Required(item, "provider_model", "ProviderModel"),
+                Optional(item, "provider_kind", "ProviderKind") ?? string.Empty,
+                Optional(item, "provider_base_url", "ProviderBaseUrl") ?? string.Empty,
+                Optional(item, "provider_endpoint", "ProviderEndpoint") ?? string.Empty,
+                Optional(item, "provider_model", "ProviderModel") ?? string.Empty,
                 Required(item, "prompt_policy_version", "PromptPolicyVersion"),
                 Optional(item, "translated_text", "TranslatedText"),
                 TranslationCacheLookupKey.NormalizeContextPart(Optional(item, "scene_name", "SceneName")),

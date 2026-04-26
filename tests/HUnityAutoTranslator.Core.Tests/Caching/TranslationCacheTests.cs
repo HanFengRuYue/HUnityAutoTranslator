@@ -331,18 +331,32 @@ WHERE scene_name = 'Gameplay'
             cache.RecordCaptured(key, context);
 
             cache.TryGet(key, context, out _).Should().BeFalse();
-            var pending = cache.GetPendingTranslations("zh-Hans", provider, "prompt-v1", limit: 10);
+            var pending = cache.GetPendingTranslations("zh-Hans", "prompt-v1", limit: 10);
             pending.Should().ContainSingle();
             pending[0].SourceText.Should().Be("Continue");
             pending[0].TranslatedText.Should().BeNull();
+            pending[0].ProviderKind.Should().BeEmpty();
+            pending[0].ProviderBaseUrl.Should().BeEmpty();
+            pending[0].ProviderEndpoint.Should().BeEmpty();
+            pending[0].ProviderModel.Should().BeEmpty();
             pending[0].SceneName.Should().Be("MainMenu");
         }
 
         using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
         connection.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT translated_text FROM translations WHERE source_text = 'Continue';";
-        command.ExecuteScalar().Should().Be(DBNull.Value);
+        command.CommandText = """
+SELECT translated_text, provider_kind, provider_base_url, provider_endpoint, provider_model
+FROM translations
+WHERE source_text = 'Continue';
+""";
+        using var reader = command.ExecuteReader();
+        reader.Read().Should().BeTrue();
+        reader.IsDBNull(0).Should().BeTrue();
+        reader.IsDBNull(1).Should().BeTrue();
+        reader.IsDBNull(2).Should().BeTrue();
+        reader.IsDBNull(3).Should().BeTrue();
+        reader.IsDBNull(4).Should().BeTrue();
     }
 
     [Fact]
@@ -392,10 +406,171 @@ WHERE scene_name = 'Gameplay'
         using var reopened = new SqliteTranslationCache(path);
         reopened.TryGet(key, new TranslationCacheContext("MainMenu", "Canvas/Continue", "UnityEngine.UI.Text"), out var translated).Should().BeTrue();
         translated.Should().Be("继续");
-        reopened.GetPendingTranslations("zh-Hans", provider, "prompt-v1", limit: 10).Should().BeEmpty();
+        reopened.GetPendingTranslations("zh-Hans", "prompt-v1", limit: 10).Should().BeEmpty();
         var row = reopened.Query(new TranslationCacheQuery("Continue", "source_text", false, 0, 10)).Items[0];
         row.CreatedUtc.Should().Be(createdUtc);
         row.UpdatedUtc.Should().BeAfter(createdUtc);
+    }
+
+    [Fact]
+    public void SqliteCache_records_provider_metadata_only_when_translation_is_written()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        var openAiKey = TranslationCacheKey.Create("Settings", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+        var deepSeek = ProviderProfile.DefaultDeepSeek();
+        var deepSeekKey = TranslationCacheKey.Create("Settings", "zh-Hans", deepSeek, "prompt-v1");
+        var context = new TranslationCacheContext("Menu", "Canvas/Settings", "Text");
+
+        using (var cache = new SqliteTranslationCache(path))
+        {
+            cache.RecordCaptured(openAiKey, context);
+            cache.Set(deepSeekKey, "Settings translated", context);
+        }
+
+        using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+SELECT provider_kind, provider_base_url, provider_endpoint, provider_model, translated_text
+FROM translations
+WHERE source_text = 'Settings';
+""";
+        using var reader = command.ExecuteReader();
+        reader.Read().Should().BeTrue();
+        reader.GetString(0).Should().Be(nameof(ProviderKind.DeepSeek));
+        reader.GetString(1).Should().Be(deepSeek.BaseUrl);
+        reader.GetString(2).Should().Be(deepSeek.Endpoint);
+        reader.GetString(3).Should().Be(deepSeek.Model);
+        reader.GetString(4).Should().Be("Settings translated");
+    }
+
+    [Fact]
+    public void SqliteCache_migrates_context_key_schema_to_nullable_pending_provider_metadata()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+        using (var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString()))
+        {
+            connection.Open();
+            using var command = connection.CreateCommand();
+            command.CommandText = """
+CREATE TABLE translations (
+    source_text TEXT NOT NULL,
+    target_language TEXT NOT NULL,
+    provider_kind TEXT NOT NULL,
+    provider_base_url TEXT NOT NULL,
+    provider_endpoint TEXT NOT NULL,
+    provider_model TEXT NOT NULL,
+    prompt_policy_version TEXT NOT NULL,
+    translated_text TEXT NULL,
+    scene_name TEXT NOT NULL,
+    component_hierarchy TEXT NOT NULL,
+    component_type TEXT NULL,
+    replacement_font TEXT NULL,
+    created_utc TEXT NOT NULL,
+    updated_utc TEXT NOT NULL,
+    PRIMARY KEY (
+        source_text,
+        target_language,
+        scene_name,
+        component_hierarchy)
+);
+INSERT INTO translations (
+    source_text,
+    target_language,
+    provider_kind,
+    provider_base_url,
+    provider_endpoint,
+    provider_model,
+    prompt_policy_version,
+    translated_text,
+    scene_name,
+    component_hierarchy,
+    component_type,
+    replacement_font,
+    created_utc,
+    updated_utc)
+VALUES
+    (
+        'Pending text',
+        'zh-Hans',
+        'OpenAI',
+        'https://api.openai.com',
+        '/v1/responses',
+        'gpt-5.5',
+        'prompt-v1',
+        NULL,
+        'Menu',
+        'Canvas/Pending',
+        'Text',
+        NULL,
+        '2026-04-26T00:00:00Z',
+        '2026-04-26T00:00:00Z'),
+    (
+        'Completed text',
+        'zh-Hans',
+        'DeepSeek',
+        'https://api.deepseek.com',
+        '/chat/completions',
+        'deepseek-v4-flash',
+        'prompt-v1',
+        'Completed translated',
+        'Menu',
+        'Canvas/Completed',
+        'Text',
+        NULL,
+        '2026-04-26T00:00:00Z',
+        '2026-04-26T00:00:00Z');
+""";
+            command.ExecuteNonQuery();
+        }
+
+        using (var cache = new SqliteTranslationCache(path))
+        {
+            var pending = cache.GetPendingTranslations("zh-Hans", "prompt-v1", limit: 10);
+            pending.Should().ContainSingle();
+            pending[0].SourceText.Should().Be("Pending text");
+            pending[0].ProviderKind.Should().BeEmpty();
+            cache.Count.Should().Be(1);
+        }
+
+        using var readConnection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
+        readConnection.Open();
+        using var schema = readConnection.CreateCommand();
+        schema.CommandText = """
+SELECT COUNT(*)
+FROM pragma_table_info('translations')
+WHERE name IN ('provider_kind', 'provider_base_url', 'provider_endpoint', 'provider_model')
+  AND [notnull] = 0;
+""";
+        Convert.ToInt32(schema.ExecuteScalar()).Should().Be(4);
+
+        using var pendingRow = readConnection.CreateCommand();
+        pendingRow.CommandText = """
+SELECT provider_kind, provider_base_url, provider_endpoint, provider_model
+FROM translations
+WHERE source_text = 'Pending text';
+""";
+        using (var reader = pendingRow.ExecuteReader())
+        {
+            reader.Read().Should().BeTrue();
+            reader.IsDBNull(0).Should().BeTrue();
+            reader.IsDBNull(1).Should().BeTrue();
+            reader.IsDBNull(2).Should().BeTrue();
+            reader.IsDBNull(3).Should().BeTrue();
+        }
+
+        using var completedRow = readConnection.CreateCommand();
+        completedRow.CommandText = """
+SELECT provider_kind, provider_model
+FROM translations
+WHERE source_text = 'Completed text';
+""";
+        using var completedReader = completedRow.ExecuteReader();
+        completedReader.Read().Should().BeTrue();
+        completedReader.GetString(0).Should().Be(nameof(ProviderKind.DeepSeek));
+        completedReader.GetString(1).Should().Be("deepseek-v4-flash");
     }
 
     [Fact]

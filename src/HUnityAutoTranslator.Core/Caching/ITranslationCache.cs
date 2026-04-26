@@ -1,5 +1,3 @@
-using HUnityAutoTranslator.Core.Configuration;
-
 namespace HUnityAutoTranslator.Core.Caching;
 
 public interface ITranslationCache
@@ -14,7 +12,6 @@ public interface ITranslationCache
 
     IReadOnlyList<TranslationCacheEntry> GetPendingTranslations(
         string targetLanguage,
-        ProviderProfile provider,
         string promptPolicyVersion,
         int limit);
 

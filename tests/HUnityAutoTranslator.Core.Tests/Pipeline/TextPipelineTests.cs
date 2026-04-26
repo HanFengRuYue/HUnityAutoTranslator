@@ -102,10 +102,12 @@ public sealed class TextPipelineTests
 
         pipeline.Process(new CapturedText("ui-2", "Options", isVisible: true, context));
 
-        var pending = cache.GetPendingTranslations(config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion, limit: 10);
+        var pending = cache.GetPendingTranslations(config.TargetLanguage, TextPipeline.PromptPolicyVersion, limit: 10);
         pending.Should().ContainSingle();
         pending[0].SourceText.Should().Be("Options");
         pending[0].TranslatedText.Should().BeNull();
+        pending[0].ProviderKind.Should().BeEmpty();
+        pending[0].ProviderModel.Should().BeEmpty();
         queue.PendingCount.Should().Be(1);
     }
 
