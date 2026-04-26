@@ -19,6 +19,37 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Control_panel_editor_uses_requested_column_order_and_allows_manual_reordering()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        var expectedOrder = new[]
+        {
+            "SourceText",
+            "TranslatedText",
+            "TargetLanguage",
+            "SceneName",
+            "ComponentHierarchy",
+            "ComponentType",
+            "ProviderKind",
+            "ProviderModel",
+            "CreatedUtc",
+            "UpdatedUtc"
+        };
+
+        var positions = expectedOrder
+            .Select(key => htmlSource.IndexOf($"key: \"{key}\"", StringComparison.Ordinal))
+            .ToArray();
+
+        positions.Should().OnlyContain(position => position >= 0);
+        positions.Should().BeInAscendingOrder();
+        htmlSource.Should().Contain("hunity.editor.columnOrder");
+        htmlSource.Should().Contain("function loadColumnLayout()");
+        htmlSource.Should().Contain("function moveColumn(");
+        htmlSource.Should().Contain("data-column-move");
+    }
+
+    [Fact]
     public void Control_panel_editor_consolidates_import_export_controls()
     {
         var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
@@ -41,7 +72,9 @@ public sealed class ControlPanelHtmlSourceTests
         htmlSource.Should().Contain("id=\"toastHost\"");
         htmlSource.Should().Contain("function showToast(");
         htmlSource.Should().Contain("function renderModels(");
-        htmlSource.Should().Contain("已获取 ${models.length} 个模型");
+        htmlSource.Should().Contain("showToast(`已获取 ${models.length} 个模型。${details}`");
+        htmlSource.Should().NotContain("id=\"providerStatusText\"");
+        htmlSource.Should().NotContain("setText(\"providerStatusText\"");
         htmlSource.Should().NotContain("id=\"providerUtilityMessage\"");
         htmlSource.Should().NotContain("id=\"providerUtilityOutput\"");
     }
@@ -70,6 +103,19 @@ public sealed class ControlPanelHtmlSourceTests
         htmlSource.Should().Contain("<span>已翻译文本</span><strong id=\"cacheCount\">0</strong>");
         htmlSource.Should().NotContain("<span>缓存条目</span>");
         htmlSource.Should().NotContain("文本条目");
+    }
+
+    [Fact]
+    public void Status_metric_help_tooltips_shrink_to_their_content()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("width: max-content;");
+        htmlSource.Should().Contain("max-width: min(360px, calc(100vw - 44px));");
+        htmlSource.Should().Contain("white-space: normal;");
+        htmlSource.Should().Contain("overflow-wrap: anywhere;");
+        htmlSource.Should().Contain(".metric[data-help]::after { left: 12px; right: auto; max-width: calc(100vw - 52px); }");
+        htmlSource.Should().NotContain("width: min(280px, calc(100vw - 44px));");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)

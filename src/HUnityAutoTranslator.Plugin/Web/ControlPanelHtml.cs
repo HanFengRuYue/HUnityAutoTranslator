@@ -259,7 +259,9 @@ internal static class ControlPanelHtml
       z-index: 30;
       top: calc(100% + 8px);
       left: 12px;
-      width: min(280px, calc(100vw - 44px));
+      box-sizing: border-box;
+      width: max-content;
+      max-width: min(360px, calc(100vw - 44px));
       padding: 9px 10px;
       border: 1px solid var(--line-strong);
       border-radius: 6px;
@@ -268,6 +270,8 @@ internal static class ControlPanelHtml
       box-shadow: var(--shadow);
       font-size: 12px;
       line-height: 1.45;
+      white-space: normal;
+      overflow-wrap: anywhere;
       opacity: 0;
       visibility: hidden;
       pointer-events: none;
@@ -483,8 +487,40 @@ internal static class ControlPanelHtml
       overflow: auto;
     }
     .column-choice {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 6px;
+      align-items: center;
+    }
+    .column-choice-label {
       min-height: 34px;
       padding: 6px 8px;
+    }
+    .column-choice-label span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .column-move-buttons {
+      display: flex;
+      gap: 4px;
+    }
+    .column-move-buttons button {
+      width: 30px;
+      min-height: 30px;
+      padding: 0;
+      justify-content: center;
+      border-color: transparent;
+      background: transparent;
+      color: var(--muted);
+    }
+    .column-move-buttons button:hover:not(:disabled) {
+      background: var(--surface-2);
+      color: var(--ink);
+    }
+    .column-move-buttons button:disabled {
+      opacity: 0.35;
+      cursor: default;
     }
     .column-chooser-actions {
       display: flex;
@@ -600,7 +636,7 @@ internal static class ControlPanelHtml
         border-left: 0;
       }
       .column-chooser, .export-menu { left: 0; right: auto; }
-      .metric[data-help]::after { left: 12px; right: 12px; width: auto; }
+      .metric[data-help]::after { left: 12px; right: auto; max-width: calc(100vw - 52px); }
       .toast-host { left: 12px; right: 12px; width: auto; }
     }
   </style>
@@ -658,7 +694,6 @@ internal static class ControlPanelHtml
               <div class="metric"><span>平均耗时</span><strong id="averageLatency">0 ms</strong></div>
               <div class="metric"><span>平均速度</span><strong id="averageSpeed">0 字/秒</strong></div>
             </div>
-            <p class="message" id="providerStatusText"></p>
             <p class="message danger-text" id="lastError"></p>
           </div>
 
@@ -907,15 +942,16 @@ internal static class ControlPanelHtml
       { key: "SourceText", title: "原文", sort: "source_text", editable: false, width: 260 },
       { key: "TranslatedText", title: "译文", sort: "translated_text", editable: true, width: 260 },
       { key: "TargetLanguage", title: "语言", sort: "target_language", editable: false, width: 110 },
-      { key: "ProviderKind", title: "服务商", sort: "provider_kind", editable: false, width: 120 },
-      { key: "ProviderModel", title: "模型", sort: "provider_model", editable: false, width: 160 },
       { key: "SceneName", title: "场景", sort: "scene_name", editable: true, width: 160 },
       { key: "ComponentHierarchy", title: "层级", sort: "component_hierarchy", editable: true, width: 260 },
       { key: "ComponentType", title: "组件", sort: "component_type", editable: true, width: 170 },
+      { key: "ProviderKind", title: "服务商", sort: "provider_kind", editable: false, width: 120 },
+      { key: "ProviderModel", title: "模型", sort: "provider_model", editable: false, width: 160 },
       { key: "CreatedUtc", title: "创建时间", sort: "created_utc", editable: false, width: 170, time: true },
       { key: "UpdatedUtc", title: "更新时间", sort: "updated_utc", editable: false, width: 170, time: true }
     ];
     const columnVisibilityStorageKey = "hunity.editor.visibleColumns";
+    const columnOrderStorageKey = "hunity.editor.columnOrder";
     const exportFileTypes = [
       { description: "JSON 文件", accept: { "application/json": [".json"] } },
       { description: "CSV 文件", accept: { "text/csv": [".csv"] } }
@@ -1056,7 +1092,6 @@ internal static class ControlPanelHtml
       $("status").className = "connection danger-text";
       setText("enabledText", "连接中断");
       $("enabledText").className = "danger-text";
-      setText("providerStatusText", "与插件丢失连接，无法刷新 AI 服务状态。");
       setText("lastError", "与插件丢失连接：" + message);
     }
 
@@ -1076,7 +1111,6 @@ internal static class ControlPanelHtml
       setText("totalTokenCount", formatNumber(state.TotalTokenCount || 0));
       setText("averageLatency", `${Math.round(state.AverageTranslationMilliseconds || 0)} ms`);
       setText("averageSpeed", `${formatNumber(Math.round(state.AverageCharactersPerSecond || 0))} 字/秒`);
-      setText("providerStatusText", state.ProviderStatus ? state.ProviderStatus.Message : "尚未检测");
       setText("lastError", state.LastError ? "最近错误：" + state.LastError : "");
       $("status").textContent = "已连接";
       $("status").className = "connection ok";
@@ -1219,6 +1253,28 @@ ${style}`;
       $("modelPreset").value = preset ? model : "custom";
     }
 
+    function loadColumnLayout() {
+      loadColumnOrder();
+      loadColumnVisibility();
+    }
+
+    function loadColumnOrder() {
+      try {
+        const keys = JSON.parse(localStorage.getItem(columnOrderStorageKey) || "null");
+        if (!Array.isArray(keys)) return;
+        const ordered = [];
+        const remaining = tableColumns.slice();
+        keys.forEach(key => {
+          const index = remaining.findIndex(column => column.key === key);
+          if (index >= 0) ordered.push(remaining.splice(index, 1)[0]);
+        });
+        if (!ordered.length) return;
+        tableColumns.splice(0, tableColumns.length, ...ordered, ...remaining);
+      } catch (_) {
+        localStorage.removeItem(columnOrderStorageKey);
+      }
+    }
+
     function loadColumnVisibility() {
       try {
         const keys = JSON.parse(localStorage.getItem(columnVisibilityStorageKey) || "null");
@@ -1234,6 +1290,10 @@ ${style}`;
 
     function persistColumnVisibility() {
       localStorage.setItem(columnVisibilityStorageKey, JSON.stringify(visibleTableColumns().map(column => column.key)));
+    }
+
+    function persistColumnOrder() {
+      localStorage.setItem(columnOrderStorageKey, JSON.stringify(tableColumns.map(column => column.key)));
     }
 
     function ensureVisibleColumn() {
@@ -1265,17 +1325,26 @@ ${style}`;
           <span>${visibleCount}/${tableColumns.length}</span>
         </div>
         <div class="column-chooser-list">
-          ${tableColumns.map(column => `
-            <label class="check column-choice">
-              <input type="checkbox" data-column-key="${column.key}" ${column.visible !== false ? "checked" : ""} ${column.visible !== false && visibleCount === 1 ? "disabled" : ""}>
-              ${column.title}
-            </label>`).join("")}
+          ${tableColumns.map((column, index) => `
+            <div class="column-choice">
+              <label class="check column-choice-label">
+                <input type="checkbox" data-column-key="${column.key}" ${column.visible !== false ? "checked" : ""} ${column.visible !== false && visibleCount === 1 ? "disabled" : ""}>
+                <span>${column.title}</span>
+              </label>
+              <div class="column-move-buttons">
+                <button type="button" data-column-move="${column.key}" data-column-direction="up" title="上移" aria-label="上移 ${column.title}" ${index === 0 ? "disabled" : ""}>↑</button>
+                <button type="button" data-column-move="${column.key}" data-column-direction="down" title="下移" aria-label="下移 ${column.title}" ${index === tableColumns.length - 1 ? "disabled" : ""}>↓</button>
+              </div>
+            </div>`).join("")}
         </div>
         <div class="column-chooser-actions">
           <button id="showAllColumns" type="button">全部显示</button>
         </div>`;
       $$("input[data-column-key]").forEach(input => {
         input.addEventListener("change", () => updateColumnVisibility(input.dataset.columnKey, input.checked));
+      });
+      $$("button[data-column-move]").forEach(button => {
+        button.addEventListener("click", () => moveColumn(button.dataset.columnMove, button.dataset.columnDirection));
       });
       $("showAllColumns").addEventListener("click", showAllColumns);
     }
@@ -1287,6 +1356,20 @@ ${style}`;
       ensureVisibleColumn();
       persistColumnVisibility();
       pruneHiddenSelection();
+      renderColumnChooser();
+      renderTranslationTable();
+    }
+
+    function moveColumn(key, direction) {
+      const index = tableColumns.findIndex(item => item.key === key);
+      if (index < 0) return;
+      const targetIndex = direction === "up" ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= tableColumns.length) return;
+      const column = tableColumns.splice(index, 1)[0];
+      tableColumns.splice(targetIndex, 0, column);
+      tableState.selected.clear();
+      tableState.anchor = null;
+      persistColumnOrder();
       renderColumnChooser();
       renderTranslationTable();
     }
@@ -1705,7 +1788,7 @@ ${style}`;
     });
 
     applyTheme(localStorage.getItem("hunity.theme") || "system");
-    loadColumnVisibility();
+    loadColumnLayout();
     renderColumnChooser();
     updateProviderUi(false);
     refresh();
