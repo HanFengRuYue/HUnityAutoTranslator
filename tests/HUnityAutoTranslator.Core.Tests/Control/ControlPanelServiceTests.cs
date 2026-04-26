@@ -266,6 +266,20 @@ public sealed class ControlPanelServiceTests
     }
 
     [Fact]
+    public void UpdateConfig_can_clear_temperature()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        service.UpdateConfig(new UpdateConfigRequest(Temperature: 0.7));
+        service.GetState().Temperature.Should().Be(0.7);
+
+        service.UpdateConfig(new UpdateConfigRequest(ClearTemperature: true));
+
+        service.GetState().Temperature.Should().BeNull();
+        service.GetConfig().Temperature.Should().BeNull();
+    }
+
+    [Fact]
     public void CreateDefault_loads_glossary_settings_and_keeps_auto_extraction_disabled_by_default()
     {
         var defaults = RuntimeConfig.CreateDefault();
@@ -319,5 +333,29 @@ public sealed class ControlPanelServiceTests
         state.ReplacementFontFile.Should().Be(@"C:\Fonts\NotoSansSC-Regular.otf");
         state.FontSamplingPointSize.Should().Be(180);
         second.GetConfig().FontSamplingPointSize.Should().Be(180);
+    }
+
+    [Fact]
+    public void Automatic_font_fallbacks_are_reported_in_state_without_persisting_settings()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
+        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+
+        first.SetAutomaticFontFallbacks(" Microsoft YaHei ", @" C:\Windows\Fonts\msyh.ttc ");
+        first.UpdateConfig(new UpdateConfigRequest(MaxConcurrentRequests: 6));
+
+        var state = first.GetState();
+        state.AutomaticReplacementFontName.Should().Be("Microsoft YaHei");
+        state.AutomaticReplacementFontFile.Should().Be(@"C:\Windows\Fonts\msyh.ttc");
+        state.ReplacementFontName.Should().BeNull();
+        state.ReplacementFontFile.Should().BeNull();
+
+        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var reloaded = second.GetState();
+        reloaded.AutomaticReplacementFontName.Should().BeNull();
+        reloaded.AutomaticReplacementFontFile.Should().BeNull();
+        reloaded.ReplacementFontName.Should().BeNull();
+        reloaded.ReplacementFontFile.Should().BeNull();
+        reloaded.MaxConcurrentRequests.Should().Be(6);
     }
 }

@@ -63,5 +63,7 @@ public sealed record ControlPanelState(
     bool AutoUseCjkFallbackFonts,
     string? ReplacementFontName,
     string? ReplacementFontFile,
+    string? AutomaticReplacementFontName,
+    string? AutomaticReplacementFontFile,
     int FontSamplingPointSize,
     string? LastError);

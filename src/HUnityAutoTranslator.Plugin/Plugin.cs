@@ -48,7 +48,7 @@ public sealed class Plugin : BaseUnityPlugin
             _dispatcher = new ResultDispatcher();
             _resultApplier = new UnityMainThreadResultApplier();
             _highlighter = new UnityTextHighlighter(_resultApplier, Logger);
-            _fontReplacement = new UnityTextFontReplacementService(_cache, Logger, _controlPanel.GetConfig);
+            _fontReplacement = new UnityTextFontReplacementService(_cache, Logger, _controlPanel.GetConfig, _controlPanel.SetAutomaticFontFallbacks);
             _fontReplacement.InstallStartupFallbacks();
             var pipeline = new TextPipeline(_cache, _queue, _controlPanel.GetConfig, _metrics, _glossary);
             _captureCoordinator = new TextCaptureCoordinator(new ITextCaptureModule[]

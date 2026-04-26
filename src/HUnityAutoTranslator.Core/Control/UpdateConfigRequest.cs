@@ -23,6 +23,7 @@ public sealed record UpdateConfigRequest(
     string? OutputVerbosity = null,
     string? DeepSeekThinkingMode = null,
     double? Temperature = null,
+    bool? ClearTemperature = null,
     string? CustomInstruction = null,
     string? CustomPrompt = null,
     int? MaxSourceTextLength = null,
