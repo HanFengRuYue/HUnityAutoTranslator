@@ -37,10 +37,154 @@ public sealed class TranslationCacheTests
         var cache = new MemoryTranslationCache();
         var key = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
 
-        cache.TryGet(key, out _).Should().BeFalse();
+        cache.TryGet(key, TranslationCacheContext.Empty, out _).Should().BeFalse();
         cache.Set(key, "Start Game translated");
-        cache.TryGet(key, out var translated).Should().BeTrue();
+        cache.TryGet(key, TranslationCacheContext.Empty, out var translated).Should().BeTrue();
         translated.Should().Be("Start Game translated");
+    }
+
+    [Fact]
+    public void MemoryCache_keeps_context_specific_translations_for_same_source_text()
+    {
+        var cache = new MemoryTranslationCache();
+        var key = TranslationCacheKey.Create("Back", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+        var menuContext = new TranslationCacheContext("MainMenu", "Canvas/Menu/Back", "UnityEngine.UI.Text");
+        var hudContext = new TranslationCacheContext("Gameplay", "Canvas/Hud/Back", "UnityEngine.UI.Text");
+
+        cache.Set(key, "返回菜单", menuContext);
+        cache.Set(key, "返回", hudContext);
+
+        cache.Count.Should().Be(2);
+    }
+
+    [Fact]
+    public void MemoryCache_reuses_translation_when_provider_changes_but_lookup_context_matches()
+    {
+        var cache = new MemoryTranslationCache();
+        var context = new TranslationCacheContext("MainMenu", "Canvas/Menu/Start", "UnityEngine.UI.Text");
+        var openAiKey = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+        var deepSeekKey = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultDeepSeek(), "prompt-v1");
+
+        cache.Set(openAiKey, "开始游戏", context);
+
+        cache.TryGet(deepSeekKey, context, out var translated).Should().BeTrue();
+        translated.Should().Be("开始游戏");
+    }
+
+    [Fact]
+    public void Memory_cache_applies_column_filters_with_and_between_columns_and_or_within_one_column()
+    {
+        var cache = new MemoryTranslationCache();
+        var now = DateTimeOffset.Parse("2026-04-26T00:00:00Z");
+        cache.Update(SampleRow("Start Game", "Menu", "Canvas/Start", "UnityEngine.UI.Text", "Start translated", now));
+        cache.Update(SampleRow("Options", "Menu", "Canvas/Options", "TMPro.TextMeshProUGUI", "Options translated", now.AddMinutes(1)));
+        cache.Update(SampleRow("Jump", "Gameplay", "Canvas/Hud/Jump", "UnityEngine.UI.Text", "Jump translated", now.AddMinutes(2)));
+
+        var page = cache.Query(new TranslationCacheQuery(
+            Search: null,
+            SortColumn: "source_text",
+            SortDescending: false,
+            Offset: 0,
+            Limit: 20,
+            ColumnFilters: new[]
+            {
+                new TranslationCacheColumnFilter("scene_name", new string?[] { "Menu" }),
+                new TranslationCacheColumnFilter("component_type", new string?[] { "UnityEngine.UI.Text", "TMPro.TextMeshProUGUI" })
+            }));
+
+        page.TotalCount.Should().Be(2);
+        page.Items.Select(row => row.SourceText).Should().Equal("Options", "Start Game");
+    }
+
+    [Fact]
+    public void Memory_cache_column_filters_match_empty_context_values()
+    {
+        var cache = new MemoryTranslationCache();
+        var now = DateTimeOffset.Parse("2026-04-26T00:00:00Z");
+        cache.Update(SampleRow("No Scene", "", "", null, "No scene translated", now));
+        cache.Update(SampleRow("Menu Row", "Menu", "Canvas/Menu", "UnityEngine.UI.Text", "Menu translated", now.AddMinutes(1)));
+
+        var page = cache.Query(new TranslationCacheQuery(
+            Search: null,
+            SortColumn: "source_text",
+            SortDescending: false,
+            Offset: 0,
+            Limit: 20,
+            ColumnFilters: new[]
+            {
+                new TranslationCacheColumnFilter("scene_name", new string?[] { null })
+            }));
+
+        page.TotalCount.Should().Be(1);
+        page.Items[0].SourceText.Should().Be("No Scene");
+    }
+
+    [Fact]
+    public void Memory_cache_filter_options_respect_other_active_column_filters()
+    {
+        var cache = new MemoryTranslationCache();
+        var now = DateTimeOffset.Parse("2026-04-26T00:00:00Z");
+        cache.Update(SampleRow("Start Game", "Menu", "Canvas/Start", "UnityEngine.UI.Text", "Start translated", now));
+        cache.Update(SampleRow("Options", "Menu", "Canvas/Options", "TMPro.TextMeshProUGUI", "Options translated", now.AddMinutes(1)));
+        cache.Update(SampleRow("Jump", "Gameplay", "Canvas/Hud/Jump", "UnityEngine.UI.Text", "Jump translated", now.AddMinutes(2)));
+
+        var options = cache.GetFilterOptions(new TranslationCacheFilterOptionsQuery(
+            Column: "component_type",
+            Search: null,
+            ColumnFilters: new[]
+            {
+                new TranslationCacheColumnFilter("scene_name", new string?[] { "Menu" })
+            },
+            OptionSearch: null,
+            Limit: 20));
+
+        options.Column.Should().Be("component_type");
+        options.Items.Select(item => item.Value).Should().Equal("TMPro.TextMeshProUGUI", "UnityEngine.UI.Text");
+        options.Items.Sum(item => item.Count).Should().Be(2);
+    }
+
+    [Fact]
+    public void Memory_cache_returns_component_context_before_scene_fallback()
+    {
+        var cache = new MemoryTranslationCache();
+        var now = DateTimeOffset.Parse("2026-04-26T00:00:00Z");
+        cache.Update(SampleRow("Current", "Menu", "Canvas/Dialog", "Text", "Current translated", now.AddMinutes(9)));
+        cache.Update(SampleRow("Same component newer", "Menu", "Canvas/Dialog", "Text", "Component newer translated", now.AddMinutes(3)));
+        cache.Update(SampleRow("Same component older", "Menu", "Canvas/Dialog", "Text", "Component older translated", now.AddMinutes(2)));
+        cache.Update(SampleRow("Scene fallback newest", "Menu", "Canvas/Other", "Text", "Scene fallback translated", now.AddMinutes(8)));
+        cache.Update(SampleRow("Other scene", "Battle", "Canvas/Dialog", "Text", "Other scene translated", now.AddMinutes(7)));
+        cache.Update(SampleRow("Pending only", "Menu", "Canvas/Dialog", "Text", null, now.AddMinutes(6)));
+
+        var examples = cache.GetTranslationContextExamples(
+            "Current",
+            "zh-Hans",
+            new TranslationCacheContext("Menu", "Canvas/Dialog", "Text"),
+            maxExamples: 3,
+            maxCharacters: 1000);
+
+        examples.Select(item => item.SourceText).Should().Equal(
+            "Same component newer",
+            "Same component older",
+            "Scene fallback newest");
+    }
+
+    [Fact]
+    public void Memory_cache_limits_context_examples_by_combined_source_and_translation_characters()
+    {
+        var cache = new MemoryTranslationCache();
+        var now = DateTimeOffset.Parse("2026-04-26T00:00:00Z");
+        cache.Update(SampleRow("Short", "Menu", "Canvas/Dialog", "Text", "Tiny", now.AddMinutes(2)));
+        cache.Update(SampleRow("Very long source text", "Menu", "Canvas/Dialog", "Text", "Very long translated text", now.AddMinutes(1)));
+
+        var examples = cache.GetTranslationContextExamples(
+            "Current",
+            "zh-Hans",
+            new TranslationCacheContext("Menu", "Canvas/Dialog", "Text"),
+            maxExamples: 4,
+            maxCharacters: 10);
+
+        examples.Should().ContainSingle();
+        examples[0].SourceText.Should().Be("Short");
     }
 
     [Fact]
@@ -51,15 +195,55 @@ public sealed class TranslationCacheTests
 
         using (var first = new SqliteTranslationCache(path))
         {
-            first.TryGet(key, out _).Should().BeFalse();
+            first.TryGet(key, TranslationCacheContext.Empty, out _).Should().BeFalse();
             first.Set(key, "Start Game translated");
             first.Count.Should().Be(1);
         }
 
         using var second = new SqliteTranslationCache(path);
         second.Count.Should().Be(1);
-        second.TryGet(key, out var translated).Should().BeTrue();
+        second.TryGet(key, TranslationCacheContext.Empty, out var translated).Should().BeTrue();
         translated.Should().Be("Start Game translated");
+    }
+
+    [Fact]
+    public void SqliteCache_keeps_context_specific_translations_for_same_source_text()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        var key = TranslationCacheKey.Create("Back", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+        var menuContext = new TranslationCacheContext("MainMenu", "Canvas/Menu/Back", "UnityEngine.UI.Text");
+        var hudContext = new TranslationCacheContext("Gameplay", "Canvas/Hud/Back", "UnityEngine.UI.Text");
+
+        using (var cache = new SqliteTranslationCache(path))
+        {
+            cache.Set(key, "返回菜单", menuContext);
+            cache.Set(key, "返回", hudContext);
+        }
+
+        using var reopened = new SqliteTranslationCache(path);
+        reopened.Count.Should().Be(2);
+        var rows = reopened.Query(new TranslationCacheQuery("Back", "component_hierarchy", false, 0, 10)).Items;
+        rows.Should().HaveCount(2);
+        rows.Should().Contain(row => row.ComponentHierarchy == "Canvas/Menu/Back" && row.TranslatedText == "返回菜单");
+        rows.Should().Contain(row => row.ComponentHierarchy == "Canvas/Hud/Back" && row.TranslatedText == "返回");
+    }
+
+    [Fact]
+    public void SqliteCache_reuses_translation_when_provider_changes_but_lookup_context_matches()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        var context = new TranslationCacheContext("MainMenu", "Canvas/Menu/Start", "UnityEngine.UI.Text");
+        var openAiKey = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+        var deepSeekKey = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultDeepSeek(), "prompt-v1");
+
+        using (var cache = new SqliteTranslationCache(path))
+        {
+            cache.Set(openAiKey, "开始游戏", context);
+        }
+
+        using var reopened = new SqliteTranslationCache(path);
+        reopened.TryGet(deepSeekKey, context, out var translated).Should().BeTrue();
+        translated.Should().Be("开始游戏");
     }
 
     [Fact]
@@ -112,10 +296,16 @@ FROM translations;
                 new TranslationCacheContext("Gameplay", "Root/Hud/StartButton", "TMPro.TMP_Text"));
         }
 
+        using var originalRow = connection.CreateCommand();
+        originalRow.CommandText = "SELECT translated_text FROM translations WHERE scene_name = 'MainMenu' AND component_hierarchy = 'Canvas/Menu/StartButton';";
+        originalRow.ExecuteScalar().Should().Be("Start Game translated");
+
         using var secondRead = connection.CreateCommand();
         secondRead.CommandText = """
 SELECT translated_text, scene_name, component_hierarchy, component_type, created_utc, updated_utc
-FROM translations;
+FROM translations
+WHERE scene_name = 'Gameplay'
+  AND component_hierarchy = 'Root/Hud/StartButton';
 """;
 
         using var secondReader = secondRead.ExecuteReader();
@@ -124,8 +314,8 @@ FROM translations;
         secondReader.GetString(1).Should().Be("Gameplay");
         secondReader.GetString(2).Should().Be("Root/Hud/StartButton");
         secondReader.GetString(3).Should().Be("TMPro.TMP_Text");
-        secondReader.GetString(4).Should().Be(createdUtc);
-        secondReader.GetString(5).Should().NotBe(createdUtc);
+        secondReader.GetString(4).Should().NotBeNullOrWhiteSpace();
+        secondReader.GetString(5).Should().Be(secondReader.GetString(4));
     }
 
     [Fact]
@@ -140,7 +330,7 @@ FROM translations;
         {
             cache.RecordCaptured(key, context);
 
-            cache.TryGet(key, out _).Should().BeFalse();
+            cache.TryGet(key, context, out _).Should().BeFalse();
             var pending = cache.GetPendingTranslations("zh-Hans", provider, "prompt-v1", limit: 10);
             pending.Should().ContainSingle();
             pending[0].SourceText.Should().Be("Continue");
@@ -200,7 +390,7 @@ FROM translations;
         }
 
         using var reopened = new SqliteTranslationCache(path);
-        reopened.TryGet(key, out var translated).Should().BeTrue();
+        reopened.TryGet(key, new TranslationCacheContext("MainMenu", "Canvas/Continue", "UnityEngine.UI.Text"), out var translated).Should().BeTrue();
         translated.Should().Be("继续");
         reopened.GetPendingTranslations("zh-Hans", provider, "prompt-v1", limit: 10).Should().BeEmpty();
         var row = reopened.Query(new TranslationCacheQuery("Continue", "source_text", false, 0, 10)).Items[0];
@@ -209,7 +399,7 @@ FROM translations;
     }
 
     [Fact]
-    public void SqliteCache_keeps_readable_rows_when_migrating_translated_text_to_nullable()
+    public void SqliteCache_discards_old_readable_schema_and_starts_new_context_key_schema()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -276,7 +466,7 @@ VALUES (
 
         using (var cache = new SqliteTranslationCache(path))
         {
-            cache.Count.Should().Be(1);
+            cache.Count.Should().Be(0);
             cache.RecordCaptured(
                 TranslationCacheKey.Create("Options", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1"),
                 new TranslationCacheContext("Menu", "Canvas/Options", "Text"));
@@ -285,12 +475,20 @@ VALUES (
         using var readConnection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = path }.ToString());
         readConnection.Open();
         using var schema = readConnection.CreateCommand();
-        schema.CommandText = "SELECT [notnull] FROM pragma_table_info('translations') WHERE name = 'translated_text';";
-        Convert.ToInt32(schema.ExecuteScalar()).Should().Be(0);
+        schema.CommandText = """
+SELECT group_concat(name, ',')
+FROM (
+    SELECT name
+    FROM pragma_table_info('translations')
+    WHERE pk > 0
+    ORDER BY pk
+);
+""";
+        schema.ExecuteScalar().Should().Be("source_text,target_language,scene_name,component_hierarchy");
 
         using var rows = readConnection.CreateCommand();
-        rows.CommandText = "SELECT translated_text FROM translations WHERE source_text = 'Start Game';";
-        rows.ExecuteScalar().Should().Be("开始游戏");
+        rows.CommandText = "SELECT COUNT(*) FROM translations WHERE source_text = 'Start Game';";
+        Convert.ToInt32(rows.ExecuteScalar()).Should().Be(0);
 
         using var pending = readConnection.CreateCommand();
         pending.CommandText = "SELECT translated_text FROM translations WHERE source_text = 'Options';";
@@ -312,11 +510,11 @@ VALUES (
         using var cache = new SqliteTranslationCache(sqlitePath);
 
         cache.Count.Should().Be(0);
-        cache.TryGet(key, out _).Should().BeFalse();
+        cache.TryGet(key, TranslationCacheContext.Empty, out _).Should().BeFalse();
     }
 
     [Fact]
-    public void SqliteCache_discards_legacy_hash_schema_and_starts_new_readable_schema()
+    public void SqliteCache_discards_legacy_hash_schema_and_starts_new_context_key_schema()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -393,6 +591,130 @@ VALUES ('legacy-cache-key', 'legacy translated', '2026-04-25T00:00:00Z');
     }
 
     [Fact]
+    public void Sqlite_cache_applies_multi_column_filters_and_sorting_after_filtering()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        using var cache = new SqliteTranslationCache(path);
+        var now = DateTimeOffset.Parse("2026-04-26T00:00:00Z");
+        cache.Update(SampleRow("Start Game", "Menu", "Canvas/Start", "UnityEngine.UI.Text", "Start translated", now));
+        cache.Update(SampleRow("Options", "Menu", "Canvas/Options", "TMPro.TextMeshProUGUI", "Options translated", now.AddMinutes(1)));
+        cache.Update(SampleRow("Jump", "Gameplay", "Canvas/Hud/Jump", "UnityEngine.UI.Text", "Jump translated", now.AddMinutes(2)));
+
+        var page = cache.Query(new TranslationCacheQuery(
+            Search: null,
+            SortColumn: "source_text",
+            SortDescending: false,
+            Offset: 0,
+            Limit: 20,
+            ColumnFilters: new[]
+            {
+                new TranslationCacheColumnFilter("scene_name", new string?[] { "Menu" }),
+                new TranslationCacheColumnFilter("component_type", new string?[] { "UnityEngine.UI.Text", "TMPro.TextMeshProUGUI" })
+            }));
+
+        page.TotalCount.Should().Be(2);
+        page.Items.Select(row => row.SourceText).Should().Equal("Options", "Start Game");
+    }
+
+    [Fact]
+    public void Sqlite_cache_filter_options_ignore_the_requested_column_filter()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        using var cache = new SqliteTranslationCache(path);
+        var now = DateTimeOffset.Parse("2026-04-26T00:00:00Z");
+        cache.Update(SampleRow("Start Game", "Menu", "Canvas/Start", "UnityEngine.UI.Text", "Start translated", now));
+        cache.Update(SampleRow("Options", "Menu", "Canvas/Options", "TMPro.TextMeshProUGUI", "Options translated", now.AddMinutes(1)));
+        cache.Update(SampleRow("Jump", "Gameplay", "Canvas/Hud/Jump", "UnityEngine.UI.Text", "Jump translated", now.AddMinutes(2)));
+
+        var options = cache.GetFilterOptions(new TranslationCacheFilterOptionsQuery(
+            Column: "component_type",
+            Search: null,
+            ColumnFilters: new[]
+            {
+                new TranslationCacheColumnFilter("scene_name", new string?[] { "Menu" }),
+                new TranslationCacheColumnFilter("component_type", new string?[] { "UnityEngine.UI.Text" })
+            },
+            OptionSearch: null,
+            Limit: 20));
+
+        options.Items.Select(item => item.Value).Should().Equal("TMPro.TextMeshProUGUI", "UnityEngine.UI.Text");
+    }
+
+    [Fact]
+    public void Sqlite_cache_returns_translation_context_examples_from_current_scene()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        using var cache = new SqliteTranslationCache(path);
+        var now = DateTimeOffset.Parse("2026-04-26T00:00:00Z");
+        cache.Update(SampleRow("Current", "Menu", "Canvas/Dialog", "Text", "Current translated", now.AddMinutes(9)));
+        cache.Update(SampleRow("Same component", "Menu", "Canvas/Dialog", "Text", "Same component translated", now.AddMinutes(1)));
+        cache.Update(SampleRow("Scene fallback", "Menu", "Canvas/Other", "Text", "Scene fallback translated", now.AddMinutes(8)));
+        cache.Update(SampleRow("Other scene", "Battle", "Canvas/Dialog", "Text", "Other scene translated", now.AddMinutes(7)));
+
+        var examples = cache.GetTranslationContextExamples(
+            "Current",
+            "zh-Hans",
+            new TranslationCacheContext("Menu", "Canvas/Dialog", "Text"),
+            maxExamples: 2,
+            maxCharacters: 1000);
+
+        examples.Select(item => item.SourceText).Should().Equal("Same component", "Scene fallback");
+    }
+
+    [Fact]
+    public void Sqlite_context_examples_keep_component_priority_when_scene_has_many_newer_rows()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        using var cache = new SqliteTranslationCache(path);
+        var now = DateTimeOffset.Parse("2026-04-26T00:00:00Z");
+        cache.Update(SampleRow("Same component older", "Menu", "Canvas/Dialog", "Text", "Same component translated", now));
+        for (var i = 0; i < 205; i++)
+        {
+            cache.Update(SampleRow(
+                "Other component " + i,
+                "Menu",
+                "Canvas/Other",
+                "Text",
+                "Other translated " + i,
+                now.AddMinutes(i + 1)));
+        }
+
+        var examples = cache.GetTranslationContextExamples(
+            "Current",
+            "zh-Hans",
+            new TranslationCacheContext("Menu", "Canvas/Dialog", "Text"),
+            maxExamples: 1,
+            maxCharacters: 1000);
+
+        examples.Should().ContainSingle();
+        examples[0].SourceText.Should().Be("Same component older");
+    }
+
+    [Fact]
+    public void Sqlite_cache_column_filters_match_empty_values()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        using var cache = new SqliteTranslationCache(path);
+        var now = DateTimeOffset.Parse("2026-04-26T00:00:00Z");
+        cache.Update(SampleRow("No Component", "Menu", "Canvas/Label", null, "No component translated", now));
+        cache.Update(SampleRow("Button", "Menu", "Canvas/Button", "UnityEngine.UI.Text", "Button translated", now.AddMinutes(1)));
+
+        var page = cache.Query(new TranslationCacheQuery(
+            Search: null,
+            SortColumn: "source_text",
+            SortDescending: false,
+            Offset: 0,
+            Limit: 20,
+            ColumnFilters: new[]
+            {
+                new TranslationCacheColumnFilter("component_type", new string?[] { null })
+            }));
+
+        page.TotalCount.Should().Be(1);
+        page.Items[0].SourceText.Should().Be("No Component");
+    }
+
+    [Fact]
     public void Sqlite_cache_deletes_selected_translation_row()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
@@ -404,7 +726,7 @@ VALUES ('legacy-cache-key', 'legacy translated', '2026-04-25T00:00:00Z');
         cache.Delete(row);
 
         cache.Count.Should().Be(0);
-        cache.TryGet(key, out _).Should().BeFalse();
+        cache.TryGet(key, new TranslationCacheContext("Menu", "Canvas/Delete", "Text"), out _).Should().BeFalse();
     }
 
     [Fact]
@@ -520,5 +842,30 @@ VALUES ('legacy-cache-key', 'legacy translated', '2026-04-25T00:00:00Z');
             .Items[0].ReplacementFont.Should().Be(@"C:\Fonts\NotoSansSC-Regular.otf");
         reopened.Export("json").Should().Contain("ReplacementFont");
         reopened.Export("csv").Should().Contain("replacement_font");
+    }
+
+    private static TranslationCacheEntry SampleRow(
+        string sourceText,
+        string sceneName,
+        string componentHierarchy,
+        string? componentType,
+        string? translatedText,
+        DateTimeOffset timestamp)
+    {
+        return new TranslationCacheEntry(
+            SourceText: sourceText,
+            TargetLanguage: "zh-Hans",
+            ProviderKind: "OpenAI",
+            ProviderBaseUrl: "https://api.openai.com",
+            ProviderEndpoint: "/v1/responses",
+            ProviderModel: "gpt-5.5",
+            PromptPolicyVersion: "prompt-v1",
+            TranslatedText: translatedText,
+            SceneName: sceneName,
+            ComponentHierarchy: componentHierarchy,
+            ComponentType: componentType,
+            ReplacementFont: null,
+            CreatedUtc: timestamp,
+            UpdatedUtc: timestamp);
     }
 }

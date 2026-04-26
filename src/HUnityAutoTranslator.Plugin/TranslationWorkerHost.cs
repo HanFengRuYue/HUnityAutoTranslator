@@ -4,6 +4,7 @@ using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Dispatching;
+using HUnityAutoTranslator.Core.Glossary;
 using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Providers;
 using HUnityAutoTranslator.Core.Queueing;
@@ -19,18 +20,21 @@ internal sealed class TranslationWorkerHost : IDisposable
     private readonly TranslationJobQueue _queue;
     private readonly ResultDispatcher _dispatcher;
     private readonly ITranslationCache _cache;
+    private readonly IGlossaryStore _glossary;
     private readonly ControlPanelMetrics _metrics;
     private readonly ManualLogSource _logger;
     private readonly HttpClient _httpClient = new();
     private CancellationTokenSource? _cts;
     private Task? _task;
     private DateTimeOffset _nextPendingResumeUtc;
+    private DateTimeOffset _nextGlossaryExtractionUtc;
 
     public TranslationWorkerHost(
         ControlPanelService controlPanel,
         TranslationJobQueue queue,
         ResultDispatcher dispatcher,
         ITranslationCache cache,
+        IGlossaryStore glossary,
         ControlPanelMetrics metrics,
         ManualLogSource logger)
     {
@@ -38,6 +42,7 @@ internal sealed class TranslationWorkerHost : IDisposable
         _queue = queue;
         _dispatcher = dispatcher;
         _cache = cache;
+        _glossary = glossary;
         _metrics = metrics;
         _logger = logger;
     }
@@ -61,6 +66,7 @@ internal sealed class TranslationWorkerHost : IDisposable
                     continue;
                 }
 
+                var provider = CreateProvider(config);
                 if (_queue.PendingCount == 0)
                 {
                     var resumed = ResumePendingTranslations(config);
@@ -70,13 +76,13 @@ internal sealed class TranslationWorkerHost : IDisposable
                     }
                     else
                     {
+                        await TryExtractGlossaryAsync(provider, config, cancellationToken).ConfigureAwait(false);
                         await Task.Delay(40, cancellationToken).ConfigureAwait(false);
                         continue;
                     }
                 }
 
                 var pendingBefore = _queue.PendingCount;
-                var provider = CreateProvider(config);
                 var pool = new TranslationWorkerPool(
                     _queue,
                     _dispatcher,
@@ -84,9 +90,11 @@ internal sealed class TranslationWorkerHost : IDisposable
                     new ProviderRateLimiter(config.RequestsPerMinute),
                     config,
                     _cache,
-                    _metrics);
+                    _metrics,
+                    _glossary);
 
                 await pool.RunUntilIdleAsync(cancellationToken).ConfigureAwait(false);
+                await TryExtractGlossaryAsync(provider, config, cancellationToken).ConfigureAwait(false);
                 _controlPanel.SetLastError(null);
                 _logger.LogInfo($"Translation worker processed {pendingBefore} queued text item(s). Writeback backlog: {_dispatcher.PendingCount}. Cache entries: {_cache.Count}.");
             }
@@ -153,6 +161,35 @@ internal sealed class TranslationWorkerHost : IDisposable
         }
 
         return enqueued;
+    }
+
+    private async Task TryExtractGlossaryAsync(
+        ITranslationProvider provider,
+        RuntimeConfig config,
+        CancellationToken cancellationToken)
+    {
+        if (!config.EnableAutoTermExtraction || _queue.PendingCount > 0)
+        {
+            return;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        if (now < _nextGlossaryExtractionUtc)
+        {
+            return;
+        }
+
+        _nextGlossaryExtractionUtc = now + TimeSpan.FromSeconds(30);
+        var result = await GlossaryExtractionService.ExtractOnceAsync(
+            _cache,
+            _glossary,
+            provider,
+            config,
+            cancellationToken).ConfigureAwait(false);
+        if (result.ImportedCount > 0)
+        {
+            _logger.LogInfo($"Glossary extraction imported {result.ImportedCount} term(s), skipped {result.SkippedCount}.");
+        }
     }
 
     public void Dispose()

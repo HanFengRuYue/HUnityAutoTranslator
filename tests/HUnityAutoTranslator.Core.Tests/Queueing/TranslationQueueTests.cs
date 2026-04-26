@@ -1,4 +1,5 @@
 using FluentAssertions;
+using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Queueing;
 
 namespace HUnityAutoTranslator.Core.Tests.Queueing;
@@ -17,13 +18,35 @@ public sealed class TranslationQueueTests
     }
 
     [Fact]
-    public void Queue_deduplicates_inflight_source_text()
+    public void Queue_deduplicates_same_source_text_in_same_context()
     {
         var queue = new TranslationJobQueue();
-        queue.Enqueue(TranslationJob.Create("a", "Start", TranslationPriority.Normal));
-        queue.Enqueue(TranslationJob.Create("b", "Start", TranslationPriority.VisibleUi));
+        var context = new TranslationCacheContext("Menu", "Canvas/Start", "Text");
+        queue.Enqueue(TranslationJob.Create("a", "Start", TranslationPriority.Normal, context));
+        queue.Enqueue(TranslationJob.Create("b", "Start", TranslationPriority.VisibleUi, context));
 
         queue.PendingCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void Queue_keeps_same_source_text_separate_for_different_contexts()
+    {
+        var queue = new TranslationJobQueue();
+
+        var menuQueued = queue.Enqueue(TranslationJob.Create(
+            "menu",
+            "Back",
+            TranslationPriority.Normal,
+            new TranslationCacheContext("MainMenu", "Canvas/Menu/Back", "Text")));
+        var hudQueued = queue.Enqueue(TranslationJob.Create(
+            "hud",
+            "Back",
+            TranslationPriority.Normal,
+            new TranslationCacheContext("Gameplay", "Canvas/Hud/Back", "Text")));
+
+        menuQueued.Should().BeTrue();
+        hudQueued.Should().BeTrue();
+        queue.PendingCount.Should().Be(2);
     }
 
     [Fact]

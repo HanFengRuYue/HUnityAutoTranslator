@@ -6,13 +6,13 @@ namespace HUnityAutoTranslator.Core.Caching;
 
 public sealed class MemoryTranslationCache : ITranslationCache
 {
-    private readonly ConcurrentDictionary<TranslationCacheKey, TranslationCacheEntry> _items = new();
+    private readonly ConcurrentDictionary<TranslationCacheLookupKey, TranslationCacheEntry> _items = new();
 
     public int Count => _items.Values.Count(item => item.TranslatedText != null);
 
-    public bool TryGet(TranslationCacheKey key, out string translatedText)
+    public bool TryGet(TranslationCacheKey key, TranslationCacheContext? context, out string translatedText)
     {
-        if (_items.TryGetValue(key, out var entry) && entry.TranslatedText != null)
+        if (_items.TryGetValue(TranslationCacheLookupKey.Create(key, context), out var entry) && entry.TranslatedText != null)
         {
             translatedText = entry.TranslatedText;
             return true;
@@ -24,7 +24,7 @@ public sealed class MemoryTranslationCache : ITranslationCache
 
     public bool TryGetReplacementFont(TranslationCacheKey key, TranslationCacheContext context, out string replacementFont)
     {
-        if (_items.TryGetValue(key, out var entry) &&
+        if (_items.TryGetValue(TranslationCacheLookupKey.Create(key, context), out var entry) &&
             !string.IsNullOrWhiteSpace(entry.ReplacementFont) &&
             ContextMatches(entry, context))
         {
@@ -41,12 +41,17 @@ public sealed class MemoryTranslationCache : ITranslationCache
         var now = DateTimeOffset.UtcNow;
         context ??= TranslationCacheContext.Empty;
         _items.AddOrUpdate(
-            key,
+            TranslationCacheLookupKey.Create(key, context),
             _ => ToEntry(key, translatedText: null, context, now, now),
             (_, existing) => existing.TranslatedText != null
                 ? existing
                 : existing with
                 {
+                    ProviderKind = key.ProviderKind.ToString(),
+                    ProviderBaseUrl = key.ProviderBaseUrl,
+                    ProviderEndpoint = key.ProviderEndpoint,
+                    ProviderModel = key.ProviderModel,
+                    PromptPolicyVersion = key.PromptPolicyVersion,
                     SceneName = context.SceneName,
                     ComponentHierarchy = context.ComponentHierarchy,
                     ComponentType = context.ComponentType,
@@ -59,10 +64,15 @@ public sealed class MemoryTranslationCache : ITranslationCache
         var now = DateTimeOffset.UtcNow;
         context ??= TranslationCacheContext.Empty;
         _items.AddOrUpdate(
-            key,
+            TranslationCacheLookupKey.Create(key, context),
             _ => ToEntry(key, translatedText, context, now, now),
             (_, existing) => existing with
             {
+                ProviderKind = key.ProviderKind.ToString(),
+                ProviderBaseUrl = key.ProviderBaseUrl,
+                ProviderEndpoint = key.ProviderEndpoint,
+                ProviderModel = key.ProviderModel,
+                PromptPolicyVersion = key.PromptPolicyVersion,
                 TranslatedText = translatedText,
                 SceneName = context.SceneName,
                 ComponentHierarchy = context.ComponentHierarchy,
@@ -92,6 +102,22 @@ public sealed class MemoryTranslationCache : ITranslationCache
             .ToArray();
     }
 
+    public IReadOnlyList<TranslationContextExample> GetTranslationContextExamples(
+        string currentSourceText,
+        string targetLanguage,
+        TranslationCacheContext? context,
+        int maxExamples,
+        int maxCharacters)
+    {
+        return TranslationContextSelector.Select(
+            _items.Values,
+            currentSourceText,
+            targetLanguage,
+            context,
+            Math.Min(20, Math.Max(0, maxExamples)),
+            Math.Min(8000, Math.Max(0, maxCharacters)));
+    }
+
     public TranslationCachePage Query(TranslationCacheQuery query)
     {
         var rows = _items.Values.AsEnumerable();
@@ -103,9 +129,11 @@ public sealed class MemoryTranslationCache : ITranslationCache
                 Contains(row.TranslatedText, search) ||
                 Contains(row.SceneName, search) ||
                 Contains(row.ComponentHierarchy, search) ||
-                Contains(row.ComponentType, search));
+                Contains(row.ComponentType, search) ||
+                Contains(row.ReplacementFont, search));
         }
 
+        rows = rows.Where(row => TranslationCacheColumns.MatchesFilters(row, query.ColumnFilters));
         rows = Sort(rows, query.SortColumn, query.SortDescending);
         var total = rows.Count();
         var items = rows
@@ -115,15 +143,58 @@ public sealed class MemoryTranslationCache : ITranslationCache
         return new TranslationCachePage(total, items);
     }
 
+    public TranslationCacheFilterOptionPage GetFilterOptions(TranslationCacheFilterOptionsQuery query)
+    {
+        var column = TranslationCacheColumns.NormalizeColumn(query.Column);
+        if (column.Length == 0)
+        {
+            return new TranslationCacheFilterOptionPage(string.Empty, Array.Empty<TranslationCacheFilterOption>());
+        }
+
+        var rows = _items.Values.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var search = query.Search.Trim();
+            rows = rows.Where(row =>
+                Contains(row.SourceText, search) ||
+                Contains(row.TranslatedText, search) ||
+                Contains(row.SceneName, search) ||
+                Contains(row.ComponentHierarchy, search) ||
+                Contains(row.ComponentType, search) ||
+                Contains(row.ReplacementFont, search));
+        }
+
+        rows = rows.Where(row => TranslationCacheColumns.MatchesFilters(
+            row,
+            TranslationCacheColumns.NormalizeFilters(query.ColumnFilters, column)));
+
+        if (!string.IsNullOrWhiteSpace(query.OptionSearch))
+        {
+            var optionSearch = query.OptionSearch.Trim();
+            rows = rows.Where(row => Contains(TranslationCacheColumns.ValueFor(row, column), optionSearch));
+        }
+
+        var limit = Math.Min(500, Math.Max(1, query.Limit));
+        var items = rows
+            .GroupBy(row => TranslationCacheColumns.NormalizeOptionValue(TranslationCacheColumns.ValueFor(row, column)))
+            .Select(group => new TranslationCacheFilterOption(group.Key, group.Count()))
+            .OrderBy(item => item.Value is null ? 0 : 1)
+            .ThenBy(item => item.Value ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .Take(limit)
+            .ToArray();
+
+        return new TranslationCacheFilterOptionPage(column, items);
+    }
+
     public void Update(TranslationCacheEntry entry)
     {
-        var key = ToKey(entry);
-        _items[key] = entry with { UpdatedUtc = entry.UpdatedUtc == default ? DateTimeOffset.UtcNow : entry.UpdatedUtc };
+        var key = TranslationCacheLookupKey.Create(entry);
+        _items[key] = NormalizeEntry(entry) with { UpdatedUtc = entry.UpdatedUtc == default ? DateTimeOffset.UtcNow : entry.UpdatedUtc };
     }
 
     public void Delete(TranslationCacheEntry entry)
     {
-        _items.TryRemove(ToKey(entry), out _);
+        _items.TryRemove(TranslationCacheLookupKey.Create(entry), out _);
     }
 
     public string Export(string format)
@@ -172,25 +243,21 @@ public sealed class MemoryTranslationCache : ITranslationCache
             key.ProviderModel,
             key.PromptPolicyVersion,
             translatedText,
-            context.SceneName,
-            context.ComponentHierarchy,
+            TranslationCacheLookupKey.NormalizeContextPart(context.SceneName),
+            TranslationCacheLookupKey.NormalizeContextPart(context.ComponentHierarchy),
             context.ComponentType,
             ReplacementFont: null,
             createdUtc,
             updatedUtc);
     }
 
-    private static TranslationCacheKey ToKey(TranslationCacheEntry entry)
+    private static TranslationCacheEntry NormalizeEntry(TranslationCacheEntry entry)
     {
-        var kind = Enum.TryParse<ProviderKind>(entry.ProviderKind, out var parsed) ? parsed : ProviderKind.OpenAICompatible;
-        return new TranslationCacheKey(
-            entry.SourceText,
-            entry.TargetLanguage,
-            kind,
-            entry.ProviderBaseUrl,
-            entry.ProviderEndpoint,
-            entry.ProviderModel,
-            entry.PromptPolicyVersion);
+        return entry with
+        {
+            SceneName = TranslationCacheLookupKey.NormalizeContextPart(entry.SceneName),
+            ComponentHierarchy = TranslationCacheLookupKey.NormalizeContextPart(entry.ComponentHierarchy)
+        };
     }
 
     private static TranslationCacheEntry NormalizeImported(TranslationCacheEntry entry)
@@ -227,6 +294,7 @@ public sealed class MemoryTranslationCache : ITranslationCache
             "scene_name" => row => row.SceneName,
             "component_hierarchy" => row => row.ComponentHierarchy,
             "component_type" => row => row.ComponentType,
+            "replacement_font" => row => row.ReplacementFont,
             "created_utc" => row => row.CreatedUtc,
             _ => row => row.UpdatedUtc
         };

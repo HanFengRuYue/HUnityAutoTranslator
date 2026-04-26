@@ -143,6 +143,27 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Plugin_settings_explain_empty_font_fields_use_automatic_selection()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("placeholder=\"留空自动选择，如 Microsoft YaHei / Noto Sans SC\"");
+        htmlSource.Should().Contain("placeholder=\"留空自动选择，如 C:\\Windows\\Fonts\\msyh.ttc\"");
+    }
+
+    [Fact]
+    public void Font_replacement_service_retries_tmp_candidates_and_caches_failures()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+
+        serviceSource.Should().Contain("_failedTmpFontAssetKeys");
+        serviceSource.Should().Contain("ResolveTmpFontAsset");
+        serviceSource.Should().Contain("EnumerateFontCandidates");
+        serviceSource.Should().Contain("foreach (var candidate in EnumerateFontCandidates(config, key, context))");
+        serviceSource.Should().Contain("TMP fallback font asset could not be created from any candidate");
+    }
+
+    [Fact]
     public void Translation_editor_exposes_component_font_override_column()
     {
         var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
@@ -150,6 +171,98 @@ public sealed class ControlPanelHtmlSourceTests
         htmlSource.Should().Contain("key: \"ReplacementFont\"");
         htmlSource.Should().Contain("title: \"替换字体\"");
         htmlSource.Should().Contain("sort: \"replacement_font\"");
+    }
+
+    [Fact]
+    public void Local_http_server_exposes_translation_column_filter_options_endpoint()
+    {
+        var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+
+        serverSource.Should().Contain("path == \"/api/translations/filter-options\"");
+        serverSource.Should().Contain("ParseTranslationFilterOptionsQuery");
+        serverSource.Should().Contain("ParseColumnFilters");
+        serverSource.Should().Contain("filter.");
+        serverSource.Should().Contain("TranslationCacheColumns.EmptyValueMarker");
+    }
+
+    [Fact]
+    public void Translation_editor_exposes_excel_style_column_filters()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("id=\"clearTableFilters\"");
+        htmlSource.Should().Contain("id=\"columnFilterMenu\"");
+        htmlSource.Should().Contain("hunity.editor.columnFilters");
+        htmlSource.Should().Contain("function openColumnFilterMenu(");
+        htmlSource.Should().Contain("function loadColumnFilterOptions(");
+        htmlSource.Should().Contain("function appendColumnFilters(");
+        htmlSource.Should().Contain("/api/translations/filter-options");
+        htmlSource.Should().Contain("filter-active");
+        htmlSource.Should().Contain("data-filter-column");
+    }
+
+    [Fact]
+    public void Control_panel_exposes_translation_context_settings()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("id=\"enableTranslationContext\"");
+        htmlSource.Should().Contain("id=\"translationContextMaxExamples\"");
+        htmlSource.Should().Contain("id=\"translationContextMaxCharacters\"");
+        htmlSource.Should().Contain("EnableTranslationContext");
+        htmlSource.Should().Contain("TranslationContextMaxExamples");
+        htmlSource.Should().Contain("TranslationContextMaxCharacters");
+    }
+
+    [Fact]
+    public void Control_panel_exposes_glossary_page_settings_and_crud_endpoints()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+        var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+        var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Plugin.cs"));
+
+        htmlSource.Should().Contain("data-page=\"glossary\"");
+        htmlSource.Should().Contain("id=\"page-glossary\"");
+        htmlSource.Should().Contain("id=\"enableGlossary\"");
+        htmlSource.Should().Contain("id=\"enableAutoTermExtraction\"");
+        htmlSource.Should().Contain("AI 自动提取默认关闭");
+        htmlSource.Should().Contain("function loadGlossaryTerms()");
+        htmlSource.Should().Contain("function saveGlossaryTerm(");
+        htmlSource.Should().Contain("function deleteGlossaryTerm(");
+        htmlSource.Should().Contain("/api/glossary");
+
+        serverSource.Should().Contain("path == \"/api/glossary\"");
+        serverSource.Should().Contain("IGlossaryStore");
+        serverSource.Should().Contain("GlossaryQuery");
+
+        pluginSource.Should().Contain("translation-glossary.sqlite");
+        pluginSource.Should().Contain("SqliteGlossaryStore");
+    }
+
+    [Fact]
+    public void Translation_editor_exposes_selected_row_retranslate_action()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+        var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+
+        htmlSource.Should().Contain("data-table-action=\"retranslate\"");
+        htmlSource.Should().Contain("function retranslateSelectedRows()");
+        htmlSource.Should().Contain("/api/translations/retranslate");
+        serverSource.Should().Contain("path == \"/api/translations/retranslate\"");
+        serverSource.Should().Contain("TranslationJob.Create");
+    }
+
+    [Fact]
+    public void Translation_editor_exposes_selected_row_highlight_action()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+        var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+
+        htmlSource.Should().Contain("data-table-action=\"highlight\"");
+        htmlSource.Should().Contain("function highlightSelectedRow()");
+        htmlSource.Should().Contain("/api/translations/highlight");
+        serverSource.Should().Contain("path == \"/api/translations/highlight\"");
+        serverSource.Should().Contain("TranslationHighlightRequest.FromEntry");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)

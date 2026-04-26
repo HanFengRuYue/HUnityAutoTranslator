@@ -236,6 +236,9 @@ public sealed class ControlPanelServiceTests
             IgnoreInvisibleText: true,
             SkipNumericSymbolText: true,
             EnableCacheLookup: true,
+            EnableTranslationContext: true,
+            TranslationContextMaxExamples: 7,
+            TranslationContextMaxCharacters: 2400,
             ManualEditsOverrideAi: true,
             ReapplyRememberedTranslations: true,
             CacheRetentionDays: 180));
@@ -254,9 +257,38 @@ public sealed class ControlPanelServiceTests
         state.IgnoreInvisibleText.Should().BeTrue();
         state.SkipNumericSymbolText.Should().BeTrue();
         state.EnableCacheLookup.Should().BeTrue();
+        state.EnableTranslationContext.Should().BeTrue();
+        state.TranslationContextMaxExamples.Should().Be(7);
+        state.TranslationContextMaxCharacters.Should().Be(2400);
         state.ManualEditsOverrideAi.Should().BeTrue();
         state.ReapplyRememberedTranslations.Should().BeTrue();
         state.CacheRetentionDays.Should().Be(180);
+    }
+
+    [Fact]
+    public void CreateDefault_loads_glossary_settings_and_keeps_auto_extraction_disabled_by_default()
+    {
+        var defaults = RuntimeConfig.CreateDefault();
+        defaults.EnableGlossary.Should().BeTrue();
+        defaults.EnableAutoTermExtraction.Should().BeFalse();
+        defaults.GlossaryMaxTerms.Should().BeGreaterThan(0);
+        defaults.GlossaryMaxCharacters.Should().BeGreaterThan(0);
+
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
+        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        first.UpdateConfig(new UpdateConfigRequest(
+            EnableGlossary: false,
+            EnableAutoTermExtraction: true,
+            GlossaryMaxTerms: 7,
+            GlossaryMaxCharacters: 500));
+
+        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var state = second.GetState();
+
+        state.EnableGlossary.Should().BeFalse();
+        state.EnableAutoTermExtraction.Should().BeTrue();
+        state.GlossaryMaxTerms.Should().Be(7);
+        state.GlossaryMaxCharacters.Should().Be(500);
     }
 
     [Fact]

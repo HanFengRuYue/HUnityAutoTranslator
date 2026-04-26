@@ -34,7 +34,7 @@ public sealed class TranslationJobQueue
 
     public bool Enqueue(TranslationJob job)
     {
-        var key = TextNormalizer.NormalizeForCache(job.SourceText);
+        var key = CreateQueueKey(job);
         if (string.IsNullOrEmpty(key))
         {
             return false;
@@ -107,8 +107,23 @@ public sealed class TranslationJobQueue
         {
             foreach (var job in jobs)
             {
-                _inFlightSources.Remove(TextNormalizer.NormalizeForCache(job.SourceText));
+                _inFlightSources.Remove(CreateQueueKey(job));
             }
         }
+    }
+
+    private static string CreateQueueKey(TranslationJob job)
+    {
+        var source = TextNormalizer.NormalizeForCache(job.SourceText);
+        if (source.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        return string.Join(
+            "\u001f",
+            source,
+            job.Context.SceneName ?? string.Empty,
+            job.Context.ComponentHierarchy ?? string.Empty);
     }
 }

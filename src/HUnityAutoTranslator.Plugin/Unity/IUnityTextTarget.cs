@@ -17,4 +17,6 @@ internal interface IUnityTextTarget
     string? GetText();
 
     void SetText(string value);
+
+    bool TryGetScreenRect(out UnityEngine.Rect screenRect);
 }

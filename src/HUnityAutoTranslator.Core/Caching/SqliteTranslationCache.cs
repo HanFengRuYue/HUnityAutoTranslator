@@ -8,9 +8,23 @@ namespace HUnityAutoTranslator.Core.Caching;
 
 public sealed class SqliteTranslationCache : ITranslationCache, IDisposable
 {
-    private const int SchemaVersion = 3;
+    private const int SchemaVersion = 4;
     private static int s_sqliteInitialized;
     private static readonly Dictionary<string, string> SortColumns = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["source_text"] = "source_text",
+        ["translated_text"] = "translated_text",
+        ["target_language"] = "target_language",
+        ["provider_kind"] = "provider_kind",
+        ["provider_model"] = "provider_model",
+        ["scene_name"] = "scene_name",
+        ["component_hierarchy"] = "component_hierarchy",
+        ["component_type"] = "component_type",
+        ["replacement_font"] = "replacement_font",
+        ["created_utc"] = "created_utc",
+        ["updated_utc"] = "updated_utc"
+    };
+    private static readonly Dictionary<string, string> FilterColumns = new(StringComparer.OrdinalIgnoreCase)
     {
         ["source_text"] = "source_text",
         ["translated_text"] = "translated_text",
@@ -53,8 +67,9 @@ public sealed class SqliteTranslationCache : ITranslationCache, IDisposable
         }
     }
 
-    public bool TryGet(TranslationCacheKey key, out string translatedText)
+    public bool TryGet(TranslationCacheKey key, TranslationCacheContext? context, out string translatedText)
     {
+        context ??= TranslationCacheContext.Empty;
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -62,14 +77,11 @@ SELECT translated_text
 FROM translations
 WHERE source_text = $source_text
   AND target_language = $target_language
-  AND provider_kind = $provider_kind
-  AND provider_base_url = $provider_base_url
-  AND provider_endpoint = $provider_endpoint
-  AND provider_model = $provider_model
-  AND prompt_policy_version = $prompt_policy_version
+  AND scene_name = $scene_name
+  AND component_hierarchy = $component_hierarchy
   AND translated_text IS NOT NULL;
 """;
-        AddKeyParameters(command, key);
+        AddLookupParameters(command, key, context);
         var result = command.ExecuteScalar();
         if (result is string value)
         {
@@ -90,20 +102,13 @@ SELECT replacement_font
 FROM translations
 WHERE source_text = $source_text
   AND target_language = $target_language
-  AND provider_kind = $provider_kind
-  AND provider_base_url = $provider_base_url
-  AND provider_endpoint = $provider_endpoint
-  AND provider_model = $provider_model
-  AND prompt_policy_version = $prompt_policy_version
-  AND scene_name IS $scene_name
-  AND component_hierarchy IS $component_hierarchy
+  AND scene_name = $scene_name
+  AND component_hierarchy = $component_hierarchy
   AND component_type IS $component_type
   AND replacement_font IS NOT NULL
   AND replacement_font <> '';
 """;
-        AddKeyParameters(command, key);
-        command.Parameters.AddWithValue("$scene_name", ToDbValue(context.SceneName));
-        command.Parameters.AddWithValue("$component_hierarchy", ToDbValue(context.ComponentHierarchy));
+        AddLookupParameters(command, key, context);
         command.Parameters.AddWithValue("$component_type", ToDbValue(context.ComponentType));
         var result = command.ExecuteScalar();
         if (result is string value)
@@ -157,20 +162,22 @@ VALUES (
 ON CONFLICT(
     source_text,
     target_language,
-    provider_kind,
-    provider_base_url,
-    provider_endpoint,
-    provider_model,
-    prompt_policy_version)
+    scene_name,
+    component_hierarchy)
 DO UPDATE SET
+    provider_kind = CASE WHEN translations.translated_text IS NULL THEN excluded.provider_kind ELSE translations.provider_kind END,
+    provider_base_url = CASE WHEN translations.translated_text IS NULL THEN excluded.provider_base_url ELSE translations.provider_base_url END,
+    provider_endpoint = CASE WHEN translations.translated_text IS NULL THEN excluded.provider_endpoint ELSE translations.provider_endpoint END,
+    provider_model = CASE WHEN translations.translated_text IS NULL THEN excluded.provider_model ELSE translations.provider_model END,
+    prompt_policy_version = CASE WHEN translations.translated_text IS NULL THEN excluded.prompt_policy_version ELSE translations.prompt_policy_version END,
     scene_name = CASE WHEN translations.translated_text IS NULL THEN excluded.scene_name ELSE translations.scene_name END,
     component_hierarchy = CASE WHEN translations.translated_text IS NULL THEN excluded.component_hierarchy ELSE translations.component_hierarchy END,
     component_type = CASE WHEN translations.translated_text IS NULL THEN excluded.component_type ELSE translations.component_type END,
     updated_utc = CASE WHEN translations.translated_text IS NULL THEN excluded.updated_utc ELSE translations.updated_utc END;
 """;
         AddKeyParameters(command, key);
-        command.Parameters.AddWithValue("$scene_name", ToDbValue(context.SceneName));
-        command.Parameters.AddWithValue("$component_hierarchy", ToDbValue(context.ComponentHierarchy));
+        command.Parameters.AddWithValue("$scene_name", TranslationCacheLookupKey.NormalizeContextPart(context.SceneName));
+        command.Parameters.AddWithValue("$component_hierarchy", TranslationCacheLookupKey.NormalizeContextPart(context.ComponentHierarchy));
         command.Parameters.AddWithValue("$component_type", ToDbValue(context.ComponentType));
         command.Parameters.AddWithValue("$now_utc", nowUtc);
         command.ExecuteNonQuery();
@@ -217,12 +224,14 @@ VALUES (
 ON CONFLICT(
     source_text,
     target_language,
-    provider_kind,
-    provider_base_url,
-    provider_endpoint,
-    provider_model,
-    prompt_policy_version)
+    scene_name,
+    component_hierarchy)
 DO UPDATE SET
+    provider_kind = excluded.provider_kind,
+    provider_base_url = excluded.provider_base_url,
+    provider_endpoint = excluded.provider_endpoint,
+    provider_model = excluded.provider_model,
+    prompt_policy_version = excluded.prompt_policy_version,
     translated_text = excluded.translated_text,
     scene_name = excluded.scene_name,
     component_hierarchy = excluded.component_hierarchy,
@@ -231,8 +240,8 @@ DO UPDATE SET
 """;
         AddKeyParameters(command, key);
         command.Parameters.AddWithValue("$translated_text", translatedText);
-        command.Parameters.AddWithValue("$scene_name", ToDbValue(context.SceneName));
-        command.Parameters.AddWithValue("$component_hierarchy", ToDbValue(context.ComponentHierarchy));
+        command.Parameters.AddWithValue("$scene_name", TranslationCacheLookupKey.NormalizeContextPart(context.SceneName));
+        command.Parameters.AddWithValue("$component_hierarchy", TranslationCacheLookupKey.NormalizeContextPart(context.ComponentHierarchy));
         command.Parameters.AddWithValue("$component_type", ToDbValue(context.ComponentType));
         command.Parameters.AddWithValue("$now_utc", nowUtc);
         command.ExecuteNonQuery();
@@ -291,6 +300,82 @@ LIMIT $limit;
         return rows;
     }
 
+    public IReadOnlyList<TranslationContextExample> GetTranslationContextExamples(
+        string currentSourceText,
+        string targetLanguage,
+        TranslationCacheContext? context,
+        int maxExamples,
+        int maxCharacters)
+    {
+        context ??= TranslationCacheContext.Empty;
+        var sceneName = TranslationCacheLookupKey.NormalizeContextPart(context.SceneName);
+        if (sceneName.Length == 0 || maxExamples <= 0 || maxCharacters <= 0)
+        {
+            return Array.Empty<TranslationContextExample>();
+        }
+
+        using var connection = OpenConnection();
+        var rows = new List<TranslationCacheEntry>();
+        var componentHierarchy = TranslationCacheLookupKey.NormalizeContextPart(context.ComponentHierarchy);
+        if (componentHierarchy.Length > 0)
+        {
+            AddRows(componentHierarchy);
+        }
+
+        AddRows(componentHierarchyFilter: null);
+
+        return TranslationContextSelector.Select(
+            rows,
+            currentSourceText,
+            targetLanguage,
+            context,
+            Math.Min(20, Math.Max(0, maxExamples)),
+            Math.Min(8000, Math.Max(0, maxCharacters)));
+
+        void AddRows(string? componentHierarchyFilter)
+        {
+            using var command = connection.CreateCommand();
+            var componentClause = componentHierarchyFilter == null
+                ? string.Empty
+                : "  AND component_hierarchy = $component_hierarchy\n";
+            command.CommandText = """
+SELECT source_text,
+       target_language,
+       provider_kind,
+       provider_base_url,
+       provider_endpoint,
+       provider_model,
+       prompt_policy_version,
+       translated_text,
+       scene_name,
+       component_hierarchy,
+       component_type,
+       replacement_font,
+       created_utc,
+       updated_utc
+FROM translations
+WHERE target_language = $target_language
+  AND scene_name = $scene_name
+""" + componentClause + """
+  AND translated_text IS NOT NULL
+ORDER BY updated_utc DESC
+LIMIT 200;
+""";
+            command.Parameters.AddWithValue("$target_language", targetLanguage);
+            command.Parameters.AddWithValue("$scene_name", sceneName);
+            if (componentHierarchyFilter != null)
+            {
+                command.Parameters.AddWithValue("$component_hierarchy", componentHierarchyFilter);
+            }
+
+            using var reader = command.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add(ReadEntry(reader));
+            }
+        }
+    }
+
     public TranslationCachePage Query(TranslationCacheQuery query)
     {
         var sortColumn = SortColumns.TryGetValue(query.SortColumn, out var column) ? column : "updated_utc";
@@ -301,7 +386,8 @@ LIMIT $limit;
 
         using var connection = OpenConnection();
         using var countCommand = connection.CreateCommand();
-        countCommand.CommandText = "SELECT COUNT(*) FROM translations" + WhereClause(hasSearch) + ";";
+        var countWhereClause = BuildWhereClause(hasSearch, query.ColumnFilters, countCommand);
+        countCommand.CommandText = "SELECT COUNT(*) FROM translations" + countWhereClause + ";";
         if (hasSearch)
         {
             countCommand.Parameters.AddWithValue("$search", "%" + query.Search!.Trim() + "%");
@@ -310,6 +396,7 @@ LIMIT $limit;
         var total = Convert.ToInt32(countCommand.ExecuteScalar());
 
         using var command = connection.CreateCommand();
+        var whereClause = BuildWhereClause(hasSearch, query.ColumnFilters, command);
         command.CommandText = $"""
 SELECT source_text,
        target_language,
@@ -326,7 +413,7 @@ SELECT source_text,
        created_utc,
        updated_utc
 FROM translations
-{WhereClause(hasSearch)}
+{whereClause}
 ORDER BY {sortColumn} {direction}
 LIMIT $limit OFFSET $offset;
 """;
@@ -346,6 +433,63 @@ LIMIT $limit OFFSET $offset;
         }
 
         return new TranslationCachePage(total, rows);
+    }
+
+    public TranslationCacheFilterOptionPage GetFilterOptions(TranslationCacheFilterOptionsQuery query)
+    {
+        var column = TranslationCacheColumns.NormalizeColumn(query.Column);
+        if (!FilterColumns.TryGetValue(column, out var columnName))
+        {
+            return new TranslationCacheFilterOptionPage(string.Empty, Array.Empty<TranslationCacheFilterOption>());
+        }
+
+        var limit = Math.Min(500, Math.Max(1, query.Limit));
+        var hasSearch = !string.IsNullOrWhiteSpace(query.Search);
+        var hasOptionSearch = !string.IsNullOrWhiteSpace(query.OptionSearch);
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var filters = TranslationCacheColumns.NormalizeFilters(query.ColumnFilters, column);
+        var whereClause = BuildWhereClause(hasSearch, filters, command);
+
+        var optionSearchClause = hasOptionSearch
+            ? $" AND COALESCE({columnName}, '') LIKE $option_search"
+            : string.Empty;
+        if (whereClause.Length == 0 && hasOptionSearch)
+        {
+            optionSearchClause = $" WHERE COALESCE({columnName}, '') LIKE $option_search";
+        }
+
+        command.CommandText = $"""
+SELECT NULLIF({columnName}, '') AS value,
+       COUNT(*) AS count
+FROM translations
+{whereClause}{optionSearchClause}
+GROUP BY NULLIF({columnName}, '')
+ORDER BY value IS NOT NULL, value COLLATE NOCASE
+LIMIT $limit;
+""";
+        if (hasSearch)
+        {
+            command.Parameters.AddWithValue("$search", "%" + query.Search!.Trim() + "%");
+        }
+
+        if (hasOptionSearch)
+        {
+            command.Parameters.AddWithValue("$option_search", "%" + query.OptionSearch!.Trim() + "%");
+        }
+
+        command.Parameters.AddWithValue("$limit", limit);
+
+        var items = new List<TranslationCacheFilterOption>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            items.Add(new TranslationCacheFilterOption(
+                reader.IsDBNull(0) ? null : reader.GetString(0),
+                Convert.ToInt32(reader.GetValue(1))));
+        }
+
+        return new TranslationCacheFilterOptionPage(column, items);
     }
 
     public void Update(TranslationCacheEntry entry)
@@ -388,12 +532,14 @@ VALUES (
 ON CONFLICT(
     source_text,
     target_language,
-    provider_kind,
-    provider_base_url,
-    provider_endpoint,
-    provider_model,
-    prompt_policy_version)
+    scene_name,
+    component_hierarchy)
 DO UPDATE SET
+    provider_kind = excluded.provider_kind,
+    provider_base_url = excluded.provider_base_url,
+    provider_endpoint = excluded.provider_endpoint,
+    provider_model = excluded.provider_model,
+    prompt_policy_version = excluded.prompt_policy_version,
     translated_text = excluded.translated_text,
     scene_name = excluded.scene_name,
     component_hierarchy = excluded.component_hierarchy,
@@ -413,11 +559,8 @@ DO UPDATE SET
 DELETE FROM translations
 WHERE source_text = $source_text
   AND target_language = $target_language
-  AND provider_kind = $provider_kind
-  AND provider_base_url = $provider_base_url
-  AND provider_endpoint = $provider_endpoint
-  AND provider_model = $provider_model
-  AND prompt_policy_version = $prompt_policy_version;
+  AND scene_name = $scene_name
+  AND component_hierarchy = $component_hierarchy;
 """;
         AddEntryKeyParameters(command, entry);
         command.ExecuteNonQuery();
@@ -480,19 +623,8 @@ WHERE source_text = $source_text
         }
 
         var columns = GetColumnNames(connection, "translations");
-        if (IsCurrentSchema(columns))
+        if (IsCurrentSchema(connection, columns))
         {
-            if (IsColumnNotNull(connection, "translated_text"))
-            {
-                MigrateReadableSchemaToNullable(connection);
-                return;
-            }
-
-            if (!columns.Contains("replacement_font"))
-            {
-                AddReplacementFontColumn(connection);
-            }
-
             EnsureCurrentMetadata(connection);
             return;
         }
@@ -542,59 +674,6 @@ COMMIT;
         CreateCurrentSchema(connection);
     }
 
-    private static void MigrateReadableSchemaToNullable(SqliteConnection connection)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = $"""
-BEGIN IMMEDIATE;
-DROP TABLE IF EXISTS translations_before_nullable;
-ALTER TABLE translations RENAME TO translations_before_nullable;
-{CreateCurrentSchemaSql()}
-INSERT INTO translations (
-    source_text,
-    target_language,
-    provider_kind,
-    provider_base_url,
-    provider_endpoint,
-    provider_model,
-    prompt_policy_version,
-    translated_text,
-    scene_name,
-    component_hierarchy,
-    component_type,
-    replacement_font,
-    created_utc,
-    updated_utc)
-SELECT source_text,
-       target_language,
-       provider_kind,
-       provider_base_url,
-       provider_endpoint,
-       provider_model,
-       prompt_policy_version,
-       translated_text,
-       scene_name,
-       component_hierarchy,
-       component_type,
-       NULL,
-       created_utc,
-       updated_utc
-FROM translations_before_nullable;
-DROP TABLE translations_before_nullable;
-CREATE INDEX IF NOT EXISTS ix_translations_updated_utc ON translations (updated_utc);
-PRAGMA user_version={SchemaVersion};
-COMMIT;
-""";
-        command.ExecuteNonQuery();
-    }
-
-    private static void AddReplacementFontColumn(SqliteConnection connection)
-    {
-        using var command = connection.CreateCommand();
-        command.CommandText = "ALTER TABLE translations ADD COLUMN replacement_font TEXT NULL;";
-        command.ExecuteNonQuery();
-    }
-
     private static string CreateCurrentSchemaSql()
     {
         return $"""
@@ -607,8 +686,8 @@ CREATE TABLE IF NOT EXISTS translations (
     provider_model TEXT NOT NULL,
     prompt_policy_version TEXT NOT NULL,
     translated_text TEXT NULL,
-    scene_name TEXT NULL,
-    component_hierarchy TEXT NULL,
+    scene_name TEXT NOT NULL,
+    component_hierarchy TEXT NOT NULL,
     component_type TEXT NULL,
     replacement_font TEXT NULL,
     created_utc TEXT NOT NULL,
@@ -616,11 +695,8 @@ CREATE TABLE IF NOT EXISTS translations (
     PRIMARY KEY (
         source_text,
         target_language,
-        provider_kind,
-        provider_base_url,
-        provider_endpoint,
-        provider_model,
-        prompt_policy_version)
+        scene_name,
+        component_hierarchy)
 );
 CREATE INDEX IF NOT EXISTS ix_translations_updated_utc ON translations (updated_utc);
 PRAGMA user_version={SchemaVersion};
@@ -658,7 +734,7 @@ PRAGMA user_version={SchemaVersion};
         return Convert.ToInt32(command.ExecuteScalar()) != 0;
     }
 
-    private static bool IsCurrentSchema(HashSet<string> columns)
+    private static bool IsCurrentSchema(SqliteConnection connection, HashSet<string> columns)
     {
         return columns.Contains("source_text")
             && columns.Contains("target_language")
@@ -672,7 +748,31 @@ PRAGMA user_version={SchemaVersion};
             && columns.Contains("component_hierarchy")
             && columns.Contains("component_type")
             && columns.Contains("created_utc")
-            && columns.Contains("updated_utc");
+            && columns.Contains("updated_utc")
+            && !IsColumnNotNull(connection, "translated_text")
+            && IsColumnNotNull(connection, "scene_name")
+            && IsColumnNotNull(connection, "component_hierarchy")
+            && IsCurrentPrimaryKey(connection);
+    }
+
+    private static bool IsCurrentPrimaryKey(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT name FROM pragma_table_info('translations') WHERE pk > 0 ORDER BY pk;";
+        using var reader = command.ExecuteReader();
+        var columns = new List<string>();
+        while (reader.Read())
+        {
+            columns.Add(reader.GetString(0));
+        }
+
+        return columns.SequenceEqual(new[]
+        {
+            "source_text",
+            "target_language",
+            "scene_name",
+            "component_hierarchy"
+        });
     }
 
     private static void AddKeyParameters(SqliteCommand command, TranslationCacheKey key)
@@ -686,12 +786,18 @@ PRAGMA user_version={SchemaVersion};
         command.Parameters.AddWithValue("$prompt_policy_version", key.PromptPolicyVersion);
     }
 
+    private static void AddLookupParameters(SqliteCommand command, TranslationCacheKey key, TranslationCacheContext context)
+    {
+        command.Parameters.AddWithValue("$source_text", key.SourceText);
+        command.Parameters.AddWithValue("$target_language", key.TargetLanguage);
+        command.Parameters.AddWithValue("$scene_name", TranslationCacheLookupKey.NormalizeContextPart(context.SceneName));
+        command.Parameters.AddWithValue("$component_hierarchy", TranslationCacheLookupKey.NormalizeContextPart(context.ComponentHierarchy));
+    }
+
     private static void AddEntryParameters(SqliteCommand command, TranslationCacheEntry entry, string createdUtc, string updatedUtc)
     {
         AddEntryKeyParameters(command, entry);
         command.Parameters.AddWithValue("$translated_text", entry.TranslatedText == null ? DBNull.Value : entry.TranslatedText);
-        command.Parameters.AddWithValue("$scene_name", ToDbValue(entry.SceneName));
-        command.Parameters.AddWithValue("$component_hierarchy", ToDbValue(entry.ComponentHierarchy));
         command.Parameters.AddWithValue("$component_type", ToDbValue(entry.ComponentType));
         command.Parameters.AddWithValue("$replacement_font", ToDbValue(entry.ReplacementFont));
         command.Parameters.AddWithValue("$created_utc", createdUtc);
@@ -707,20 +813,60 @@ PRAGMA user_version={SchemaVersion};
         command.Parameters.AddWithValue("$provider_endpoint", entry.ProviderEndpoint);
         command.Parameters.AddWithValue("$provider_model", entry.ProviderModel);
         command.Parameters.AddWithValue("$prompt_policy_version", entry.PromptPolicyVersion);
+        command.Parameters.AddWithValue("$scene_name", TranslationCacheLookupKey.NormalizeContextPart(entry.SceneName));
+        command.Parameters.AddWithValue("$component_hierarchy", TranslationCacheLookupKey.NormalizeContextPart(entry.ComponentHierarchy));
     }
 
-    private static string WhereClause(bool hasSearch)
+    private static string BuildWhereClause(
+        bool hasSearch,
+        IReadOnlyList<TranslationCacheColumnFilter>? filters,
+        SqliteCommand command)
     {
-        return hasSearch
-            ? """
- WHERE source_text LIKE $search
+        var parts = new List<string>();
+        if (hasSearch)
+        {
+            parts.Add("""
+(source_text LIKE $search
     OR translated_text LIKE $search
     OR scene_name LIKE $search
     OR component_hierarchy LIKE $search
     OR component_type LIKE $search
-    OR replacement_font LIKE $search
-"""
-            : string.Empty;
+    OR replacement_font LIKE $search)
+""");
+        }
+
+        var filterIndex = 0;
+        foreach (var filter in TranslationCacheColumns.NormalizeFilters(filters))
+        {
+            if (!FilterColumns.TryGetValue(filter.Column, out var columnName))
+            {
+                continue;
+            }
+
+            var valueParts = new List<string>();
+            for (var valueIndex = 0; valueIndex < filter.Values.Count; valueIndex++)
+            {
+                var value = filter.Values[valueIndex];
+                if (string.IsNullOrEmpty(value))
+                {
+                    valueParts.Add($"({columnName} IS NULL OR {columnName} = '')");
+                    continue;
+                }
+
+                var parameterName = $"$filter_{filterIndex}_{valueIndex}";
+                valueParts.Add($"{columnName} = {parameterName}");
+                command.Parameters.AddWithValue(parameterName, value);
+            }
+
+            if (valueParts.Count > 0)
+            {
+                parts.Add("(" + string.Join(" OR ", valueParts) + ")");
+            }
+
+            filterIndex++;
+        }
+
+        return parts.Count == 0 ? string.Empty : " WHERE " + string.Join(" AND ", parts);
     }
 
     private static TranslationCacheEntry ReadEntry(SqliteDataReader reader)
@@ -734,8 +880,8 @@ PRAGMA user_version={SchemaVersion};
             ProviderModel: reader.GetString(5),
             PromptPolicyVersion: reader.GetString(6),
             TranslatedText: reader.IsDBNull(7) ? null : reader.GetString(7),
-            SceneName: reader.IsDBNull(8) ? null : reader.GetString(8),
-            ComponentHierarchy: reader.IsDBNull(9) ? null : reader.GetString(9),
+            SceneName: reader.IsDBNull(8) ? string.Empty : reader.GetString(8),
+            ComponentHierarchy: reader.IsDBNull(9) ? string.Empty : reader.GetString(9),
             ComponentType: reader.IsDBNull(10) ? null : reader.GetString(10),
             ReplacementFont: reader.IsDBNull(11) ? null : reader.GetString(11),
             CreatedUtc: ParseDate(reader.GetString(12)),
@@ -760,8 +906,8 @@ PRAGMA user_version={SchemaVersion};
                 Required(item, "provider_model", "ProviderModel"),
                 Required(item, "prompt_policy_version", "PromptPolicyVersion"),
                 Optional(item, "translated_text", "TranslatedText"),
-                Optional(item, "scene_name", "SceneName"),
-                Optional(item, "component_hierarchy", "ComponentHierarchy"),
+                TranslationCacheLookupKey.NormalizeContextPart(Optional(item, "scene_name", "SceneName")),
+                TranslationCacheLookupKey.NormalizeContextPart(Optional(item, "component_hierarchy", "ComponentHierarchy")),
                 Optional(item, "component_type", "ComponentType"),
                 Optional(item, "replacement_font", "ReplacementFont"),
                 createdUtc == default ? now : createdUtc,

@@ -2,6 +2,7 @@ using FluentAssertions;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Control;
+using HUnityAutoTranslator.Core.Glossary;
 using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Queueing;
 
@@ -23,6 +24,44 @@ public sealed class TextPipelineTests
 
         decision.Kind.Should().Be(PipelineDecisionKind.UseCachedTranslation);
         decision.TranslatedText.Should().Be("开始游戏");
+        queue.PendingCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void Process_skips_cached_translation_when_required_glossary_term_is_missing()
+    {
+        var cache = new MemoryTranslationCache();
+        var glossary = new MemoryGlossaryStore();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var key = TranslationCacheKey.Create("Find Freddy", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.Set(key, "找到佛莱迪");
+        glossary.UpsertManual(GlossaryTerm.CreateManual("Freddy", "弗雷迪", config.TargetLanguage, null));
+        var pipeline = new TextPipeline(cache, queue, config, metrics: null, glossary: glossary);
+
+        var decision = pipeline.Process(new CapturedText("ui-1", "Find Freddy", isVisible: true));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.Queued);
+        queue.PendingCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void Process_uses_capture_context_when_reading_cached_translation()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var key = TranslationCacheKey.Create("Back", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        var menuContext = new TranslationCacheContext("MainMenu", "Canvas/Menu/Back", "UnityEngine.UI.Text");
+        var hudContext = new TranslationCacheContext("Gameplay", "Canvas/Hud/Back", "UnityEngine.UI.Text");
+        cache.Set(key, "返回菜单", menuContext);
+        cache.Set(key, "返回", hudContext);
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.Process(new CapturedText("menu-back", "Back", isVisible: true, menuContext));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.UseCachedTranslation);
+        decision.TranslatedText.Should().Be("返回菜单");
         queue.PendingCount.Should().Be(0);
     }
 

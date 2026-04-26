@@ -5,4 +5,5 @@ public sealed record TranslationCacheQuery(
     string SortColumn,
     bool SortDescending,
     int Offset,
-    int Limit);
+    int Limit,
+    IReadOnlyList<TranslationCacheColumnFilter>? ColumnFilters = null);

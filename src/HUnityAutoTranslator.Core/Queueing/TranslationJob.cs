@@ -7,15 +7,17 @@ public sealed record TranslationJob(
     string SourceText,
     TranslationPriority Priority,
     TranslationCacheContext Context,
-    bool PublishResult)
+    bool PublishResult,
+    string? TargetLanguage)
 {
     public static TranslationJob Create(
         string id,
         string sourceText,
         TranslationPriority priority,
         TranslationCacheContext? context = null,
-        bool publishResult = true)
+        bool publishResult = true,
+        string? targetLanguage = null)
     {
-        return new TranslationJob(id, sourceText, priority, context ?? TranslationCacheContext.Empty, publishResult);
+        return new TranslationJob(id, sourceText, priority, context ?? TranslationCacheContext.Empty, publishResult, targetLanguage);
     }
 }

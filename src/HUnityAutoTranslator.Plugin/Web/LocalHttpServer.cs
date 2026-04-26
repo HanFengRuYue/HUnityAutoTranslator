@@ -5,8 +5,10 @@ using BepInEx.Logging;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Dispatching;
+using HUnityAutoTranslator.Core.Glossary;
 using HUnityAutoTranslator.Core.Providers;
 using HUnityAutoTranslator.Core.Queueing;
+using HUnityAutoTranslator.Plugin.Unity;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -16,8 +18,10 @@ internal sealed class LocalHttpServer : IDisposable
 {
     private readonly ControlPanelService _controlPanel;
     private readonly ITranslationCache _cache;
+    private readonly IGlossaryStore _glossary;
     private readonly TranslationJobQueue _queue;
     private readonly ResultDispatcher _dispatcher;
+    private readonly UnityTextHighlighter? _highlighter;
     private readonly HttpClient _httpClient = new();
     private readonly ProviderUtilityClient _providerUtilityClient;
     private readonly ManualLogSource _logger;
@@ -29,14 +33,18 @@ internal sealed class LocalHttpServer : IDisposable
     public LocalHttpServer(
         ControlPanelService controlPanel,
         ITranslationCache cache,
+        IGlossaryStore glossary,
         TranslationJobQueue queue,
         ResultDispatcher dispatcher,
+        UnityTextHighlighter? highlighter,
         ManualLogSource logger)
     {
         _controlPanel = controlPanel;
         _cache = cache;
+        _glossary = glossary;
         _queue = queue;
         _dispatcher = dispatcher;
+        _highlighter = highlighter;
         _providerUtilityClient = new ProviderUtilityClient(_httpClient, _controlPanel.GetApiKey);
         _logger = logger;
     }
@@ -127,6 +135,110 @@ internal sealed class LocalHttpServer : IDisposable
             else if (context.Request.HttpMethod == "GET" && path == "/api/translations")
             {
                 await WriteJsonAsync(context.Response, _cache.Query(ParseTranslationQuery(context.Request))).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "GET" && path == "/api/glossary")
+            {
+                await WriteJsonAsync(context.Response, _glossary.Query(ParseGlossaryQuery(context.Request))).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/glossary")
+            {
+                var request = await ReadJsonAsync<GlossaryTermRequest>(context.Request).ConfigureAwait(false);
+                if (request == null || string.IsNullOrWhiteSpace(request.SourceTerm) || string.IsNullOrWhiteSpace(request.TargetTerm))
+                {
+                    context.Response.StatusCode = 400;
+                    await WriteTextAsync(context.Response, "Missing glossary term.").ConfigureAwait(false);
+                    return;
+                }
+
+                var term = GlossaryTerm.CreateManual(
+                    request.SourceTerm,
+                    request.TargetTerm,
+                    string.IsNullOrWhiteSpace(request.TargetLanguage) ? _controlPanel.GetConfig().TargetLanguage : request.TargetLanguage!,
+                    request.Note) with
+                {
+                    Enabled = request.Enabled ?? true
+                };
+                _glossary.UpsertManual(term);
+                await WriteJsonAsync(context.Response, _glossary.Query(new GlossaryQuery(null, "updated_utc", true, 0, 100))).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "PATCH" && path == "/api/glossary")
+            {
+                var request = await ReadJsonAsync<GlossaryTermRequest>(context.Request).ConfigureAwait(false);
+                if (request == null || string.IsNullOrWhiteSpace(request.SourceTerm) || string.IsNullOrWhiteSpace(request.TargetTerm))
+                {
+                    context.Response.StatusCode = 400;
+                    await WriteTextAsync(context.Response, "Missing glossary term.").ConfigureAwait(false);
+                    return;
+                }
+
+                var term = GlossaryTerm.CreateManual(
+                    request.SourceTerm,
+                    request.TargetTerm,
+                    string.IsNullOrWhiteSpace(request.TargetLanguage) ? _controlPanel.GetConfig().TargetLanguage : request.TargetLanguage!,
+                    request.Note) with
+                {
+                    Enabled = request.Enabled ?? true,
+                    UsageCount = request.UsageCount ?? 0
+                };
+                _glossary.UpsertManual(term);
+                await WriteJsonAsync(context.Response, _glossary.Query(new GlossaryQuery(null, "updated_utc", true, 0, 100))).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "DELETE" && path == "/api/glossary")
+            {
+                var entries = await ReadJsonAsync<List<GlossaryTermRequest>>(context.Request).ConfigureAwait(false);
+                if (entries == null || entries.Count == 0)
+                {
+                    context.Response.StatusCode = 400;
+                    await WriteTextAsync(context.Response, "Missing glossary rows.").ConfigureAwait(false);
+                    return;
+                }
+
+                foreach (var entry in entries)
+                {
+                    if (!string.IsNullOrWhiteSpace(entry.SourceTerm))
+                    {
+                        _glossary.Delete(GlossaryTerm.CreateManual(
+                            entry.SourceTerm,
+                            string.IsNullOrWhiteSpace(entry.TargetTerm) ? entry.SourceTerm : entry.TargetTerm!,
+                            string.IsNullOrWhiteSpace(entry.TargetLanguage) ? _controlPanel.GetConfig().TargetLanguage : entry.TargetLanguage!,
+                            entry.Note));
+                    }
+                }
+
+                await WriteJsonAsync(context.Response, new { DeletedCount = entries.Count }).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "GET" && path == "/api/translations/filter-options")
+            {
+                await WriteJsonAsync(context.Response, _cache.GetFilterOptions(ParseTranslationFilterOptionsQuery(context.Request))).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/translations/retranslate")
+            {
+                var entries = await ReadJsonAsync<List<TranslationCacheEntry>>(context.Request).ConfigureAwait(false);
+                if (entries == null || entries.Count == 0)
+                {
+                    context.Response.StatusCode = 400;
+                    await WriteTextAsync(context.Response, "Missing translation rows.").ConfigureAwait(false);
+                    return;
+                }
+
+                var queued = QueueRetranslations(entries);
+                await WriteJsonAsync(context.Response, new { RequestedCount = entries.Count, QueuedCount = queued }).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/translations/highlight")
+            {
+                var entry = await ReadJsonAsync<TranslationCacheEntry>(context.Request).ConfigureAwait(false);
+                if (entry == null)
+                {
+                    context.Response.StatusCode = 400;
+                    await WriteTextAsync(context.Response, "Missing translation row.").ConfigureAwait(false);
+                    return;
+                }
+
+                var request = TranslationHighlightRequest.FromEntry(entry);
+                var result = _highlighter == null
+                    ? TranslationHighlightResult.UnsupportedTarget()
+                    : _highlighter.RequestHighlight(request);
+                await WriteJsonAsync(context.Response, result).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "PATCH" && path == "/api/translations")
             {
@@ -221,7 +333,91 @@ internal sealed class LocalHttpServer : IDisposable
             SortColumn: parameters["sort"] ?? "updated_utc",
             SortDescending: string.Equals(parameters["direction"], "desc", StringComparison.OrdinalIgnoreCase),
             Offset: int.TryParse(parameters["offset"], out var offset) ? offset : 0,
+            Limit: int.TryParse(parameters["limit"], out var limit) ? limit : 100,
+            ColumnFilters: ParseColumnFilters(parameters));
+    }
+
+    private static GlossaryQuery ParseGlossaryQuery(HttpListenerRequest request)
+    {
+        var parameters = request.QueryString;
+        return new GlossaryQuery(
+            Search: parameters["search"],
+            SortColumn: parameters["sort"] ?? "updated_utc",
+            SortDescending: string.Equals(parameters["direction"], "desc", StringComparison.OrdinalIgnoreCase),
+            Offset: int.TryParse(parameters["offset"], out var offset) ? offset : 0,
             Limit: int.TryParse(parameters["limit"], out var limit) ? limit : 100);
+    }
+
+    private static TranslationCacheFilterOptionsQuery ParseTranslationFilterOptionsQuery(HttpListenerRequest request)
+    {
+        var parameters = request.QueryString;
+        var column = TranslationCacheColumns.NormalizeColumn(parameters["column"]);
+        return new TranslationCacheFilterOptionsQuery(
+            Column: column,
+            Search: parameters["search"],
+            ColumnFilters: ParseColumnFilters(parameters)
+                .Where(filter => !string.Equals(filter.Column, column, StringComparison.OrdinalIgnoreCase))
+                .ToArray(),
+            OptionSearch: parameters["optionSearch"],
+            Limit: int.TryParse(parameters["limit"], out var limit) ? limit : 100);
+    }
+
+    private static IReadOnlyList<TranslationCacheColumnFilter> ParseColumnFilters(System.Collections.Specialized.NameValueCollection parameters)
+    {
+        var filters = new List<TranslationCacheColumnFilter>();
+        foreach (var key in parameters.AllKeys)
+        {
+            if (key == null || !key.StartsWith("filter.", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var column = TranslationCacheColumns.NormalizeColumn(key.Substring("filter.".Length));
+            if (column.Length == 0)
+            {
+                continue;
+            }
+
+            var values = parameters.GetValues(key)?
+                .Select(value => string.Equals(value, TranslationCacheColumns.EmptyValueMarker, StringComparison.Ordinal)
+                    ? null
+                    : TranslationCacheColumns.NormalizeFilterValue(value))
+                .ToArray() ?? Array.Empty<string?>();
+            if (values.Length == 0)
+            {
+                continue;
+            }
+
+            filters.Add(new TranslationCacheColumnFilter(column, values));
+        }
+
+        return filters;
+    }
+
+    private int QueueRetranslations(IReadOnlyList<TranslationCacheEntry> entries)
+    {
+        var queued = 0;
+        foreach (var entry in entries)
+        {
+            if (string.IsNullOrWhiteSpace(entry.SourceText))
+            {
+                continue;
+            }
+
+            var context = new TranslationCacheContext(entry.SceneName, entry.ComponentHierarchy, entry.ComponentType);
+            if (_queue.Enqueue(TranslationJob.Create(
+                "retranslate:" + entry.SourceText,
+                entry.SourceText,
+                TranslationPriority.Normal,
+                context,
+                publishResult: false,
+                targetLanguage: entry.TargetLanguage)))
+            {
+                queued++;
+            }
+        }
+
+        return queued;
     }
 
     private static async Task<T?> ReadJsonAsync<T>(HttpListenerRequest request)
@@ -274,6 +470,21 @@ internal sealed class LocalHttpServer : IDisposable
         }
 
         return "127.0.0.1";
+    }
+
+    private sealed class GlossaryTermRequest
+    {
+        public string? SourceTerm { get; set; }
+
+        public string? TargetTerm { get; set; }
+
+        public string? TargetLanguage { get; set; }
+
+        public string? Note { get; set; }
+
+        public bool? Enabled { get; set; }
+
+        public int? UsageCount { get; set; }
     }
 
     public void Dispose()

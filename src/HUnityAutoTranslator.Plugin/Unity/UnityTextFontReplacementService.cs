@@ -48,6 +48,9 @@ internal sealed class UnityTextFontReplacementService
     private readonly Func<RuntimeConfig> _configProvider;
     private readonly Dictionary<string, Font> _unityFonts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, object> _tmpFontAssets = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, string> _failedTmpFontAssetKeys = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _warnedUnityFontFailures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _warnedTmpCandidateFailureSets = new(StringComparer.OrdinalIgnoreCase);
     private bool _warnedNoUnityFont;
     private bool _warnedTmpUnavailable;
 
@@ -69,14 +72,8 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
-        var resolved = ResolveFont(config, key: null, context: null);
-        if (resolved == null)
-        {
-            return;
-        }
-
-        var fontAsset = GetOrCreateTmpFontAsset(resolved, config.FontSamplingPointSize);
-        if (fontAsset != null && AddTmpFallback(fontAsset))
+        var fontAsset = ResolveTmpFontAsset(config, key: null, context: null, out var resolved);
+        if (fontAsset != null && resolved != null && AddTmpFallback(fontAsset))
         {
             _logger.LogInfo($"TMP fallback font installed: {resolved.Font.name}.");
         }
@@ -113,7 +110,7 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
-        var fontAsset = GetOrCreateTmpFontAsset(resolved, config.FontSamplingPointSize);
+        var fontAsset = ResolveTmpFontAsset(config, key, context, out _);
         if (fontAsset == null)
         {
             return;
@@ -142,43 +139,9 @@ internal sealed class UnityTextFontReplacementService
 
     private ResolvedFont? ResolveFont(RuntimeConfig config, TranslationCacheKey? key, TranslationCacheContext? context)
     {
-        if (key != null && context != null && _cache.TryGetReplacementFont(key, context, out var overrideFont))
+        foreach (var candidate in EnumerateFontCandidates(config, key, context))
         {
-            return ResolveExplicitFont("row", overrideFont, config.FontSamplingPointSize);
-        }
-
-        if (!string.IsNullOrWhiteSpace(config.ReplacementFontFile))
-        {
-            return ResolveExplicitFont("file", config.ReplacementFontFile, config.FontSamplingPointSize);
-        }
-
-        if (!string.IsNullOrWhiteSpace(config.ReplacementFontName))
-        {
-            return ResolveExplicitFont("name", config.ReplacementFontName, config.FontSamplingPointSize);
-        }
-
-        if (!config.AutoUseCjkFallbackFonts)
-        {
-            return null;
-        }
-
-        foreach (var fontName in CandidateFontNames)
-        {
-            var resolved = ResolveExplicitFont("auto-name", fontName, config.FontSamplingPointSize, warnOnFailure: false);
-            if (resolved != null)
-            {
-                return resolved;
-            }
-        }
-
-        foreach (var fontFile in CandidateFontFiles)
-        {
-            if (!File.Exists(fontFile))
-            {
-                continue;
-            }
-
-            var resolved = ResolveExplicitFont("auto-file", fontFile, config.FontSamplingPointSize, warnOnFailure: false);
+            var resolved = ResolveExplicitFont(candidate, config.FontSamplingPointSize);
             if (resolved != null)
             {
                 return resolved;
@@ -189,33 +152,146 @@ internal sealed class UnityTextFontReplacementService
         return null;
     }
 
-    private ResolvedFont? ResolveExplicitFont(string source, string value, int size, bool warnOnFailure = true)
+    private object? ResolveTmpFontAsset(
+        RuntimeConfig config,
+        TranslationCacheKey? key,
+        TranslationCacheContext? context,
+        out ResolvedFont? resolvedFont)
     {
-        var normalized = value.Trim();
-        if (normalized.Length == 0)
+        resolvedFont = null;
+        var fontAssetType = ResolveType(TmpFontAssetTypeNames);
+        if (fontAssetType == null)
         {
+            WarnTmpUnavailable();
             return null;
         }
 
-        var cacheKey = $"{source}:{normalized}:{size}";
-        if (_unityFonts.TryGetValue(cacheKey, out var cached))
+        var attemptedCandidates = new List<string>();
+        string? lastError = null;
+        foreach (var candidate in EnumerateFontCandidates(config, key, context))
         {
-            return new ResolvedFont(cacheKey, cached);
+            var resolved = ResolveExplicitFont(candidate, config.FontSamplingPointSize);
+            if (resolved == null)
+            {
+                continue;
+            }
+
+            attemptedCandidates.Add(resolved.DisplayName);
+            var cacheKey = $"{resolved.CacheKey}:tmp:{config.FontSamplingPointSize}";
+            if (_tmpFontAssets.TryGetValue(cacheKey, out var cached))
+            {
+                resolvedFont = resolved;
+                return cached;
+            }
+
+            if (_failedTmpFontAssetKeys.TryGetValue(cacheKey, out var cachedError))
+            {
+                lastError = cachedError;
+                continue;
+            }
+
+            var fontAsset = CreateTmpFontAsset(fontAssetType, resolved.Font, config.FontSamplingPointSize, out var createError);
+            if (fontAsset == null)
+            {
+                lastError = createError ?? "none";
+                _failedTmpFontAssetKeys[cacheKey] = lastError;
+                continue;
+            }
+
+            EnableDynamicAtlas(fontAsset);
+            _tmpFontAssets[cacheKey] = fontAsset;
+            resolvedFont = resolved;
+            return fontAsset;
         }
 
-        var font = CreateUnityFont(normalized, size);
+        if (attemptedCandidates.Count == 0)
+        {
+            WarnNoUnityFont();
+        }
+        else
+        {
+            WarnTmpCandidatesFailed(attemptedCandidates, lastError);
+        }
+
+        return null;
+    }
+
+    private IEnumerable<FontCandidate> EnumerateFontCandidates(
+        RuntimeConfig config,
+        TranslationCacheKey? key,
+        TranslationCacheContext? context)
+    {
+        if (key != null && context != null && _cache.TryGetReplacementFont(key, context, out var overrideFont))
+        {
+            var candidate = FontCandidate.Create("row", overrideFont, warnOnUnityFailure: true);
+            if (candidate != null)
+            {
+                yield return candidate;
+            }
+        }
+
+        var fontFileCandidate = FontCandidate.Create("file", config.ReplacementFontFile, warnOnUnityFailure: true);
+        if (fontFileCandidate != null)
+        {
+            yield return fontFileCandidate;
+        }
+
+        var fontNameCandidate = FontCandidate.Create("name", config.ReplacementFontName, warnOnUnityFailure: true);
+        if (fontNameCandidate != null)
+        {
+            yield return fontNameCandidate;
+        }
+
+        if (!config.AutoUseCjkFallbackFonts)
+        {
+            yield break;
+        }
+
+        foreach (var fontName in CandidateFontNames)
+        {
+            var candidate = FontCandidate.Create("auto-name", fontName, warnOnUnityFailure: false);
+            if (candidate != null)
+            {
+                yield return candidate;
+            }
+        }
+
+        foreach (var fontFile in CandidateFontFiles)
+        {
+            if (!File.Exists(fontFile))
+            {
+                continue;
+            }
+
+            var candidate = FontCandidate.Create("auto-file", fontFile, warnOnUnityFailure: false);
+            if (candidate != null)
+            {
+                yield return candidate;
+            }
+        }
+    }
+
+    private ResolvedFont? ResolveExplicitFont(FontCandidate candidate, int size)
+    {
+        var cacheKey = $"{candidate.Source}:{candidate.Value}:{size}";
+        if (_unityFonts.TryGetValue(cacheKey, out var cached))
+        {
+            return new ResolvedFont(cacheKey, candidate.DisplayName, cached);
+        }
+
+        var font = CreateUnityFont(candidate.Value, size);
         if (font == null)
         {
-            if (warnOnFailure)
+            if (candidate.WarnOnUnityFailure && _warnedUnityFontFailures.Add(cacheKey))
             {
-                _logger.LogWarning($"Font replacement skipped because the font could not be created: {normalized}");
+                _logger.LogWarning($"Font replacement skipped because the font could not be created: {candidate.Value}");
             }
 
             return null;
         }
 
         _unityFonts[cacheKey] = font;
-        return new ResolvedFont(cacheKey, font);
+        return new ResolvedFont(cacheKey, candidate.DisplayName, font);
     }
 
     private static Font? CreateUnityFont(string value, int size)
@@ -253,33 +329,6 @@ internal sealed class UnityTextFontReplacementService
         }
     }
 
-    private object? GetOrCreateTmpFontAsset(ResolvedFont resolved, int samplingPointSize)
-    {
-        var cacheKey = $"{resolved.CacheKey}:tmp:{samplingPointSize}";
-        if (_tmpFontAssets.TryGetValue(cacheKey, out var cached))
-        {
-            return cached;
-        }
-
-        var fontAssetType = ResolveType(TmpFontAssetTypeNames);
-        if (fontAssetType == null)
-        {
-            WarnTmpUnavailable();
-            return null;
-        }
-
-        var fontAsset = CreateTmpFontAsset(fontAssetType, resolved.Font, samplingPointSize, out var lastError);
-        if (fontAsset == null)
-        {
-            _logger.LogWarning($"TMP fallback font asset could not be created from {resolved.Font.name}. Last error: {lastError ?? "none"}");
-            return null;
-        }
-
-        EnableDynamicAtlas(fontAsset);
-        _tmpFontAssets[cacheKey] = fontAsset;
-        return fontAsset;
-    }
-
     private static object? CreateTmpFontAsset(Type fontAssetType, Font osFont, int samplingPointSize, out string? lastError)
     {
         lastError = null;
@@ -289,7 +338,9 @@ internal sealed class UnityTextFontReplacementService
             .Where(method =>
             {
                 var parameters = method.GetParameters();
-                return parameters.Length > 0 && parameters[0].ParameterType == typeof(Font);
+                return parameters.Length > 0 &&
+                    (parameters[0].ParameterType == typeof(Font) ||
+                     string.Equals(parameters[0].ParameterType.FullName, typeof(Font).FullName, StringComparison.Ordinal));
             })
             .OrderByDescending(method => method.GetParameters().Length);
 
@@ -448,15 +499,60 @@ internal sealed class UnityTextFontReplacementService
         _logger.LogWarning("TMP font replacement skipped because TextMeshPro settings or font asset APIs were not available.");
     }
 
+    private void WarnTmpCandidatesFailed(IReadOnlyList<string> attemptedCandidates, string? lastError)
+    {
+        var warningKey = string.Join("|", attemptedCandidates) + "|" + (lastError ?? "none");
+        if (!_warnedTmpCandidateFailureSets.Add(warningKey))
+        {
+            return;
+        }
+
+        _logger.LogWarning(
+            "TMP fallback font asset could not be created from any candidate. " +
+            $"Tried: {string.Join(", ", attemptedCandidates)}. Last error: {lastError ?? "none"}");
+    }
+
+    private sealed class FontCandidate
+    {
+        private FontCandidate(string source, string value, bool warnOnUnityFailure)
+        {
+            Source = source;
+            Value = value;
+            WarnOnUnityFailure = warnOnUnityFailure;
+            DisplayName = $"{source}:{value}";
+        }
+
+        public string Source { get; }
+
+        public string Value { get; }
+
+        public bool WarnOnUnityFailure { get; }
+
+        public string DisplayName { get; }
+
+        public static FontCandidate? Create(string source, string? value, bool warnOnUnityFailure)
+        {
+            if (string.IsNullOrWhiteSpace(value))
+            {
+                return null;
+            }
+
+            return new FontCandidate(source, value.Trim(), warnOnUnityFailure);
+        }
+    }
+
     private sealed class ResolvedFont
     {
-        public ResolvedFont(string cacheKey, Font font)
+        public ResolvedFont(string cacheKey, string displayName, Font font)
         {
             CacheKey = cacheKey;
+            DisplayName = displayName;
             Font = font;
         }
 
         public string CacheKey { get; }
+
+        public string DisplayName { get; }
 
         public Font Font { get; }
     }

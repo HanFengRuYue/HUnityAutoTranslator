@@ -81,6 +81,13 @@ public sealed class ControlPanelService
                 _config.IgnoreInvisibleText,
                 _config.SkipNumericSymbolText,
                 _config.EnableCacheLookup,
+                _config.EnableTranslationContext,
+                _config.TranslationContextMaxExamples,
+                _config.TranslationContextMaxCharacters,
+                _config.EnableGlossary,
+                _config.EnableAutoTermExtraction,
+                _config.GlossaryMaxTerms,
+                _config.GlossaryMaxCharacters,
                 _config.ManualEditsOverrideAi,
                 _config.ReapplyRememberedTranslations,
                 _config.CacheRetentionDays,
@@ -225,6 +232,18 @@ public sealed class ControlPanelService
         var cacheRetentionDays = request.CacheRetentionDays.HasValue
             ? Clamp(request.CacheRetentionDays.Value, 1, 3650)
             : _config.CacheRetentionDays;
+        var translationContextMaxExamples = request.TranslationContextMaxExamples.HasValue
+            ? Clamp(request.TranslationContextMaxExamples.Value, 0, 20)
+            : _config.TranslationContextMaxExamples;
+        var translationContextMaxCharacters = request.TranslationContextMaxCharacters.HasValue
+            ? Clamp(request.TranslationContextMaxCharacters.Value, 0, 8000)
+            : _config.TranslationContextMaxCharacters;
+        var glossaryMaxTerms = request.GlossaryMaxTerms.HasValue
+            ? Clamp(request.GlossaryMaxTerms.Value, 0, 100)
+            : _config.GlossaryMaxTerms;
+        var glossaryMaxCharacters = request.GlossaryMaxCharacters.HasValue
+            ? Clamp(request.GlossaryMaxCharacters.Value, 0, 8000)
+            : _config.GlossaryMaxCharacters;
         var fontSamplingPointSize = request.FontSamplingPointSize.HasValue
             ? Clamp(request.FontSamplingPointSize.Value, 16, 180)
             : _config.FontSamplingPointSize;
@@ -262,6 +281,13 @@ public sealed class ControlPanelService
             IgnoreInvisibleText = request.IgnoreInvisibleText ?? _config.IgnoreInvisibleText,
             SkipNumericSymbolText = request.SkipNumericSymbolText ?? _config.SkipNumericSymbolText,
             EnableCacheLookup = request.EnableCacheLookup ?? _config.EnableCacheLookup,
+            EnableTranslationContext = request.EnableTranslationContext ?? _config.EnableTranslationContext,
+            TranslationContextMaxExamples = translationContextMaxExamples,
+            TranslationContextMaxCharacters = translationContextMaxCharacters,
+            EnableGlossary = request.EnableGlossary ?? _config.EnableGlossary,
+            EnableAutoTermExtraction = request.EnableAutoTermExtraction ?? _config.EnableAutoTermExtraction,
+            GlossaryMaxTerms = glossaryMaxTerms,
+            GlossaryMaxCharacters = glossaryMaxCharacters,
             ManualEditsOverrideAi = request.ManualEditsOverrideAi ?? _config.ManualEditsOverrideAi,
             ReapplyRememberedTranslations = request.ReapplyRememberedTranslations ?? _config.ReapplyRememberedTranslations,
             CacheRetentionDays = cacheRetentionDays,
@@ -319,6 +345,13 @@ public sealed class ControlPanelService
                 IgnoreInvisibleText: _config.IgnoreInvisibleText,
                 SkipNumericSymbolText: _config.SkipNumericSymbolText,
                 EnableCacheLookup: _config.EnableCacheLookup,
+                EnableTranslationContext: _config.EnableTranslationContext,
+                TranslationContextMaxExamples: _config.TranslationContextMaxExamples,
+                TranslationContextMaxCharacters: _config.TranslationContextMaxCharacters,
+                EnableGlossary: _config.EnableGlossary,
+                EnableAutoTermExtraction: _config.EnableAutoTermExtraction,
+                GlossaryMaxTerms: _config.GlossaryMaxTerms,
+                GlossaryMaxCharacters: _config.GlossaryMaxCharacters,
                 ManualEditsOverrideAi: _config.ManualEditsOverrideAi,
                 ReapplyRememberedTranslations: _config.ReapplyRememberedTranslations,
                 CacheRetentionDays: _config.CacheRetentionDays,

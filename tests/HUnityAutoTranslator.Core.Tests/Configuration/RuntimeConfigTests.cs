@@ -17,4 +17,19 @@ public sealed class RuntimeConfigTests
         config.Style.Should().Be(TranslationStyle.Localized);
         config.MaxConcurrentRequests.Should().BeGreaterThan(1);
     }
+
+    [Fact]
+    public void DefaultConfig_enables_font_replacement_with_automatic_cjk_fallbacks()
+    {
+        var config = RuntimeConfig.CreateDefault();
+
+        config.EnableFontReplacement.Should().BeTrue();
+        config.ReplaceUguiFonts.Should().BeTrue();
+        config.ReplaceTmpFonts.Should().BeTrue();
+        config.ReplaceImguiFonts.Should().BeTrue();
+        config.AutoUseCjkFallbackFonts.Should().BeTrue();
+        config.ReplacementFontName.Should().BeNull();
+        config.ReplacementFontFile.Should().BeNull();
+        config.FontSamplingPointSize.Should().Be(90);
+    }
 }

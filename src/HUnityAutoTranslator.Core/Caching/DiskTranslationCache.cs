@@ -8,7 +8,7 @@ namespace HUnityAutoTranslator.Core.Caching;
 public sealed class DiskTranslationCache : ITranslationCache, IDisposable
 {
     private readonly string _filePath;
-    private readonly ConcurrentDictionary<TranslationCacheKey, TranslationCacheEntry> _items = new();
+    private readonly ConcurrentDictionary<TranslationCacheLookupKey, TranslationCacheEntry> _items = new();
     private bool _disposed;
 
     public DiskTranslationCache(string filePath)
@@ -19,9 +19,9 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
 
     public int Count => _items.Count;
 
-    public bool TryGet(TranslationCacheKey key, out string translatedText)
+    public bool TryGet(TranslationCacheKey key, TranslationCacheContext? context, out string translatedText)
     {
-        if (_items.TryGetValue(key, out var entry) && entry.TranslatedText != null)
+        if (_items.TryGetValue(TranslationCacheLookupKey.Create(key, context), out var entry) && entry.TranslatedText != null)
         {
             translatedText = entry.TranslatedText;
             return true;
@@ -33,7 +33,7 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
 
     public bool TryGetReplacementFont(TranslationCacheKey key, TranslationCacheContext context, out string replacementFont)
     {
-        if (_items.TryGetValue(key, out var entry) &&
+        if (_items.TryGetValue(TranslationCacheLookupKey.Create(key, context), out var entry) &&
             !string.IsNullOrWhiteSpace(entry.ReplacementFont) &&
             ContextMatches(entry, context))
         {
@@ -50,12 +50,17 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
         var now = DateTimeOffset.UtcNow;
         context ??= TranslationCacheContext.Empty;
         _items.AddOrUpdate(
-            key,
+            TranslationCacheLookupKey.Create(key, context),
             _ => ToEntry(key, translatedText: null, context, now, now),
             (_, existing) => existing.TranslatedText != null
                 ? existing
                 : existing with
                 {
+                    ProviderKind = key.ProviderKind.ToString(),
+                    ProviderBaseUrl = key.ProviderBaseUrl,
+                    ProviderEndpoint = key.ProviderEndpoint,
+                    ProviderModel = key.ProviderModel,
+                    PromptPolicyVersion = key.PromptPolicyVersion,
                     SceneName = context.SceneName,
                     ComponentHierarchy = context.ComponentHierarchy,
                     ComponentType = context.ComponentType,
@@ -69,10 +74,15 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
         var now = DateTimeOffset.UtcNow;
         context ??= TranslationCacheContext.Empty;
         _items.AddOrUpdate(
-            key,
+            TranslationCacheLookupKey.Create(key, context),
             _ => ToEntry(key, translatedText, context, now, now),
             (_, existing) => existing with
             {
+                ProviderKind = key.ProviderKind.ToString(),
+                ProviderBaseUrl = key.ProviderBaseUrl,
+                ProviderEndpoint = key.ProviderEndpoint,
+                ProviderModel = key.ProviderModel,
+                PromptPolicyVersion = key.PromptPolicyVersion,
                 TranslatedText = translatedText,
                 SceneName = context.SceneName,
                 ComponentHierarchy = context.ComponentHierarchy,
@@ -103,6 +113,22 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
             .ToArray();
     }
 
+    public IReadOnlyList<TranslationContextExample> GetTranslationContextExamples(
+        string currentSourceText,
+        string targetLanguage,
+        TranslationCacheContext? context,
+        int maxExamples,
+        int maxCharacters)
+    {
+        return TranslationContextSelector.Select(
+            _items.Values,
+            currentSourceText,
+            targetLanguage,
+            context,
+            Math.Min(20, Math.Max(0, maxExamples)),
+            Math.Min(8000, Math.Max(0, maxCharacters)));
+    }
+
     public TranslationCachePage Query(TranslationCacheQuery query)
     {
         var rows = _items.Values.AsEnumerable();
@@ -118,6 +144,7 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
                 Contains(row.ReplacementFont, search));
         }
 
+        rows = rows.Where(row => TranslationCacheColumns.MatchesFilters(row, query.ColumnFilters));
         rows = Sort(rows, query.SortColumn, query.SortDescending);
         var total = rows.Count();
         return new TranslationCachePage(
@@ -125,15 +152,58 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
             rows.Skip(Math.Max(0, query.Offset)).Take(Math.Min(500, Math.Max(1, query.Limit))).ToArray());
     }
 
+    public TranslationCacheFilterOptionPage GetFilterOptions(TranslationCacheFilterOptionsQuery query)
+    {
+        var column = TranslationCacheColumns.NormalizeColumn(query.Column);
+        if (column.Length == 0)
+        {
+            return new TranslationCacheFilterOptionPage(string.Empty, Array.Empty<TranslationCacheFilterOption>());
+        }
+
+        var rows = _items.Values.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var search = query.Search.Trim();
+            rows = rows.Where(row =>
+                Contains(row.SourceText, search) ||
+                Contains(row.TranslatedText, search) ||
+                Contains(row.SceneName, search) ||
+                Contains(row.ComponentHierarchy, search) ||
+                Contains(row.ComponentType, search) ||
+                Contains(row.ReplacementFont, search));
+        }
+
+        rows = rows.Where(row => TranslationCacheColumns.MatchesFilters(
+            row,
+            TranslationCacheColumns.NormalizeFilters(query.ColumnFilters, column)));
+
+        if (!string.IsNullOrWhiteSpace(query.OptionSearch))
+        {
+            var optionSearch = query.OptionSearch.Trim();
+            rows = rows.Where(row => Contains(TranslationCacheColumns.ValueFor(row, column), optionSearch));
+        }
+
+        var limit = Math.Min(500, Math.Max(1, query.Limit));
+        var items = rows
+            .GroupBy(row => TranslationCacheColumns.NormalizeOptionValue(TranslationCacheColumns.ValueFor(row, column)))
+            .Select(group => new TranslationCacheFilterOption(group.Key, group.Count()))
+            .OrderBy(item => item.Value is null ? 0 : 1)
+            .ThenBy(item => item.Value ?? string.Empty, StringComparer.OrdinalIgnoreCase)
+            .Take(limit)
+            .ToArray();
+
+        return new TranslationCacheFilterOptionPage(column, items);
+    }
+
     public void Update(TranslationCacheEntry entry)
     {
-        _items[ToKey(entry)] = entry with { UpdatedUtc = entry.UpdatedUtc == default ? DateTimeOffset.UtcNow : entry.UpdatedUtc };
+        _items[TranslationCacheLookupKey.Create(entry)] = NormalizeEntry(entry) with { UpdatedUtc = entry.UpdatedUtc == default ? DateTimeOffset.UtcNow : entry.UpdatedUtc };
         Persist();
     }
 
     public void Delete(TranslationCacheEntry entry)
     {
-        _items.TryRemove(ToKey(entry), out _);
+        _items.TryRemove(TranslationCacheLookupKey.Create(entry), out _);
         Persist();
     }
 
@@ -199,7 +269,8 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
             {
                 var key = DecodeKey(encodedKey);
                 var translated = Encoding.UTF8.GetString(Convert.FromBase64String(encoded));
-                _items[key] = ToEntry(key, translated, TranslationCacheContext.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+                var entry = ToEntry(key, translated, TranslationCacheContext.Empty, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+                _items[TranslationCacheLookupKey.Create(entry)] = entry;
             }
             catch (Exception ex) when (ex is FormatException or JsonException)
             {
@@ -218,8 +289,8 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
 
         var lines = _items
             .Where(item => item.Value.TranslatedText != null)
-            .OrderBy(item => item.Key.SourceText, StringComparer.Ordinal)
-            .Select(item => EncodeKey(item.Key) + "\t" + Convert.ToBase64String(Encoding.UTF8.GetBytes(item.Value.TranslatedText!)));
+            .OrderBy(item => item.Value.SourceText, StringComparer.Ordinal)
+            .Select(item => EncodeKey(ToKey(item.Value)) + "\t" + Convert.ToBase64String(Encoding.UTF8.GetBytes(item.Value.TranslatedText!)));
 
         File.WriteAllLines(_filePath, lines, Encoding.UTF8);
     }
@@ -252,12 +323,21 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
             key.ProviderModel,
             key.PromptPolicyVersion,
             translatedText,
-            context.SceneName,
-            context.ComponentHierarchy,
+            TranslationCacheLookupKey.NormalizeContextPart(context.SceneName),
+            TranslationCacheLookupKey.NormalizeContextPart(context.ComponentHierarchy),
             context.ComponentType,
             ReplacementFont: null,
             createdUtc,
             updatedUtc);
+    }
+
+    private static TranslationCacheEntry NormalizeEntry(TranslationCacheEntry entry)
+    {
+        return entry with
+        {
+            SceneName = TranslationCacheLookupKey.NormalizeContextPart(entry.SceneName),
+            ComponentHierarchy = TranslationCacheLookupKey.NormalizeContextPart(entry.ComponentHierarchy)
+        };
     }
 
     private static TranslationCacheKey ToKey(TranslationCacheEntry entry)

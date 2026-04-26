@@ -559,10 +559,30 @@ internal static class ControlPanelHtml
       user-select: none;
     }
     th .header-inner {
-      display: flex;
-      justify-content: space-between;
-      gap: 8px;
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 6px;
       align-items: center;
+    }
+    .header-title {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .header-filter {
+      width: 24px;
+      min-height: 24px;
+      padding: 0;
+      justify-content: center;
+      border-color: transparent;
+      background: transparent;
+      color: var(--muted);
+    }
+    .header-filter:hover,
+    .header-filter.filter-active {
+      background: var(--surface);
+      color: var(--accent);
+      border-color: var(--line);
     }
     .col-resizer {
       position: absolute;
@@ -609,6 +629,47 @@ internal static class ControlPanelHtml
       display: none;
     }
     .context-menu.open { display: grid; gap: 4px; }
+    .column-filter-menu {
+      position: fixed;
+      z-index: 60;
+      display: none;
+      width: min(320px, calc(100vw - 24px));
+      max-height: min(460px, calc(100vh - 24px));
+      padding: 10px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: var(--surface);
+      box-shadow: var(--shadow);
+    }
+    .column-filter-menu.open {
+      display: grid;
+      gap: 8px;
+    }
+    .filter-option-list {
+      display: grid;
+      gap: 4px;
+      max-height: 250px;
+      overflow: auto;
+    }
+    .filter-option-row {
+      display: grid;
+      grid-template-columns: auto minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      min-height: 30px;
+      color: var(--ink);
+    }
+    .filter-option-row span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .filter-menu-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
     .context-menu button {
       min-height: 32px;
       border-color: transparent;
@@ -653,6 +714,7 @@ internal static class ControlPanelHtml
         <button class="nav-item active" data-page="status">状态</button>
         <button class="nav-item" data-page="plugin">插件设置</button>
         <button class="nav-item" data-page="ai">AI 翻译设置</button>
+        <button class="nav-item" data-page="glossary">术语库</button>
         <button class="nav-item" data-page="editor">文本编辑</button>
         <button class="nav-item" data-page="about">版本信息</button>
       </nav>
@@ -729,6 +791,8 @@ internal static class ControlPanelHtml
               </select>
             </label>
             <label><span>最大源文本长度</span><input id="maxSourceTextLength" type="number" min="20" max="10000"></label>
+            <label><span>上下文条数</span><input id="translationContextMaxExamples" type="number" min="0" max="20"></label>
+            <label><span>上下文字符上限</span><input id="translationContextMaxCharacters" type="number" min="0" max="8000"></label>
           </div>
           <div class="checks" style="margin-top:14px">
             <label class="check"><input id="enabled" type="checkbox">启用翻译</label>
@@ -736,6 +800,7 @@ internal static class ControlPanelHtml
             <label class="check"><input id="ignoreInvisibleText" type="checkbox">忽略不可见文本</label>
             <label class="check"><input id="skipNumericSymbolText" type="checkbox">跳过数字/符号文本</label>
             <label class="check"><input id="enableCacheLookup" type="checkbox">启用缓存查找</label>
+            <label class="check"><input id="enableTranslationContext" type="checkbox">启用翻译上下文</label>
           </div>
         </div>
 
@@ -758,8 +823,8 @@ internal static class ControlPanelHtml
         <div class="band">
           <h2>字体替换</h2>
           <div class="grid four">
-            <label><span>字体名称</span><input id="replacementFontName" autocomplete="off" placeholder="Microsoft YaHei / Noto Sans SC"></label>
-            <label><span>字体文件路径</span><input id="replacementFontFile" autocomplete="off" placeholder="C:\Windows\Fonts\msyh.ttc"></label>
+            <label><span>字体名称</span><input id="replacementFontName" autocomplete="off" placeholder="留空自动选择，如 Microsoft YaHei / Noto Sans SC"></label>
+            <label><span>字体文件路径</span><input id="replacementFontFile" autocomplete="off" placeholder="留空自动选择，如 C:\Windows\Fonts\msyh.ttc"></label>
             <label><span>TMP 采样字号</span><input id="fontSamplingPointSize" type="number" min="16" max="180"></label>
           </div>
           <div class="checks" style="margin-top:14px">
@@ -854,6 +919,79 @@ internal static class ControlPanelHtml
         </div>
       </section>
 
+      <section class="page" id="page-glossary">
+        <div class="page-head">
+          <div>
+            <h1>术语库</h1>
+          </div>
+          <button class="primary" id="saveGlossarySettings" type="button">保存术语设置</button>
+        </div>
+
+        <div class="band">
+          <h2>应用规则</h2>
+          <div class="grid four">
+            <label><span>注入术语上限</span><input id="glossaryMaxTerms" type="number" min="0" max="100"></label>
+            <label><span>术语字符上限</span><input id="glossaryMaxCharacters" type="number" min="0" max="8000"></label>
+          </div>
+          <div class="checks" style="margin-top:14px">
+            <label class="check"><input id="enableGlossary" type="checkbox">启用术语库约束</label>
+            <label class="check"><input id="enableAutoTermExtraction" type="checkbox">启用 AI 自动提取术语</label>
+          </div>
+          <p class="message warn">AI 自动提取默认关闭。开启后，模型会从已完成译文中提取术语并直接启用；人工维护的术语永远优先，不会被自动结果覆盖。</p>
+        </div>
+
+        <div class="band">
+          <h2>手动维护</h2>
+          <div class="grid four">
+            <label><span>原术语</span><input id="glossarySourceTerm" autocomplete="off"></label>
+            <label><span>指定译名</span><input id="glossaryTargetTerm" autocomplete="off"></label>
+            <label><span>目标语言</span><input id="glossaryTargetLanguage" autocomplete="off" placeholder="zh-Hans"></label>
+            <label><span>备注</span><input id="glossaryNote" autocomplete="off"></label>
+          </div>
+          <div class="row" style="margin-top:14px">
+            <button id="addGlossaryTerm" type="button">新增/更新术语</button>
+            <button id="clearGlossaryForm" class="secondary" type="button">清空</button>
+          </div>
+        </div>
+
+        <div class="band">
+          <div class="editor-tools">
+            <input id="glossarySearch" placeholder="搜索原术语、指定译名、语言或备注">
+            <div class="editor-actions">
+              <button id="refreshGlossary" class="secondary" type="button">刷新</button>
+            </div>
+          </div>
+          <div class="table-wrap" id="glossaryWrap" tabindex="0">
+            <table>
+              <colgroup>
+                <col style="width:80px">
+                <col style="width:220px">
+                <col style="width:220px">
+                <col style="width:110px">
+                <col style="width:110px">
+                <col style="width:220px">
+                <col style="width:100px">
+                <col style="width:170px">
+                <col style="width:120px">
+              </colgroup>
+              <thead><tr>
+                <th>启用</th>
+                <th>原术语</th>
+                <th>指定译名</th>
+                <th>语言</th>
+                <th>来源</th>
+                <th>备注</th>
+                <th>使用次数</th>
+                <th>更新时间</th>
+                <th>操作</th>
+              </tr></thead>
+              <tbody id="glossaryBody"></tbody>
+            </table>
+          </div>
+          <div class="message" id="glossaryMessage"></div>
+        </div>
+      </section>
+
       <section class="page" id="page-editor">
         <div class="page-head">
           <div>
@@ -869,6 +1007,7 @@ internal static class ControlPanelHtml
                 <button id="columnMenuButton" class="secondary" type="button" aria-controls="columnChooser" aria-expanded="false">列显示</button>
                 <div class="column-chooser" id="columnChooser"></div>
               </div>
+              <button id="clearTableFilters" class="secondary" type="button">清空筛选</button>
               <div class="file-actions" aria-label="导入导出">
                 <input id="importFile" class="hidden-file-input" type="file" accept=".json,.csv,text/csv,application/json">
                 <button id="importRows" class="secondary file-action-button" type="button">导入</button>
@@ -917,9 +1056,13 @@ internal static class ControlPanelHtml
     <button data-table-action="refresh" type="button">刷新表格</button>
     <button data-table-action="copy" type="button">复制选区</button>
     <button data-table-action="paste" type="button">粘贴到选区</button>
+    <button data-table-action="retranslate" type="button">重翻选中行</button>
+    <button data-table-action="highlight" type="button">高亮显示</button>
     <button data-table-action="delete" class="danger" type="button">删除选中已翻译文本</button>
     <button data-table-action="save" type="button">保存修改</button>
   </div>
+
+  <div class="column-filter-menu" id="columnFilterMenu" role="dialog" aria-label="列筛选"></div>
 
   <script>
     const $ = id => document.getElementById(id);
@@ -947,11 +1090,15 @@ internal static class ControlPanelHtml
     const numberFields = [
       "maxConcurrentRequests", "requestsPerMinute", "maxBatchCharacters",
       "scanIntervalMilliseconds", "maxScanTargetsPerTick", "maxWritebacksPerFrame",
-      "requestTimeoutSeconds", "temperature", "maxSourceTextLength", "fontSamplingPointSize"
+      "requestTimeoutSeconds", "temperature", "maxSourceTextLength",
+      "translationContextMaxExamples", "translationContextMaxCharacters",
+      "glossaryMaxTerms", "glossaryMaxCharacters",
+      "fontSamplingPointSize"
     ];
     const checks = [
       "enabled", "autoOpenControlPanel", "enableUgui", "enableTmp", "enableImgui", "ignoreInvisibleText",
-      "skipNumericSymbolText", "enableCacheLookup", "manualEditsOverrideAi",
+      "skipNumericSymbolText", "enableCacheLookup", "enableTranslationContext", "manualEditsOverrideAi",
+      "enableGlossary", "enableAutoTermExtraction",
       "reapplyRememberedTranslations", "enableFontReplacement", "replaceUguiFonts", "replaceTmpFonts",
       "replaceImguiFonts", "autoUseCjkFallbackFonts"
     ];
@@ -970,6 +1117,8 @@ internal static class ControlPanelHtml
     ];
     const columnVisibilityStorageKey = "hunity.editor.visibleColumns";
     const columnOrderStorageKey = "hunity.editor.columnOrder";
+    const columnFilterStorageKey = "hunity.editor.columnFilters";
+    const emptyFilterValue = "__HUNITY_EMPTY__";
     const exportFileTypes = [
       { description: "JSON 文件", accept: { "application/json": [".json"] } },
       { description: "CSV 文件", accept: { "text/csv": [".csv"] } }
@@ -984,7 +1133,19 @@ internal static class ControlPanelHtml
       rows: [],
       selected: new Set(),
       dirty: new Map(),
-      anchor: null
+      anchor: null,
+      filters: {},
+      openFilterColumn: null,
+      filterOptionDraft: new Set()
+    };
+    const glossaryState = {
+      search: "",
+      sort: "updated_utc",
+      direction: "desc",
+      offset: 0,
+      limit: 100,
+      rows: [],
+      totalCount: 0
     };
     let promptTouched = false;
 
@@ -1045,6 +1206,7 @@ internal static class ControlPanelHtml
       $$(".nav-item").forEach(button => button.classList.toggle("active", button.dataset.page === page));
       $$(".page").forEach(section => section.classList.toggle("active", section.id === "page-" + page));
       hideContextMenu();
+      if (page === "glossary") loadGlossaryTerms();
       if (page === "editor" && tableState.rows.length === 0) loadTranslations();
     }
 
@@ -1087,6 +1249,10 @@ internal static class ControlPanelHtml
         Temperature: numberValue("temperature"),
         CustomPrompt: $("customPrompt").value,
         MaxSourceTextLength: numberValue("maxSourceTextLength"),
+        TranslationContextMaxExamples: numberValue("translationContextMaxExamples"),
+        TranslationContextMaxCharacters: numberValue("translationContextMaxCharacters"),
+        GlossaryMaxTerms: numberValue("glossaryMaxTerms"),
+        GlossaryMaxCharacters: numberValue("glossaryMaxCharacters"),
         ReplacementFontName: $("replacementFontName").value,
         ReplacementFontFile: $("replacementFontFile").value,
         FontSamplingPointSize: numberValue("fontSamplingPointSize"),
@@ -1103,6 +1269,9 @@ internal static class ControlPanelHtml
         IgnoreInvisibleText: $("ignoreInvisibleText").checked,
         SkipNumericSymbolText: $("skipNumericSymbolText").checked,
         EnableCacheLookup: $("enableCacheLookup").checked,
+        EnableTranslationContext: $("enableTranslationContext").checked,
+        EnableGlossary: $("enableGlossary").checked,
+        EnableAutoTermExtraction: $("enableAutoTermExtraction").checked,
         ManualEditsOverrideAi: $("manualEditsOverrideAi").checked,
         ReapplyRememberedTranslations: $("reapplyRememberedTranslations").checked
       };
@@ -1144,6 +1313,7 @@ internal static class ControlPanelHtml
       if (isEditing()) return;
 
       setSelectValue("targetLanguage", state.TargetLanguage || "zh-Hans", state.TargetLanguage || "zh-Hans");
+      if (!$("glossaryTargetLanguage").value) $("glossaryTargetLanguage").value = state.TargetLanguage || "zh-Hans";
       $("style").value = String(state.Style || 0);
       $("providerKind").value = String(state.ProviderKind);
       $("baseUrl").value = state.BaseUrl || "";
@@ -1228,6 +1398,100 @@ ${style}`;
       showToast("密钥状态已更新。", "ok");
     }
 
+    async function loadGlossaryTerms() {
+      const params = new URLSearchParams({
+        search: glossaryState.search,
+        sort: glossaryState.sort,
+        direction: glossaryState.direction,
+        offset: String(glossaryState.offset),
+        limit: String(glossaryState.limit)
+      });
+      const page = await api("/api/glossary?" + params.toString());
+      glossaryState.rows = page.Items || [];
+      glossaryState.totalCount = page.TotalCount || 0;
+      renderGlossaryTerms();
+    }
+
+    function renderGlossaryTerms() {
+      $("glossaryBody").innerHTML = glossaryState.rows.map((row, index) => `
+        <tr>
+          <td><input type="checkbox" data-glossary-toggle="${index}" ${row.Enabled ? "checked" : ""}></td>
+          <td title="${escapeHtml(row.SourceTerm)}">${escapeHtml(row.SourceTerm)}</td>
+          <td title="${escapeHtml(row.TargetTerm)}">${escapeHtml(row.TargetTerm)}</td>
+          <td>${escapeHtml(row.TargetLanguage)}</td>
+          <td>${Number(row.Source) === 1 || row.Source === "Automatic" ? "AI 提取" : "人工"}</td>
+          <td title="${escapeHtml(row.Note || "")}">${escapeHtml(row.Note || "")}</td>
+          <td>${formatNumber(row.UsageCount || 0)}</td>
+          <td>${formatDateTime(row.UpdatedUtc)}</td>
+          <td>
+            <button class="secondary" type="button" data-glossary-edit="${index}">编辑</button>
+            <button class="danger" type="button" data-glossary-delete="${index}">删除</button>
+          </td>
+        </tr>`).join("");
+      $("glossaryMessage").textContent = `共 ${glossaryState.totalCount} 条术语，当前显示 ${glossaryState.rows.length} 条。`;
+      $$("[data-glossary-toggle]").forEach(input => {
+        input.addEventListener("change", async () => {
+          const row = Object.assign({}, glossaryState.rows[Number(input.dataset.glossaryToggle)]);
+          row.Enabled = input.checked;
+          await saveGlossaryTerm(row);
+        });
+      });
+      $$("[data-glossary-edit]").forEach(button => {
+        button.addEventListener("click", () => editGlossaryTerm(Number(button.dataset.glossaryEdit)));
+      });
+      $$("[data-glossary-delete]").forEach(button => {
+        button.addEventListener("click", () => deleteGlossaryTerm(Number(button.dataset.glossaryDelete)));
+      });
+    }
+
+    function readGlossaryForm() {
+      return {
+        SourceTerm: $("glossarySourceTerm").value.trim(),
+        TargetTerm: $("glossaryTargetTerm").value.trim(),
+        TargetLanguage: ($("glossaryTargetLanguage").value.trim() || $("targetLanguage").value || "zh-Hans"),
+        Note: $("glossaryNote").value.trim(),
+        Enabled: true
+      };
+    }
+
+    function clearGlossaryForm() {
+      $("glossarySourceTerm").value = "";
+      $("glossaryTargetTerm").value = "";
+      $("glossaryTargetLanguage").value = $("targetLanguage").value || "zh-Hans";
+      $("glossaryNote").value = "";
+    }
+
+    function editGlossaryTerm(index) {
+      const row = glossaryState.rows[index];
+      if (!row) return;
+      $("glossarySourceTerm").value = row.SourceTerm || "";
+      $("glossaryTargetTerm").value = row.TargetTerm || "";
+      $("glossaryTargetLanguage").value = row.TargetLanguage || $("targetLanguage").value || "zh-Hans";
+      $("glossaryNote").value = row.Note || "";
+    }
+
+    async function saveGlossaryTerm(term) {
+      const payload = term || readGlossaryForm();
+      if (!payload.SourceTerm || !payload.TargetTerm) {
+        $("glossaryMessage").textContent = "请填写原术语和指定译名。";
+        return;
+      }
+
+      await api("/api/glossary", { method: term ? "PATCH" : "POST", body: JSON.stringify(payload) });
+      clearGlossaryForm();
+      await loadGlossaryTerms();
+      showToast("术语已保存。", "ok");
+    }
+
+    async function deleteGlossaryTerm(index) {
+      const row = glossaryState.rows[index];
+      if (!row) return;
+      if (!confirm(`删除术语「${row.SourceTerm}」？`)) return;
+      const result = await api("/api/glossary", { method: "DELETE", body: JSON.stringify([row]) });
+      await loadGlossaryTerms();
+      $("glossaryMessage").textContent = `已删除 ${result.DeletedCount || 1} 条术语。`;
+    }
+
     function renderModels(result) {
       const models = result.Models || [];
       if (!result.Succeeded) {
@@ -1284,6 +1548,41 @@ ${style}`;
     function loadColumnLayout() {
       loadColumnOrder();
       loadColumnVisibility();
+    }
+
+    function loadColumnFilters() {
+      try {
+        const saved = JSON.parse(localStorage.getItem(columnFilterStorageKey) || "{}");
+        tableState.filters = saved && typeof saved === "object" ? saved : {};
+      } catch (_) {
+        localStorage.removeItem(columnFilterStorageKey);
+        tableState.filters = {};
+      }
+    }
+
+    function persistColumnFilters() {
+      localStorage.setItem(columnFilterStorageKey, JSON.stringify(tableState.filters));
+    }
+
+    function activeFilterCount() {
+      return Object.values(tableState.filters).filter(values => Array.isArray(values) && values.length > 0).length;
+    }
+
+    function appendColumnFilters(params, excludedColumn) {
+      Object.entries(tableState.filters).forEach(([column, values]) => {
+        if (column === excludedColumn || !Array.isArray(values)) return;
+        values.forEach(value => params.append("filter." + column, value === null || value === "" ? emptyFilterValue : value));
+      });
+    }
+
+    function filterValuesFor(column) {
+      return new Set((tableState.filters[column] || []).map(value => value === "" ? null : value));
+    }
+
+    function displayFilterValue(value, column) {
+      if (value === null || value === undefined || value === "") return "空值";
+      const definition = tableColumns.find(item => item.sort === column);
+      return definition && definition.time ? formatDateTime(value) : value;
     }
 
     function loadColumnOrder() {
@@ -1430,16 +1729,130 @@ ${style}`;
       renderColgroup();
       $("translationHead").innerHTML = columns.map(column => {
         const mark = tableState.sort === column.sort ? (tableState.direction === "desc" ? "↓" : "↑") : "";
-        return `<th data-sort="${column.sort}" data-col="${column.index}"><div class="header-inner"><span>${column.title}</span><span>${mark}</span></div><span class="col-resizer" data-col="${column.index}"></span></th>`;
+        const active = tableState.filters[column.sort] && tableState.filters[column.sort].length ? "filter-active" : "";
+        return `<th data-sort="${column.sort}" data-col="${column.index}">
+          <div class="header-inner">
+            <span class="header-title">${column.title}</span>
+            <span>${mark}</span>
+            <button class="header-filter ${active}" type="button" data-filter-column="${column.sort}" title="筛选 ${column.title}" aria-label="筛选 ${column.title}">⌄</button>
+          </div>
+          <span class="col-resizer" data-col="${column.index}"></span>
+        </th>`;
       }).join("");
       $$("#translationHead th").forEach(th => th.addEventListener("click", event => {
         if (event.target.classList.contains("col-resizer")) return;
+        if (event.target.closest("[data-filter-column]")) return;
         const sort = th.dataset.sort;
         if (tableState.sort === sort) tableState.direction = tableState.direction === "desc" ? "asc" : "desc";
         else { tableState.sort = sort; tableState.direction = "asc"; }
         loadTranslations();
       }));
+      $$("[data-filter-column]").forEach(button => {
+        button.addEventListener("click", event => {
+          event.stopPropagation();
+          openColumnFilterMenu(button.dataset.filterColumn, button);
+        });
+      });
       $$(".col-resizer").forEach(handle => handle.addEventListener("pointerdown", startColumnResize));
+    }
+
+    async function loadColumnFilterOptions(column, optionSearch) {
+      const params = new URLSearchParams({
+        column,
+        search: tableState.search,
+        optionSearch: optionSearch || "",
+        limit: "200"
+      });
+      appendColumnFilters(params, column);
+      return api("/api/translations/filter-options?" + params.toString());
+    }
+
+    async function openColumnFilterMenu(column, anchor) {
+      const menu = $("columnFilterMenu");
+      tableState.openFilterColumn = column;
+      tableState.filterOptionDraft = filterValuesFor(column);
+      menu.innerHTML = `<div class="message">正在加载筛选值...</div>`;
+      menu.classList.add("open");
+      positionColumnFilterMenu(menu, anchor);
+      const page = await loadColumnFilterOptions(column, "");
+      renderColumnFilterMenu(column, anchor, page.Items || []);
+    }
+
+    function positionColumnFilterMenu(menu, anchor) {
+      const rect = anchor.getBoundingClientRect();
+      const left = Math.min(rect.left, window.innerWidth - menu.offsetWidth - 12);
+      menu.style.left = Math.max(12, left) + "px";
+      menu.style.top = Math.min(rect.bottom + 6, window.innerHeight - menu.offsetHeight - 12) + "px";
+    }
+
+    function renderColumnFilterMenu(column, anchor, items) {
+      const menu = $("columnFilterMenu");
+      menu.innerHTML = `
+        <input id="columnFilterSearch" placeholder="搜索筛选值">
+        <div class="filter-option-list">
+          ${items.map(item => {
+            const encoded = item.Value === null || item.Value === undefined ? "" : String(item.Value);
+            const checked = tableState.filterOptionDraft.has(item.Value) ? "checked" : "";
+            return `<label class="filter-option-row" title="${escapeHtml(displayFilterValue(item.Value, column))}">
+              <input type="checkbox" data-filter-value="${escapeHtml(encoded)}" data-filter-empty="${item.Value === null || item.Value === undefined ? "true" : "false"}" ${checked}>
+              <span>${escapeHtml(displayFilterValue(item.Value, column))}</span>
+              <small>${item.Count}</small>
+            </label>`;
+          }).join("")}
+        </div>
+        <div class="filter-menu-actions">
+          <button id="selectAllFilterOptions" type="button" class="secondary">全选</button>
+          <button id="clearColumnFilter" type="button" class="secondary">清空</button>
+          <button id="applyColumnFilter" type="button">应用</button>
+        </div>`;
+      $("columnFilterSearch").addEventListener("input", async event => {
+        const value = event.target.value;
+        const nextPage = await loadColumnFilterOptions(column, value);
+        renderColumnFilterMenu(column, anchor, nextPage.Items || []);
+        $("columnFilterSearch").value = value;
+        $("columnFilterSearch").focus();
+      });
+      $$(".filter-option-row input").forEach(input => {
+        input.addEventListener("change", () => {
+          const value = input.dataset.filterEmpty === "true" ? null : input.dataset.filterValue;
+          if (input.checked) tableState.filterOptionDraft.add(value);
+          else tableState.filterOptionDraft.delete(value);
+        });
+      });
+      $("selectAllFilterOptions").addEventListener("click", () => {
+        $$(".filter-option-row input").forEach(input => {
+          input.checked = true;
+          tableState.filterOptionDraft.add(input.dataset.filterEmpty === "true" ? null : input.dataset.filterValue);
+        });
+      });
+      $("clearColumnFilter").addEventListener("click", () => applyColumnFilter(column, []));
+      $("applyColumnFilter").addEventListener("click", () => applyColumnFilter(column, Array.from(tableState.filterOptionDraft)));
+      positionColumnFilterMenu(menu, anchor);
+    }
+
+    function applyColumnFilter(column, values) {
+      const cleanValues = values.filter((value, index, array) => array.findIndex(item => item === value) === index);
+      if (cleanValues.length) tableState.filters[column] = cleanValues;
+      else delete tableState.filters[column];
+      tableState.offset = 0;
+      tableState.selected.clear();
+      tableState.anchor = null;
+      persistColumnFilters();
+      hideColumnFilterMenu();
+      loadTranslations();
+    }
+
+    function clearAllColumnFilters() {
+      tableState.filters = {};
+      tableState.offset = 0;
+      persistColumnFilters();
+      hideColumnFilterMenu();
+      loadTranslations();
+    }
+
+    function hideColumnFilterMenu() {
+      $("columnFilterMenu").classList.remove("open");
+      tableState.openFilterColumn = null;
     }
 
     function startColumnResize(event) {
@@ -1481,7 +1894,8 @@ ${style}`;
         const editable = cell.querySelector("[contenteditable]");
         if (editable) editable.addEventListener("input", () => markDirty(cell));
       });
-      $("tableMessage").textContent = `共 ${tableState.totalCount || 0} 条，当前显示 ${tableState.rows.length} 条，${columns.length}/${tableColumns.length} 列。`;
+      const filters = activeFilterCount();
+      $("tableMessage").textContent = `共 ${tableState.totalCount || 0} 条，当前显示 ${tableState.rows.length} 条，${columns.length}/${tableColumns.length} 列${filters ? `，已筛选 ${filters} 列` : ""}。`;
     }
 
     async function loadTranslations() {
@@ -1492,6 +1906,7 @@ ${style}`;
         offset: String(tableState.offset),
         limit: String(tableState.limit)
       });
+      appendColumnFilters(params);
       const page = await api("/api/translations?" + params.toString());
       tableState.rows = page.Items || [];
       tableState.selected.clear();
@@ -1502,7 +1917,7 @@ ${style}`;
     function cellKey(row, col) { return row + ":" + col; }
     function parseCellKey(key) { return key.split(":").map(Number); }
     function rowKey(row) {
-      return [row.SourceText, row.TargetLanguage, row.ProviderKind, row.ProviderBaseUrl, row.ProviderEndpoint, row.ProviderModel, row.PromptPolicyVersion].join("\u001f");
+      return [row.SourceText, row.TargetLanguage, row.SceneName, row.ComponentHierarchy, row.ProviderKind, row.ProviderBaseUrl, row.ProviderEndpoint, row.ProviderModel, row.PromptPolicyVersion].join("\u001f");
     }
 
     function selectCell(cell, event) {
@@ -1613,14 +2028,41 @@ ${style}`;
       $("tableMessage").textContent = "已粘贴，等待保存。";
     }
 
-    async function deleteSelectedRows() {
+    function selectedRows() {
       const rowIndexes = [...new Set(Array.from(tableState.selected).map(key => parseCellKey(key)[0]))].sort((a, b) => a - b);
-      if (!rowIndexes.length) {
+      return rowIndexes.map(index => tableState.rows[index]).filter(Boolean);
+    }
+
+    async function retranslateSelectedRows() {
+      const rows = selectedRows();
+      if (!rows.length) {
         $("tableMessage").textContent = "没有选中的已翻译文本。";
         return;
       }
-      if (!confirm(`删除选中的 ${rowIndexes.length} 条已翻译文本？`)) return;
-      const rows = rowIndexes.map(index => tableState.rows[index]).filter(Boolean);
+
+      const result = await api("/api/translations/retranslate", { method: "POST", body: JSON.stringify(rows) });
+      $("tableMessage").textContent = `已提交 ${result.QueuedCount || 0}/${result.RequestedCount || rows.length} 行重新翻译。`;
+      await refresh();
+    }
+
+    async function highlightSelectedRow() {
+      const rows = selectedRows();
+      if (!rows.length) {
+        $("tableMessage").textContent = "没有选中的已翻译文本。";
+        return;
+      }
+
+      const result = await api("/api/translations/highlight", { method: "POST", body: JSON.stringify(rows[0]) });
+      $("tableMessage").textContent = result.Message || "已发送高亮请求。";
+    }
+
+    async function deleteSelectedRows() {
+      const rows = selectedRows();
+      if (!rows.length) {
+        $("tableMessage").textContent = "没有选中的已翻译文本。";
+        return;
+      }
+      if (!confirm(`删除选中的 ${rows.length} 条已翻译文本？`)) return;
       const result = await api("/api/translations", { method: "DELETE", body: JSON.stringify(rows) });
       tableState.dirty.clear();
       await loadTranslations();
@@ -1732,6 +2174,8 @@ ${style}`;
       if (action === "refresh") await loadTranslations();
       if (action === "copy") await copyCells();
       if (action === "paste") await pasteCells();
+      if (action === "retranslate") await retranslateSelectedRows();
+      if (action === "highlight") await highlightSelectedRow();
       if (action === "delete") await deleteSelectedRows();
       if (action === "save") await saveRows();
     }
@@ -1757,6 +2201,7 @@ ${style}`;
     $("refresh").addEventListener("click", refresh);
     $("savePlugin").addEventListener("click", saveConfig);
     $("saveAi").addEventListener("click", saveConfig);
+    $("saveGlossarySettings").addEventListener("click", saveConfig);
     $("saveKey").addEventListener("click", saveKey);
     $("providerKind").addEventListener("change", () => updateProviderUi(true));
     $("modelPreset").addEventListener("change", () => {
@@ -1770,6 +2215,11 @@ ${style}`;
     $("fetchBalance").addEventListener("click", () => runProviderUtility("查询余额/成本", async () => renderBalance(await api("/api/provider/balance"))));
     $("testProvider").addEventListener("click", () => runProviderUtility("测试连接", async () => { renderProviderTest(await api("/api/provider/test", { method: "POST", body: "{}" })); await refresh(); }));
     $("tableSearch").addEventListener("input", event => { tableState.search = event.target.value; tableState.offset = 0; loadTranslations(); });
+    $("glossarySearch").addEventListener("input", event => { glossaryState.search = event.target.value; glossaryState.offset = 0; loadGlossaryTerms(); });
+    $("refreshGlossary").addEventListener("click", loadGlossaryTerms);
+    $("addGlossaryTerm").addEventListener("click", () => saveGlossaryTerm());
+    $("clearGlossaryForm").addEventListener("click", clearGlossaryForm);
+    $("clearTableFilters").addEventListener("click", clearAllColumnFilters);
     $("columnMenuButton").addEventListener("click", event => {
       event.stopPropagation();
       toggleColumnChooser();
@@ -1794,6 +2244,7 @@ ${style}`;
       if (!event.target.closest("#tableContextMenu")) hideContextMenu();
       if (!event.target.closest("#columnChooser") && !event.target.closest("#columnMenuButton")) hideColumnChooser();
       if (!event.target.closest("#exportMenu") && !event.target.closest("#exportRows")) hideExportMenu();
+      if (!event.target.closest("#columnFilterMenu") && !event.target.closest("[data-filter-column]")) hideColumnFilterMenu();
     });
     $$("#tableContextMenu [data-table-action]").forEach(button => {
       button.addEventListener("click", () => handleTableAction(button.dataset.tableAction));
@@ -1817,6 +2268,7 @@ ${style}`;
 
     applyTheme(localStorage.getItem("hunity.theme") || "system");
     loadColumnLayout();
+    loadColumnFilters();
     renderColumnChooser();
     updateProviderUi(false);
     refresh();

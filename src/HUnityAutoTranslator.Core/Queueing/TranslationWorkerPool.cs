@@ -2,6 +2,7 @@ using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Dispatching;
+using HUnityAutoTranslator.Core.Glossary;
 using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Prompts;
 using HUnityAutoTranslator.Core.Providers;
@@ -12,6 +13,8 @@ namespace HUnityAutoTranslator.Core.Queueing;
 
 public sealed class TranslationWorkerPool
 {
+    private static readonly TimeSpan IdleWorkerPollInterval = TimeSpan.FromMilliseconds(40);
+
     private readonly TranslationJobQueue _queue;
     private readonly ResultDispatcher _dispatcher;
     private readonly ITranslationProvider _provider;
@@ -19,6 +22,7 @@ public sealed class TranslationWorkerPool
     private readonly RuntimeConfig _config;
     private readonly ITranslationCache? _cache;
     private readonly ControlPanelMetrics? _metrics;
+    private readonly IGlossaryStore? _glossary;
 
     public TranslationWorkerPool(
         TranslationJobQueue queue,
@@ -27,7 +31,8 @@ public sealed class TranslationWorkerPool
         ProviderRateLimiter limiter,
         RuntimeConfig config,
         ITranslationCache? cache = null,
-        ControlPanelMetrics? metrics = null)
+        ControlPanelMetrics? metrics = null,
+        IGlossaryStore? glossary = null)
     {
         _queue = queue;
         _dispatcher = dispatcher;
@@ -36,6 +41,7 @@ public sealed class TranslationWorkerPool
         _config = config;
         _cache = cache;
         _metrics = metrics;
+        _glossary = glossary;
     }
 
     public async Task RunUntilIdleAsync(CancellationToken cancellationToken)
@@ -54,7 +60,13 @@ public sealed class TranslationWorkerPool
         {
             if (!_queue.TryDequeueBatch(1, _config.MaxBatchCharacters, out var batch))
             {
-                return;
+                if (_queue.InFlightCount == 0)
+                {
+                    return;
+                }
+
+                await Task.Delay(IdleWorkerPollInterval, cancellationToken).ConfigureAwait(false);
+                continue;
             }
 
             var completedCount = 0;
@@ -66,12 +78,20 @@ public sealed class TranslationWorkerPool
             try
             {
                 await _limiter.WaitAsync(cancellationToken).ConfigureAwait(false);
+                var targetLanguage = ResolveTargetLanguage(batch);
+                var contextExamples = BuildContextExamples(batch, targetLanguage);
+                var glossaryTerms = BuildGlossaryTerms(batch, targetLanguage);
                 var protectedTexts = batch.Select(job => PlaceholderProtector.Protect(job.SourceText)).ToArray();
                 var request = new TranslationRequest(
                     protectedTexts.Select(text => text.Text).ToArray(),
-                    _config.TargetLanguage,
-                    PromptBuilder.BuildSystemPrompt(new PromptOptions(_config.TargetLanguage, _config.Style, _config.CustomInstruction, _config.CustomPrompt)),
-                    PromptBuilder.BuildBatchUserPrompt(protectedTexts.Select(text => text.Text).ToArray()));
+                    targetLanguage,
+                    PromptBuilder.BuildSystemPrompt(new PromptOptions(
+                        targetLanguage,
+                        _config.Style,
+                        _config.CustomInstruction,
+                        _config.CustomPrompt,
+                        glossaryTerms.Count > 0)),
+                    PromptBuilder.BuildBatchUserPrompt(protectedTexts.Select(text => text.Text).ToArray(), contextExamples, glossaryTerms));
                 var stopwatch = Stopwatch.StartNew();
                 var response = await _provider.TranslateAsync(request, cancellationToken).ConfigureAwait(false);
                 stopwatch.Stop();
@@ -83,7 +103,22 @@ public sealed class TranslationWorkerPool
                         restoredTexts);
                     if (validation.IsValid)
                     {
-                        completedCount = PublishResults(batch, restoredTexts, response.TotalTokens, stopwatch.Elapsed);
+                        restoredTexts = await RepairGlossaryFailuresAsync(
+                            batch,
+                            protectedTexts,
+                            restoredTexts,
+                            glossaryTerms,
+                            targetLanguage,
+                            cancellationToken).ConfigureAwait(false);
+                        var glossaryValidation = GlossaryOutputValidator.ValidateBatch(
+                            batch.Select(job => job.SourceText).ToArray(),
+                            restoredTexts,
+                            glossaryTerms);
+                        if (glossaryValidation.IsValid &&
+                            TranslationOutputValidator.ValidateBatch(batch.Select(job => job.SourceText).ToArray(), restoredTexts).IsValid)
+                        {
+                            completedCount = PublishResults(batch, restoredTexts, response.TotalTokens, stopwatch.Elapsed);
+                        }
                     }
                 }
             }
@@ -118,7 +153,7 @@ public sealed class TranslationWorkerPool
         {
             var cacheKey = TranslationCacheKey.Create(
                 jobs[i].SourceText,
-                _config.TargetLanguage,
+                ResolveTargetLanguage(jobs[i]),
                 _config.Provider,
                 TextPipeline.PromptPolicyVersion);
             _cache?.Set(cacheKey, translatedTexts[i], jobs[i].Context);
@@ -136,7 +171,7 @@ public sealed class TranslationWorkerPool
             _metrics?.RecordTranslationCompleted(new RecentTranslationPreview(
                 jobs[i].SourceText,
                 translatedTexts[i],
-                _config.TargetLanguage,
+                ResolveTargetLanguage(jobs[i]),
                 _config.Provider.Kind.ToString(),
                 _config.Provider.Model,
                 jobs[i].Context.ComponentHierarchy ?? jobs[i].Context.SceneName ?? jobs[i].Context.ComponentType,
@@ -146,5 +181,128 @@ public sealed class TranslationWorkerPool
         }
 
         return count;
+    }
+
+    private async Task<IReadOnlyList<string>> RepairGlossaryFailuresAsync(
+        IReadOnlyList<TranslationJob> jobs,
+        IReadOnlyList<ProtectedText> protectedTexts,
+        IReadOnlyList<string> translatedTexts,
+        IReadOnlyList<GlossaryPromptTerm> glossaryTerms,
+        string targetLanguage,
+        CancellationToken cancellationToken)
+    {
+        if (glossaryTerms.Count == 0)
+        {
+            return translatedTexts;
+        }
+
+        var repaired = translatedTexts.ToArray();
+        var count = Math.Min(jobs.Count, repaired.Length);
+        for (var i = 0; i < count; i++)
+        {
+            var terms = glossaryTerms.Where(term => term.TextIndex == i).ToArray();
+            if (terms.Length == 0)
+            {
+                continue;
+            }
+
+            var validation = GlossaryOutputValidator.ValidateSingle(jobs[i].SourceText, repaired[i], terms);
+            if (validation.IsValid)
+            {
+                continue;
+            }
+
+            var request = new TranslationRequest(
+                new[] { protectedTexts[i].Text },
+                targetLanguage,
+                PromptBuilder.BuildSystemPrompt(new PromptOptions(
+                    targetLanguage,
+                    _config.Style,
+                    _config.CustomInstruction,
+                    _config.CustomPrompt,
+                    HasGlossaryTerms: true)),
+                "The previous translation missed required glossary terms.\n" +
+                PromptBuilder.BuildRepairPrompt(jobs[i].SourceText, repaired[i], validation.Reason, terms));
+            var response = await _provider.TranslateAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!response.Succeeded || response.TranslatedTexts.Count == 0)
+            {
+                continue;
+            }
+
+            repaired[i] = protectedTexts[i].Restore(response.TranslatedTexts[0]);
+        }
+
+        return repaired;
+    }
+
+    private IReadOnlyList<TranslationContextExample> BuildContextExamples(IReadOnlyList<TranslationJob> jobs, string targetLanguage)
+    {
+        if (!_config.EnableTranslationContext || _cache == null || jobs.Count == 0)
+        {
+            return Array.Empty<TranslationContextExample>();
+        }
+
+        var selected = new List<TranslationContextExample>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var usedCharacters = 0;
+        foreach (var job in jobs)
+        {
+            var examples = _cache.GetTranslationContextExamples(
+                job.SourceText,
+                ResolveTargetLanguage(job),
+                job.Context,
+                _config.TranslationContextMaxExamples,
+                _config.TranslationContextMaxCharacters);
+            foreach (var example in examples)
+            {
+                if (selected.Count >= _config.TranslationContextMaxExamples)
+                {
+                    return selected;
+                }
+
+                var key = example.SourceText + "\u001f" + example.TranslatedText;
+                if (!seen.Add(key))
+                {
+                    continue;
+                }
+
+                var nextCharacters = usedCharacters + example.SourceText.Length + example.TranslatedText.Length;
+                if (nextCharacters > _config.TranslationContextMaxCharacters)
+                {
+                    continue;
+                }
+
+                selected.Add(example);
+                usedCharacters = nextCharacters;
+            }
+        }
+
+        return selected;
+    }
+
+    private IReadOnlyList<GlossaryPromptTerm> BuildGlossaryTerms(IReadOnlyList<TranslationJob> jobs, string targetLanguage)
+    {
+        if (!_config.EnableGlossary || _glossary == null || jobs.Count == 0)
+        {
+            return Array.Empty<GlossaryPromptTerm>();
+        }
+
+        return GlossaryMatcher.MatchTerms(
+            jobs.Select(job => job.SourceText).ToArray(),
+            _glossary.GetEnabledTerms(targetLanguage),
+            Math.Min(100, Math.Max(0, _config.GlossaryMaxTerms)),
+            Math.Min(8000, Math.Max(0, _config.GlossaryMaxCharacters)));
+    }
+
+    private string ResolveTargetLanguage(TranslationJob job)
+    {
+        return string.IsNullOrWhiteSpace(job.TargetLanguage)
+            ? _config.TargetLanguage
+            : job.TargetLanguage;
+    }
+
+    private string ResolveTargetLanguage(IReadOnlyList<TranslationJob> jobs)
+    {
+        return jobs.Count == 0 ? _config.TargetLanguage : ResolveTargetLanguage(jobs[0]);
     }
 }
