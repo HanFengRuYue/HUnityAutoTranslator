@@ -32,7 +32,7 @@ let nextToastId = 1;
 
 function loadTheme(): ThemeMode {
   const saved = localStorage.getItem(themeStorageKey);
-  return saved === "light" || saved === "dark" || saved === "system" ? saved : "system";
+  return saved === "light" || saved === "dark" || saved === "system" ? saved : "light";
 }
 
 export const controlPanelStore = reactive<ControlPanelStore>({

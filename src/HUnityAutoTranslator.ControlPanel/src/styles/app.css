@@ -133,6 +133,11 @@ button:disabled {
   grid-template-columns: repeat(4, minmax(160px, 1fr));
   gap: 12px;
 }
+.about-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(180px, 1fr));
+  gap: 12px;
+}
 .metric {
   position: relative;
   display: grid;
@@ -631,6 +636,7 @@ th .header-inner {
   .sidebar { position: static; height: auto; }
   .workspace { padding: 18px 14px 34px; }
   .metric-grid,
+  .about-grid,
   .provider-summary,
   .form-grid.two,
   .form-grid.three,
