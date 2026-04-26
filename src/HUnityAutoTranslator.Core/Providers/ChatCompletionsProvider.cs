@@ -11,12 +11,27 @@ public sealed class ChatCompletionsProvider : ITranslationProvider
     private readonly HttpClient _httpClient;
     private readonly ProviderProfile _profile;
     private readonly Func<string?> _apiKeyProvider;
+    private readonly string _reasoningEffort;
+    private readonly string _deepSeekThinkingMode;
+    private readonly double? _temperature;
+    private readonly TimeSpan _timeout;
 
-    public ChatCompletionsProvider(HttpClient httpClient, ProviderProfile profile, Func<string?> apiKeyProvider)
+    public ChatCompletionsProvider(
+        HttpClient httpClient,
+        ProviderProfile profile,
+        Func<string?> apiKeyProvider,
+        string reasoningEffort = "high",
+        string deepSeekThinkingMode = "enabled",
+        double? temperature = null,
+        TimeSpan? timeout = null)
     {
         _httpClient = httpClient;
         _profile = profile;
         _apiKeyProvider = apiKeyProvider;
+        _reasoningEffort = reasoningEffort;
+        _deepSeekThinkingMode = deepSeekThinkingMode;
+        _temperature = temperature;
+        _timeout = timeout ?? TimeSpan.FromSeconds(30);
     }
 
     public ProviderKind Kind => _profile.Kind;
@@ -40,9 +55,24 @@ public sealed class ChatCompletionsProvider : ITranslationProvider
                 }
             }
         };
+        if (_temperature.HasValue)
+        {
+            body["temperature"] = _temperature.Value;
+        }
+
+        if (_profile.Kind == ProviderKind.DeepSeek)
+        {
+            body["thinking"] = new JObject { ["type"] = _deepSeekThinkingMode };
+            if (!string.Equals(_deepSeekThinkingMode, "disabled", StringComparison.OrdinalIgnoreCase))
+            {
+                body["reasoning_effort"] = NormalizeDeepSeekReasoningEffort(_reasoningEffort);
+            }
+        }
 
         using var httpRequest = CreateRequest(body);
-        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(_timeout);
+        using var response = await _httpClient.SendAsync(httpRequest, timeout.Token).ConfigureAwait(false);
         var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
@@ -50,7 +80,9 @@ public sealed class ChatCompletionsProvider : ITranslationProvider
         }
 
         var text = ProviderJsonParsers.ParseChatCompletionsText(json);
-        return TranslationResponse.Success(ProviderJsonParsers.ParseAssistantTextAsList(text));
+        return TranslationResponse.Success(
+            ProviderJsonParsers.ParseAssistantTextAsList(text),
+            ProviderJsonParsers.ParseTotalTokens(json));
     }
 
     private HttpRequestMessage CreateRequest(JObject body)
@@ -58,7 +90,7 @@ public sealed class ChatCompletionsProvider : ITranslationProvider
         var uri = new Uri(new Uri(_profile.BaseUrl.TrimEnd('/') + "/"), _profile.Endpoint.TrimStart('/'));
         var message = new HttpRequestMessage(HttpMethod.Post, uri)
         {
-            Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json")
+            Content = new StringContent(JsonConvert.SerializeObject(body, Formatting.None), Encoding.UTF8, "application/json")
         };
 
         var apiKey = _apiKeyProvider();
@@ -68,5 +100,13 @@ public sealed class ChatCompletionsProvider : ITranslationProvider
         }
 
         return message;
+    }
+
+    private static string NormalizeDeepSeekReasoningEffort(string reasoningEffort)
+    {
+        return string.Equals(reasoningEffort, "xhigh", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(reasoningEffort, "max", StringComparison.OrdinalIgnoreCase)
+                ? "max"
+                : "high";
     }
 }

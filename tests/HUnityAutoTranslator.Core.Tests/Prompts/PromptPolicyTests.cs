@@ -8,14 +8,40 @@ public sealed class PromptPolicyTests
     [Fact]
     public void BuildSystemPrompt_contains_hard_rules_and_style()
     {
-        var prompt = PromptBuilder.BuildSystemPrompt(new PromptOptions("zh-Hans", TranslationStyle.Localized, "保持角色口吻"));
+        var prompt = PromptBuilder.BuildSystemPrompt(new PromptOptions("zh-Hans", TranslationStyle.Localized, "Keep character voice"));
 
-        prompt.Should().Contain("只输出译文");
-        prompt.Should().Contain("自动判断源语言");
-        prompt.Should().Contain("不要解释");
-        prompt.Should().Contain("不要改变占位符");
-        prompt.Should().Contain("允许自然本地化");
-        prompt.Should().Contain("保持角色口吻");
+        prompt.Should().Contain("You are a game localization translation engine.");
+        prompt.Should().Contain("Target language: Simplified Chinese.");
+        prompt.Should().Contain("Detect the source language automatically.");
+        prompt.Should().Contain("Output only the translated text.");
+        prompt.Should().Contain("Do not add indexes");
+        prompt.Should().Contain("Style: Natural localization is allowed");
+        prompt.Should().Contain("Additional style requirement: Keep character voice");
+        prompt.Should().NotContain("zh-Hans");
+        prompt.Should().NotContain("目标语言");
+    }
+
+    [Fact]
+    public void BuildSystemPrompt_uses_full_custom_prompt_when_configured()
+    {
+        var prompt = PromptBuilder.BuildSystemPrompt(new PromptOptions(
+            TargetLanguage: "ja",
+            Style: TranslationStyle.UiConcise,
+            CustomInstruction: null,
+            CustomPrompt: "Output {TargetLanguage}. Style={StyleInstruction}"));
+
+        prompt.Should().Be("Output Japanese. Style=Style: Keep UI, menu, and button text short and clear.");
+    }
+
+    [Fact]
+    public void BuildBatchUserPrompt_uses_json_input_without_numeric_labels()
+    {
+        var prompt = PromptBuilder.BuildBatchUserPrompt(new[] { "CONTINUE", "Off" });
+
+        prompt.Should().Contain("Return only a JSON string array");
+        prompt.Should().Contain("""["CONTINUE","Off"]""");
+        prompt.Should().NotContain("0:");
+        prompt.Should().NotContain("1:");
     }
 
     [Fact]
@@ -28,5 +54,17 @@ public sealed class PromptPolicyTests
 
         result.IsValid.Should().BeFalse();
         result.Reason.Should().Contain("解释性前缀");
+    }
+
+    [Fact]
+    public void Validator_rejects_numbered_prefix_that_came_from_batch_prompt()
+    {
+        var result = TranslationOutputValidator.ValidateSingle(
+            "Off",
+            "0: 关",
+            requireSameRichTextTags: true);
+
+        result.IsValid.Should().BeFalse();
+        result.Reason.Should().Contain("编号前缀");
     }
 }

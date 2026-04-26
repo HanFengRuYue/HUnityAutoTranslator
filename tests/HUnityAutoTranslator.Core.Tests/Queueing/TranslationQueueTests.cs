@@ -25,4 +25,20 @@ public sealed class TranslationQueueTests
 
         queue.PendingCount.Should().Be(1);
     }
+
+    [Fact]
+    public void TryDequeueBatch_updates_pending_and_inflight_counts()
+    {
+        var queue = new TranslationJobQueue();
+        queue.Enqueue(TranslationJob.Create("target", "Start Game", TranslationPriority.Normal));
+
+        queue.TryDequeueBatch(1, 2000, out var batch).Should().BeTrue();
+
+        queue.PendingCount.Should().Be(0);
+        queue.InFlightCount.Should().Be(1);
+
+        queue.MarkCompleted(batch);
+
+        queue.InFlightCount.Should().Be(0);
+    }
 }

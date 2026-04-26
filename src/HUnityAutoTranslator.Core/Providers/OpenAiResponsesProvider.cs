@@ -11,12 +11,24 @@ public sealed class OpenAiResponsesProvider : ITranslationProvider
     private readonly HttpClient _httpClient;
     private readonly ProviderProfile _profile;
     private readonly Func<string?> _apiKeyProvider;
+    private readonly string _reasoningEffort;
+    private readonly string _outputVerbosity;
+    private readonly TimeSpan _timeout;
 
-    public OpenAiResponsesProvider(HttpClient httpClient, ProviderProfile profile, Func<string?> apiKeyProvider)
+    public OpenAiResponsesProvider(
+        HttpClient httpClient,
+        ProviderProfile profile,
+        Func<string?> apiKeyProvider,
+        string reasoningEffort = "low",
+        string outputVerbosity = "low",
+        TimeSpan? timeout = null)
     {
         _httpClient = httpClient;
         _profile = profile;
         _apiKeyProvider = apiKeyProvider;
+        _reasoningEffort = reasoningEffort;
+        _outputVerbosity = outputVerbosity;
+        _timeout = timeout ?? TimeSpan.FromSeconds(30);
     }
 
     public ProviderKind Kind => ProviderKind.OpenAI;
@@ -27,11 +39,15 @@ public sealed class OpenAiResponsesProvider : ITranslationProvider
         {
             ["model"] = _profile.Model,
             ["instructions"] = request.SystemPrompt,
-            ["input"] = request.UserPrompt
+            ["input"] = request.UserPrompt,
+            ["reasoning"] = new JObject { ["effort"] = _reasoningEffort },
+            ["text"] = new JObject { ["verbosity"] = _outputVerbosity }
         };
 
         using var httpRequest = CreateRequest(body);
-        using var response = await _httpClient.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(_timeout);
+        using var response = await _httpClient.SendAsync(httpRequest, timeout.Token).ConfigureAwait(false);
         var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
@@ -39,7 +55,9 @@ public sealed class OpenAiResponsesProvider : ITranslationProvider
         }
 
         var text = ProviderJsonParsers.ParseOpenAiResponsesText(json);
-        return TranslationResponse.Success(ProviderJsonParsers.ParseAssistantTextAsList(text));
+        return TranslationResponse.Success(
+            ProviderJsonParsers.ParseAssistantTextAsList(text),
+            ProviderJsonParsers.ParseTotalTokens(json));
     }
 
     private HttpRequestMessage CreateRequest(JObject body)
@@ -47,7 +65,7 @@ public sealed class OpenAiResponsesProvider : ITranslationProvider
         var uri = new Uri(new Uri(_profile.BaseUrl.TrimEnd('/') + "/"), _profile.Endpoint.TrimStart('/'));
         var message = new HttpRequestMessage(HttpMethod.Post, uri)
         {
-            Content = new StringContent(body.ToString(Formatting.None), Encoding.UTF8, "application/json")
+            Content = new StringContent(JsonConvert.SerializeObject(body, Formatting.None), Encoding.UTF8, "application/json")
         };
 
         var apiKey = _apiKeyProvider();

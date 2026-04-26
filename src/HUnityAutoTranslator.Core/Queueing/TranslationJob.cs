@@ -1,9 +1,21 @@
+using HUnityAutoTranslator.Core.Caching;
+
 namespace HUnityAutoTranslator.Core.Queueing;
 
-public sealed record TranslationJob(string Id, string SourceText, TranslationPriority Priority)
+public sealed record TranslationJob(
+    string Id,
+    string SourceText,
+    TranslationPriority Priority,
+    TranslationCacheContext Context,
+    bool PublishResult)
 {
-    public static TranslationJob Create(string id, string sourceText, TranslationPriority priority)
+    public static TranslationJob Create(
+        string id,
+        string sourceText,
+        TranslationPriority priority,
+        TranslationCacheContext? context = null,
+        bool publishResult = true)
     {
-        return new TranslationJob(id, sourceText, priority);
+        return new TranslationJob(id, sourceText, priority, context ?? TranslationCacheContext.Empty, publishResult);
     }
 }

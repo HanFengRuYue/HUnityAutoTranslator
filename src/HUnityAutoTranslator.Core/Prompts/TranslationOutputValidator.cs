@@ -1,9 +1,12 @@
+using System.Text.RegularExpressions;
 using HUnityAutoTranslator.Core.Text;
 
 namespace HUnityAutoTranslator.Core.Prompts;
 
 public static class TranslationOutputValidator
 {
+    private static readonly Regex NumberedPrefixPattern = new(@"^\s*\d+\s*[:：.]\s+\S", RegexOptions.Compiled);
+
     private static readonly string[] ExplanatoryPrefixes =
     {
         "翻译如下",
@@ -27,6 +30,11 @@ public static class TranslationOutputValidator
             return ValidationResult.Invalid("包含解释性前缀");
         }
 
+        if (HasGeneratedNumberedPrefix(sourceText, translatedText))
+        {
+            return ValidationResult.Invalid("包含编号前缀");
+        }
+
         var sourcePlaceholders = PlaceholderProtector.ExtractPlaceholders(sourceText);
         var translatedPlaceholders = PlaceholderProtector.ExtractPlaceholders(translatedText);
         if (!sourcePlaceholders.SequenceEqual(translatedPlaceholders))
@@ -40,6 +48,12 @@ public static class TranslationOutputValidator
         }
 
         return ValidationResult.Valid();
+    }
+
+    private static bool HasGeneratedNumberedPrefix(string sourceText, string translatedText)
+    {
+        return NumberedPrefixPattern.IsMatch(translatedText) &&
+            !NumberedPrefixPattern.IsMatch(sourceText);
     }
 
     public static ValidationResult ValidateBatch(IReadOnlyList<string> sourceTexts, IReadOnlyList<string> translatedTexts)

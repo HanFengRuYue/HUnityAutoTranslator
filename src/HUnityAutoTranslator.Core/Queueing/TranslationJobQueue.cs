@@ -21,6 +21,17 @@ public sealed class TranslationJobQueue
         }
     }
 
+    public int InFlightCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _inFlightSources.Count;
+            }
+        }
+    }
+
     public void Enqueue(TranslationJob job)
     {
         var key = TextNormalizer.NormalizeForCache(job.SourceText);

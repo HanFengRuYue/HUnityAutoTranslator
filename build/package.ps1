@@ -27,16 +27,25 @@ if (Test-Path -LiteralPath $packageRoot) {
 
 New-Item -ItemType Directory -Force -Path $pluginRoot | Out-Null
 
-$files = @(
-    "HUnityAutoTranslator.Plugin.dll",
-    "HUnityAutoTranslator.Core.dll",
-    "Newtonsoft.Json.dll"
-)
+Get-ChildItem -LiteralPath $buildOutput -Filter "*.dll" |
+    Where-Object { $_.Name -notlike "BepInEx.*" -and $_.Name -notlike "UnityEngine.*" -and $_.Name -ne "0Harmony.dll" } |
+    Copy-Item -Destination $pluginRoot -Force
 
-foreach ($file in $files) {
-    $source = Join-Path $buildOutput $file
-    if (Test-Path -LiteralPath $source) {
-        Copy-Item -LiteralPath $source -Destination $pluginRoot -Force
+$nativeSqlite = Join-Path $buildOutput "runtimes\win-x64\native\e_sqlite3.dll"
+if (Test-Path -LiteralPath $nativeSqlite) {
+    Copy-Item -LiteralPath $nativeSqlite -Destination $pluginRoot -Force
+}
+else {
+    $nugetPackagesRoot = if ($env:NUGET_PACKAGES) {
+        $env:NUGET_PACKAGES
+    }
+    else {
+        Join-Path $env:USERPROFILE ".nuget\packages"
+    }
+
+    $nativeSqlite = Join-Path $nugetPackagesRoot "sqlitepclraw.lib.e_sqlite3\2.1.11\runtimes\win-x64\native\e_sqlite3.dll"
+    if (Test-Path -LiteralPath $nativeSqlite) {
+        Copy-Item -LiteralPath $nativeSqlite -Destination $pluginRoot -Force
     }
 }
 

@@ -1,50 +1,121 @@
+using System.Globalization;
+using Newtonsoft.Json;
+
 namespace HUnityAutoTranslator.Core.Prompts;
 
 public static class PromptBuilder
 {
     public static string BuildSystemPrompt(PromptOptions options)
     {
-        var style = options.Style switch
+        var style = BuildStyleInstruction(options.Style);
+        var targetLanguageName = ResolveTargetLanguageName(options.TargetLanguage);
+        if (!string.IsNullOrWhiteSpace(options.CustomPrompt))
         {
-            TranslationStyle.Faithful => "风格：忠实保留原意，避免增删信息。",
-            TranslationStyle.Natural => "风格：表达自然流畅，避免机器翻译腔。",
-            TranslationStyle.Localized => "风格：允许自然本地化，符合游戏语境和角色口吻。",
-            TranslationStyle.UiConcise => "风格：UI、菜单和按钮要短而清楚。",
-            _ => "风格：自然准确。"
-        };
+            return ApplyPromptVariables(options.CustomPrompt.Trim(), targetLanguageName, style);
+        }
 
         var custom = string.IsNullOrWhiteSpace(options.CustomInstruction)
             ? string.Empty
-            : "\n附加风格要求：" + options.CustomInstruction.Trim();
+            : "\nAdditional style requirement: " + options.CustomInstruction.Trim();
 
         return $"""
-你是游戏本地化翻译引擎。目标语言：{options.TargetLanguage}。
-自动判断源语言；无论源语言是什么，都翻译为目标语言。
-只输出译文，不要解释，不要寒暄，不要添加引号、Markdown 或“翻译如下”等前缀。
-不要改变占位符、控制符、换行符、Unity 富文本标签或 TextMeshPro 标签。
-允许自然本地化，避免机器翻译腔；菜单和按钮要短，对话要符合角色口吻。
+You are a game localization translation engine.
+Target language: {targetLanguageName}.
+Detect the source language automatically. Translate it into the target language.
+Output only the translated text. Do not explain, greet, add quotes, add Markdown, or add prefixes such as "Translation:".
+Do not add indexes, item numbers, source labels, list markers, or any copied batch labels to the translation.
+Preserve placeholders, control characters, line breaks, Unity rich text tags, and TextMeshPro tags exactly.
+Use natural game localization. Keep menu and button text short; keep dialogue consistent with character voice.
 {style}{custom}
 """;
     }
 
+    public static string BuildDefaultSystemPrompt(string targetLanguage, TranslationStyle style, string? customInstruction = null)
+    {
+        return BuildSystemPrompt(new PromptOptions(targetLanguage, style, customInstruction));
+    }
+
     public static string BuildSingleUserPrompt(string protectedText)
     {
-        return "翻译以下文本，只返回译文：\n" + protectedText;
+        return "Translate the following text. Return only the translation:\n" + protectedText;
     }
 
     public static string BuildBatchUserPrompt(IReadOnlyList<string> protectedTexts)
     {
-        var lines = protectedTexts.Select((text, index) => $"{index}: {text}");
-        return "翻译以下 JSON 数组语义的文本，必须只返回 JSON 字符串数组，数量和顺序必须一致：\n" + string.Join("\n", lines);
+        var json = JsonConvert.SerializeObject(protectedTexts, Formatting.None);
+        return "Translate each string in the JSON array below. Return only a JSON string array with the same length and order. Do not return object keys, indexes, item numbers, labels, or list markers.\n" + json;
     }
 
     public static string BuildRepairPrompt(string sourceText, string invalidTranslation, string reason)
     {
         return $"""
-上一次翻译结果无效，原因：{reason}
-请重新翻译，只输出修复后的译文，不要解释。
-原文：{sourceText}
-无效译文：{invalidTranslation}
+The previous translation result was invalid. Reason: {reason}
+Translate again. Output only the repaired translation, with no explanation.
+Source text: {sourceText}
+Invalid translation: {invalidTranslation}
 """;
+    }
+
+    private static string BuildStyleInstruction(TranslationStyle style)
+    {
+        return style switch
+        {
+            TranslationStyle.Faithful => "Style: Preserve the original meaning faithfully and avoid adding or removing information.",
+            TranslationStyle.Natural => "Style: Use natural fluent language and avoid machine-translation phrasing.",
+            TranslationStyle.Localized => "Style: Natural localization is allowed when it fits the game context and character voice.",
+            TranslationStyle.UiConcise => "Style: Keep UI, menu, and button text short and clear.",
+            _ => "Style: Be natural and accurate."
+        };
+    }
+
+    private static string ApplyPromptVariables(string prompt, string targetLanguageName, string styleInstruction)
+    {
+        return prompt
+            .Replace("{TargetLanguage}", targetLanguageName, StringComparison.Ordinal)
+            .Replace("{StyleInstruction}", styleInstruction, StringComparison.Ordinal);
+    }
+
+    private static string ResolveTargetLanguageName(string targetLanguage)
+    {
+        var normalized = targetLanguage.Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return "the target language";
+        }
+
+        return normalized.ToLowerInvariant() switch
+        {
+            "zh-hans" or "zh-cn" or "zh-sg" => "Simplified Chinese",
+            "zh-hant" or "zh-tw" or "zh-hk" or "zh-mo" => "Traditional Chinese",
+            "zh" => "Chinese",
+            "ja" or "ja-jp" => "Japanese",
+            "ko" or "ko-kr" => "Korean",
+            "en" or "en-us" or "en-gb" => "English",
+            "fr" or "fr-fr" => "French",
+            "de" or "de-de" => "German",
+            "es" or "es-es" => "Spanish",
+            "pt" or "pt-pt" => "Portuguese",
+            "pt-br" => "Brazilian Portuguese",
+            "ru" or "ru-ru" => "Russian",
+            "it" or "it-it" => "Italian",
+            "th" or "th-th" => "Thai",
+            "vi" or "vi-vn" => "Vietnamese",
+            "id" or "id-id" => "Indonesian",
+            "tr" or "tr-tr" => "Turkish",
+            "ar" => "Arabic",
+            _ => TryGetCultureEnglishName(normalized)
+        };
+    }
+
+    private static string TryGetCultureEnglishName(string value)
+    {
+        try
+        {
+            return CultureInfo.GetCultureInfo(value).EnglishName;
+        }
+        catch (CultureNotFoundException)
+        {
+            return value;
+        }
     }
 }

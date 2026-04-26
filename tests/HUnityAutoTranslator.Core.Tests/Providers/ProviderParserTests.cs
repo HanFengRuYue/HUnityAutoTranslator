@@ -37,4 +37,23 @@ public sealed class ProviderParserTests
 
         ProviderJsonParsers.ParseChatCompletionsText(json).Should().Be("开始游戏");
     }
+
+    [Fact]
+    public void AssistantTextParser_strips_numbered_line_prefixes()
+    {
+        var texts = ProviderJsonParsers.ParseAssistantTextAsList("""
+        0: 继续
+        1: 关
+        """);
+
+        texts.Should().Equal("继续", "关");
+    }
+
+    [Fact]
+    public void AssistantTextParser_strips_single_numbered_line_prefix()
+    {
+        var texts = ProviderJsonParsers.ParseAssistantTextAsList("0: 继续");
+
+        texts.Should().ContainSingle().Which.Should().Be("继续");
+    }
 }
