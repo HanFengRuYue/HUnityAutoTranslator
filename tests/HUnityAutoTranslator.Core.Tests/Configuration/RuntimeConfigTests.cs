@@ -31,6 +31,34 @@ public sealed class RuntimeConfigTests
         config.ReplacementFontName.Should().BeNull();
         config.ReplacementFontFile.Should().BeNull();
         config.FontSamplingPointSize.Should().Be(90);
+        config.FontSizeAdjustmentMode.Should().Be(FontSizeAdjustmentMode.Disabled);
+        config.FontSizeAdjustmentValue.Should().Be(0);
+    }
+
+    [Theory]
+    [InlineData(FontSizeAdjustmentMode.Points, -5, 32, 27)]
+    [InlineData(FontSizeAdjustmentMode.Percent, -10, 32, 28.8)]
+    [InlineData(FontSizeAdjustmentMode.Points, -100, 12, 1)]
+    [InlineData(FontSizeAdjustmentMode.Percent, -99, 12, 1)]
+    public void Font_size_adjustment_is_calculated_from_original_size(
+        FontSizeAdjustmentMode mode,
+        double adjustmentValue,
+        float originalSize,
+        float expectedSize)
+    {
+        FontSizeAdjustment.Calculate(originalSize, mode, adjustmentValue)
+            .Should().BeApproximately(expectedSize, 0.001f);
+    }
+
+    [Fact]
+    public void DefaultConfig_uses_requested_runtime_hotkeys()
+    {
+        var config = RuntimeConfig.CreateDefault();
+
+        config.OpenControlPanelHotkey.Should().Be("Alt+H");
+        config.ToggleTranslationHotkey.Should().Be("Alt+F");
+        config.ForceScanHotkey.Should().Be("Alt+G");
+        config.ToggleFontHotkey.Should().Be("Alt+D");
     }
 
     [Fact]

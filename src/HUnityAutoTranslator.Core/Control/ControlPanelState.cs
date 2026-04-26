@@ -14,6 +14,10 @@ public sealed record ControlPanelState(
     bool ApiKeyConfigured,
     string? ApiKeyPreview,
     bool AutoOpenControlPanel,
+    string OpenControlPanelHotkey,
+    string ToggleTranslationHotkey,
+    string ForceScanHotkey,
+    string ToggleFontHotkey,
     int QueueCount,
     int CacheCount,
     long CapturedTextCount,
@@ -66,4 +70,6 @@ public sealed record ControlPanelState(
     string? AutomaticReplacementFontName,
     string? AutomaticReplacementFontFile,
     int FontSamplingPointSize,
+    FontSizeAdjustmentMode FontSizeAdjustmentMode,
+    double FontSizeAdjustmentValue,
     string? LastError);

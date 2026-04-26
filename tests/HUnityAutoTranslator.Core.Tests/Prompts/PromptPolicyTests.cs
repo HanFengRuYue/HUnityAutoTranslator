@@ -56,6 +56,7 @@ public sealed class PromptPolicyTests
         var prompt = PromptBuilder.BuildBatchUserPrompt(new[] { "CONTINUE", "Off" });
 
         prompt.Should().Contain("Return only a JSON string array");
+        prompt.Should().Contain("Do not split one input string into multiple output items");
         prompt.Should().Contain("""["CONTINUE","Off"]""");
         prompt.Should().NotContain("0:");
         prompt.Should().NotContain("1:");

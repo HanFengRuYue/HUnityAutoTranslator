@@ -93,6 +93,64 @@ public sealed class ControlPanelServiceTests
     }
 
     [Fact]
+    public void Snapshot_reports_default_runtime_hotkeys()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        var state = service.GetState();
+
+        state.OpenControlPanelHotkey.Should().Be("Alt+H");
+        state.ToggleTranslationHotkey.Should().Be("Alt+F");
+        state.ForceScanHotkey.Should().Be("Alt+G");
+        state.ToggleFontHotkey.Should().Be("Alt+D");
+    }
+
+    [Fact]
+    public void CreateDefault_loads_saved_runtime_hotkeys()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
+        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+
+        first.UpdateConfig(new UpdateConfigRequest(
+            OpenControlPanelHotkey: "Ctrl+Shift+P",
+            ToggleTranslationHotkey: "Alt+T",
+            ForceScanHotkey: "Ctrl+G",
+            ToggleFontHotkey: "Shift+F8"));
+
+        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var state = second.GetState();
+
+        state.OpenControlPanelHotkey.Should().Be("Ctrl+Shift+P");
+        state.ToggleTranslationHotkey.Should().Be("Alt+T");
+        state.ForceScanHotkey.Should().Be("Ctrl+G");
+        state.ToggleFontHotkey.Should().Be("Shift+F8");
+    }
+
+    [Fact]
+    public void UpdateConfig_keeps_previous_runtime_hotkeys_when_values_are_empty_or_invalid()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        service.UpdateConfig(new UpdateConfigRequest(
+            OpenControlPanelHotkey: "Ctrl+Shift+P",
+            ToggleTranslationHotkey: "Alt+T",
+            ForceScanHotkey: "Ctrl+G",
+            ToggleFontHotkey: "Shift+F8"));
+
+        service.UpdateConfig(new UpdateConfigRequest(
+            OpenControlPanelHotkey: "",
+            ToggleTranslationHotkey: "Alt+F+G",
+            ForceScanHotkey: "Ctrl+",
+            ToggleFontHotkey: "Mouse4"));
+
+        var state = service.GetState();
+        state.OpenControlPanelHotkey.Should().Be("Ctrl+Shift+P");
+        state.ToggleTranslationHotkey.Should().Be("Alt+T");
+        state.ForceScanHotkey.Should().Be("Ctrl+G");
+        state.ToggleFontHotkey.Should().Be("Shift+F8");
+    }
+
+    [Fact]
     public void UpdateConfig_changes_provider_profile_and_runtime_switches()
     {
         var service = ControlPanelService.CreateDefault();
@@ -336,17 +394,50 @@ public sealed class ControlPanelServiceTests
     }
 
     [Fact]
+    public void CreateDefault_loads_font_size_adjustment_settings()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
+        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+
+        first.UpdateConfig(new UpdateConfigRequest(
+            FontSizeAdjustmentMode: FontSizeAdjustmentMode.Percent,
+            FontSizeAdjustmentValue: -10));
+
+        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var state = second.GetState();
+
+        state.FontSizeAdjustmentMode.Should().Be(FontSizeAdjustmentMode.Percent);
+        state.FontSizeAdjustmentValue.Should().Be(-10);
+        second.GetConfig().FontSizeAdjustmentMode.Should().Be(FontSizeAdjustmentMode.Percent);
+        second.GetConfig().FontSizeAdjustmentValue.Should().Be(-10);
+    }
+
+    [Fact]
+    public void UpdateConfig_clamps_font_size_adjustment_to_safe_range()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        service.UpdateConfig(new UpdateConfigRequest(
+            FontSizeAdjustmentMode: FontSizeAdjustmentMode.Percent,
+            FontSizeAdjustmentValue: -200));
+
+        service.GetConfig().FontSizeAdjustmentValue.Should().Be(-99);
+        service.UpdateConfig(new UpdateConfigRequest(FontSizeAdjustmentValue: 500));
+        service.GetConfig().FontSizeAdjustmentValue.Should().Be(300);
+    }
+
+    [Fact]
     public void Automatic_font_fallbacks_are_reported_in_state_without_persisting_settings()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
         var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
 
-        first.SetAutomaticFontFallbacks(" Microsoft YaHei ", @" C:\Windows\Fonts\msyh.ttc ");
+        first.SetAutomaticFontFallbacks(null, @" C:\Windows\Fonts\NotoSansSC-VF.ttf ");
         first.UpdateConfig(new UpdateConfigRequest(MaxConcurrentRequests: 6));
 
         var state = first.GetState();
-        state.AutomaticReplacementFontName.Should().Be("Microsoft YaHei");
-        state.AutomaticReplacementFontFile.Should().Be(@"C:\Windows\Fonts\msyh.ttc");
+        state.AutomaticReplacementFontName.Should().BeNull();
+        state.AutomaticReplacementFontFile.Should().Be(@"C:\Windows\Fonts\NotoSansSC-VF.ttf");
         state.ReplacementFontName.Should().BeNull();
         state.ReplacementFontFile.Should().BeNull();
 

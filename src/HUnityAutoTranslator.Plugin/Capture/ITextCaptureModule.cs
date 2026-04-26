@@ -8,5 +8,5 @@ internal interface ITextCaptureModule : IDisposable
 
     void Start();
 
-    void Tick();
+    void Tick(bool forceFullScan = false);
 }

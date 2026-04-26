@@ -64,7 +64,7 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
         }
     }
 
-    public void Tick()
+    public void Tick(bool forceFullScan = false)
     {
     }
 

@@ -7,13 +7,21 @@ public sealed class TranslationResult
         string sourceText,
         string translatedText,
         int priority,
-        string? previousTranslatedText = null)
+        string? previousTranslatedText = null,
+        string? sceneName = null,
+        string? componentHierarchy = null,
+        string? componentType = null,
+        DateTimeOffset? updatedUtc = null)
     {
         TargetId = targetId;
         SourceText = sourceText;
         TranslatedText = translatedText;
         Priority = priority;
         PreviousTranslatedText = string.IsNullOrEmpty(previousTranslatedText) ? null : previousTranslatedText;
+        SceneName = sceneName;
+        ComponentHierarchy = componentHierarchy;
+        ComponentType = componentType;
+        UpdatedUtc = updatedUtc ?? DateTimeOffset.UtcNow;
     }
 
     public string TargetId { get; }
@@ -25,4 +33,14 @@ public sealed class TranslationResult
     public int Priority { get; }
 
     public string? PreviousTranslatedText { get; }
+
+    public string? SceneName { get; }
+
+    public string? ComponentHierarchy { get; }
+
+    public string? ComponentType { get; }
+
+    public DateTimeOffset UpdatedUtc { get; }
+
+    public bool HasComponentContext => !string.IsNullOrWhiteSpace(ComponentHierarchy);
 }

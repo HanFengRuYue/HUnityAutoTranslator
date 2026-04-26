@@ -18,5 +18,9 @@ internal interface IUnityTextTarget
 
     void SetText(string value);
 
+    bool TryGetFontSize(out float fontSize);
+
+    bool TrySetFontSize(float fontSize);
+
     bool TryGetScreenRect(out UnityEngine.Rect screenRect);
 }

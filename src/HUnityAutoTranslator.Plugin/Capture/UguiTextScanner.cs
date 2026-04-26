@@ -3,6 +3,7 @@ using BepInEx.Logging;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Pipeline;
+using HUnityAutoTranslator.Core.Runtime;
 using HUnityAutoTranslator.Plugin.Unity;
 using UnityEngine;
 
@@ -15,6 +16,7 @@ internal sealed class UguiTextScanner : ITextCaptureModule
     private readonly ManualLogSource _logger;
     private readonly Func<RuntimeConfig> _configProvider;
     private readonly UnityTextFontReplacementService? _fontReplacement;
+    private readonly RoundRobinCursor _scanCursor = new();
     private Type? _textType;
     private PropertyInfo? _textProperty;
     private bool _enabled;
@@ -57,7 +59,7 @@ internal sealed class UguiTextScanner : ITextCaptureModule
         _logger.LogInfo("UGUI capture enabled.");
     }
 
-    public void Tick()
+    public void Tick(bool forceFullScan = false)
     {
         if (_textType == null || _textProperty == null)
         {
@@ -67,10 +69,10 @@ internal sealed class UguiTextScanner : ITextCaptureModule
         try
         {
             var objects = UnityEngine.Object.FindObjectsOfType(_textType);
-            var count = Math.Min(objects.Length, _configProvider().MaxScanTargetsPerTick);
-            for (var i = 0; i < count; i++)
+            var maxTargets = forceFullScan ? objects.Length : _configProvider().MaxScanTargetsPerTick;
+            foreach (var component in _scanCursor.TakeWindow(objects, maxTargets))
             {
-                Process(objects[i]);
+                Process(component);
             }
         }
         catch (Exception ex)

@@ -7,6 +7,7 @@ using HUnityAutoTranslator.Core.Glossary;
 using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Queueing;
 using HUnityAutoTranslator.Plugin.Capture;
+using HUnityAutoTranslator.Plugin.Hotkeys;
 using HUnityAutoTranslator.Plugin.Unity;
 using UnityEngine;
 
@@ -27,6 +28,7 @@ public sealed class Plugin : BaseUnityPlugin
     private ControlPanelMetrics? _metrics;
     private UnityTextFontReplacementService? _fontReplacement;
     private UnityTextHighlighter? _highlighter;
+    private RuntimeHotkeyController? _hotkeys;
     private float _nextScanTime;
     private float _nextSkippedWritebackLogTime;
     private bool _openedControlPanel;
@@ -46,7 +48,7 @@ public sealed class Plugin : BaseUnityPlugin
             _glossary = new SqliteGlossaryStore(glossaryPath);
             _queue = new TranslationJobQueue();
             _dispatcher = new ResultDispatcher();
-            _resultApplier = new UnityMainThreadResultApplier();
+            _resultApplier = new UnityMainThreadResultApplier(_controlPanel.GetConfig, message => Logger.LogInfo(message));
             _highlighter = new UnityTextHighlighter(_resultApplier, Logger);
             _fontReplacement = new UnityTextFontReplacementService(_cache, Logger, _controlPanel.GetConfig, _controlPanel.SetAutomaticFontFallbacks);
             _fontReplacement.InstallStartupFallbacks();
@@ -69,6 +71,7 @@ public sealed class Plugin : BaseUnityPlugin
                 _highlighter,
                 Logger);
             _httpServer.Start(config.HttpHost, config.HttpPort);
+            _hotkeys = new RuntimeHotkeyController(_httpServer, _captureCoordinator, _resultApplier, _fontReplacement, Logger);
             Logger.LogInfo($"{MyPluginInfo.PLUGIN_NAME} loaded. Control panel: {_httpServer.Url}");
             OpenControlPanelIfConfigured();
             Logger.LogInfo($"Persistent settings: {settingsPath}");
@@ -115,6 +118,7 @@ public sealed class Plugin : BaseUnityPlugin
         }
 
         var config = _controlPanel.GetConfig();
+        _hotkeys?.Tick(config);
         if (_captureCoordinator != null && Time.unscaledTime >= _nextScanTime)
         {
             _captureCoordinator.Tick();
@@ -140,7 +144,11 @@ public sealed class Plugin : BaseUnityPlugin
         {
             var results = _dispatcher.Drain(config.MaxWritebacksPerFrame);
             var applied = _resultApplier.Apply(results);
-            _resultApplier.ReapplyRemembered(config.MaxWritebacksPerFrame);
+            if (config.ReapplyRememberedTranslations)
+            {
+                _resultApplier.ReapplyRemembered(int.MaxValue);
+            }
+
             if (applied > 0)
             {
                 Logger.LogInfo($"Applied {applied} translated text result(s).");

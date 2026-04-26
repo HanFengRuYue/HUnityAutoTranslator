@@ -129,6 +129,21 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Control_panel_refresh_preserves_unsaved_config_form_edits()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("let configFormDirty = false;");
+        htmlSource.Should().Contain("function markConfigFormDirty(event)");
+        htmlSource.Should().Contain("function trackConfigFormEdits()");
+        htmlSource.Should().Contain("function applyConfigFormState(state)");
+        htmlSource.Should().Contain("if (!options.forceConfigFields && configFormDirty) return;");
+        htmlSource.Should().Contain("applyState(await api(\"/api/config\", { method: \"POST\", body: JSON.stringify(readConfig()) }), { forceConfigFields: true });");
+        htmlSource.Should().Contain("trackConfigFormEdits();");
+        htmlSource.Should().Contain("setInterval(refresh, 2000);");
+    }
+
+    [Fact]
     public void Refresh_failure_marks_plugin_status_as_disconnected()
     {
         var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
@@ -189,6 +204,26 @@ public sealed class ControlPanelHtmlSourceTests
         htmlSource.Should().Contain("id=\"replacementFontName\"");
         htmlSource.Should().Contain("id=\"replacementFontFile\"");
         htmlSource.Should().Contain("id=\"fontSamplingPointSize\"");
+        htmlSource.Should().Contain("id=\"fontSizeAdjustmentMode\"");
+        htmlSource.Should().Contain("id=\"fontSizeAdjustmentValue\"");
+        htmlSource.Should().Contain("FontSizeAdjustmentMode: Number($(\"fontSizeAdjustmentMode\").value)");
+        htmlSource.Should().Contain("FontSizeAdjustmentValue: numberValue(\"fontSizeAdjustmentValue\")");
+        htmlSource.Should().Contain("setKnownSelectValue(\"fontSizeAdjustmentMode\", state.FontSizeAdjustmentMode);");
+    }
+
+    [Fact]
+    public void Plugin_settings_expose_runtime_hotkey_controls()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("id=\"openControlPanelHotkey\"");
+        htmlSource.Should().Contain("id=\"toggleTranslationHotkey\"");
+        htmlSource.Should().Contain("id=\"forceScanHotkey\"");
+        htmlSource.Should().Contain("id=\"toggleFontHotkey\"");
+        htmlSource.Should().Contain("OpenControlPanelHotkey: $(\"openControlPanelHotkey\").value");
+        htmlSource.Should().Contain("ToggleTranslationHotkey: $(\"toggleTranslationHotkey\").value");
+        htmlSource.Should().Contain("ForceScanHotkey: $(\"forceScanHotkey\").value");
+        htmlSource.Should().Contain("ToggleFontHotkey: $(\"toggleFontHotkey\").value");
     }
 
     [Fact]
@@ -196,8 +231,8 @@ public sealed class ControlPanelHtmlSourceTests
     {
         var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
 
-        htmlSource.Should().Contain("placeholder=\"留空自动选择，如 Microsoft YaHei / Noto Sans SC\"");
-        htmlSource.Should().Contain("placeholder=\"留空自动选择，如 C:\\Windows\\Fonts\\msyh.ttc\"");
+        htmlSource.Should().Contain("placeholder=\"手动填写字体名，如 Noto Sans SC\"");
+        htmlSource.Should().Contain("placeholder=\"留空自动选择 TTF，如 C:\\Windows\\Fonts\\NotoSansSC-VF.ttf\"");
     }
 
     [Fact]
@@ -229,8 +264,30 @@ public sealed class ControlPanelHtmlSourceTests
         serviceSource.Should().Contain("TMP fallback font asset could not be created from any candidate");
         serviceSource.Should().Contain("Action<string?, string?> automaticFontFallbackReporter");
         serviceSource.Should().Contain("ReportAutomaticFontFallbacks(config);");
-        serviceSource.Should().Contain("ResolveFirstUsableAutomaticFontName");
         serviceSource.Should().Contain("ResolveFirstUsableAutomaticFontFile");
+    }
+
+    [Fact]
+    public void Font_replacement_automatic_candidates_preserve_priority_and_use_regular_face_for_variable_fonts()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+
+        var candidateFileBlock = serviceSource[
+            serviceSource.IndexOf("private static readonly string[] CandidateFontFiles", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private static readonly string[] TmpFontAssetTypeNames", StringComparison.Ordinal)];
+
+        candidateFileBlock.Should().Contain(@"C:\Windows\Fonts\NotoSansSC-VF.ttf");
+        candidateFileBlock.Should().Contain(@"C:\Windows\Fonts\Deng.ttf");
+        candidateFileBlock.IndexOf(@"C:\Windows\Fonts\NotoSansSC-VF.ttf", StringComparison.Ordinal)
+            .Should().BeLessThan(candidateFileBlock.IndexOf(@"C:\Windows\Fonts\simhei.ttf", StringComparison.Ordinal));
+        candidateFileBlock.IndexOf(@"C:\Windows\Fonts\simhei.ttf", StringComparison.Ordinal)
+            .Should().BeLessThan(candidateFileBlock.IndexOf(@"C:\Windows\Fonts\Deng.ttf", StringComparison.Ordinal));
+        candidateFileBlock.Should().Contain(".ttf");
+        candidateFileBlock.Should().NotContain(".ttc");
+        serviceSource.Should().Contain("Noto Sans SC Regular");
+        serviceSource.Should().Contain("Noto Serif SC Regular");
+        serviceSource.Should().Contain("FontCandidate.Create(\"auto-file\"");
+        serviceSource.Should().NotContain("FontCandidate.Create(\"auto-name\"");
     }
 
     [Fact]

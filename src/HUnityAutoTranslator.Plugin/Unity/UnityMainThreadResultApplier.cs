@@ -1,16 +1,43 @@
-using HUnityAutoTranslator.Core.Dispatching;
 using HUnityAutoTranslator.Core.Control;
+using HUnityAutoTranslator.Core.Configuration;
+using HUnityAutoTranslator.Core.Dispatching;
+using HUnityAutoTranslator.Core.Runtime;
 
 namespace HUnityAutoTranslator.Plugin.Unity;
 
 internal sealed class UnityMainThreadResultApplier
 {
+    private const int MaxPendingComponentRefreshes = 512;
+    private const int MaxFontSizeAdjustmentLogCount = 20;
+
     private readonly Dictionary<string, IUnityTextTarget> _targets = new();
     private readonly TranslationWritebackTracker _writebacks = new();
+    private readonly Func<RuntimeConfig> _configProvider;
+    private readonly Action<string>? _fontSizeAdjustmentLogger;
+    private readonly Dictionary<string, float> _originalFontSizes = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _loggedFontSizeAdjustmentTargets = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TranslationResult> _pendingComponentRefreshes = new(StringComparer.Ordinal);
+    private readonly RoundRobinCursor _reapplyCursor = new();
+    private int _fontSizeAdjustmentLogCount;
+    private bool _useTranslatedText = true;
+
+    public UnityMainThreadResultApplier()
+        : this(RuntimeConfig.CreateDefault, fontSizeAdjustmentLogger: null)
+    {
+    }
+
+    public UnityMainThreadResultApplier(Func<RuntimeConfig> configProvider, Action<string>? fontSizeAdjustmentLogger = null)
+    {
+        _configProvider = configProvider;
+        _fontSizeAdjustmentLogger = fontSizeAdjustmentLogger;
+    }
 
     public void Register(IUnityTextTarget target)
     {
         _targets[target.Id] = target;
+        RememberOriginalFontSize(target);
+        ApplyCurrentFontSizeState(target);
+        TryApplyPendingComponentRefresh(target);
     }
 
     public IReadOnlyList<TranslationHighlightTarget> SnapshotTargets()
@@ -20,8 +47,7 @@ internal sealed class UnityMainThreadResultApplier
         {
             if (!target.IsAlive)
             {
-                _targets.Remove(target.Id);
-                _writebacks.Forget(target.Id);
+                ForgetTarget(target.Id);
                 continue;
             }
 
@@ -46,8 +72,7 @@ internal sealed class UnityMainThreadResultApplier
 
         if (target != null)
         {
-            _targets.Remove(targetId);
-            _writebacks.Forget(targetId);
+            ForgetTarget(targetId);
         }
 
         target = null!;
@@ -71,23 +96,13 @@ internal sealed class UnityMainThreadResultApplier
         var applied = 0;
         foreach (var result in results)
         {
-            if (!_targets.TryGetValue(result.TargetId, out var target) || !target.IsAlive)
+            if (!TryFindTarget(result, out var target))
             {
-                _writebacks.Forget(result.TargetId);
+                RememberPendingComponentRefresh(result);
                 continue;
             }
 
-            if (_writebacks.IsRememberedTranslation(result.TargetId, result.SourceText))
-            {
-                continue;
-            }
-
-            _writebacks.Remember(
-                result.TargetId,
-                result.SourceText,
-                result.TranslatedText,
-                result.PreviousTranslatedText);
-            if (TryApplyRemembered(target))
+            if (ApplyResultToTarget(result, target))
             {
                 applied++;
             }
@@ -98,8 +113,13 @@ internal sealed class UnityMainThreadResultApplier
 
     public int ReapplyRemembered(int maxCount)
     {
+        if (maxCount <= 0)
+        {
+            return 0;
+        }
+
         var applied = 0;
-        foreach (var target in _targets.Values.ToArray())
+        foreach (var target in _reapplyCursor.TakeFullRound(_targets.Values.ToArray()))
         {
             if (applied >= maxCount)
             {
@@ -108,8 +128,7 @@ internal sealed class UnityMainThreadResultApplier
 
             if (!target.IsAlive)
             {
-                _targets.Remove(target.Id);
-                _writebacks.Forget(target.Id);
+                ForgetTarget(target.Id);
                 continue;
             }
 
@@ -117,19 +136,310 @@ internal sealed class UnityMainThreadResultApplier
             {
                 applied++;
             }
+            else
+            {
+                ApplyCurrentFontSizeState(target);
+            }
         }
 
         return applied;
     }
 
+    public int SetTranslatedTextMode(bool useTranslatedText, int maxCount)
+    {
+        _useTranslatedText = useTranslatedText;
+        if (maxCount <= 0)
+        {
+            return 0;
+        }
+
+        var applied = 0;
+        foreach (var target in _reapplyCursor.TakeFullRound(_targets.Values.ToArray()))
+        {
+            if (applied >= maxCount)
+            {
+                break;
+            }
+
+            if (!target.IsAlive)
+            {
+                ForgetTarget(target.Id);
+                continue;
+            }
+
+            if (_writebacks.TryGetDisplayText(target.Id, target.GetText(), useTranslatedText, out var replacement))
+            {
+                target.SetText(replacement);
+                ApplyFontSizeState(target, translatedTextIsActive: useTranslatedText);
+                applied++;
+            }
+            else
+            {
+                ApplyCurrentFontSizeState(target);
+            }
+        }
+
+        return applied;
+    }
+
+    private bool TryFindTarget(TranslationResult result, out IUnityTextTarget target)
+    {
+        if (!string.IsNullOrEmpty(result.TargetId))
+        {
+            if (_targets.TryGetValue(result.TargetId, out var directTarget) && directTarget.IsAlive)
+            {
+                target = directTarget;
+                return true;
+            }
+
+            ForgetTarget(result.TargetId);
+        }
+
+        return TryFindTargetByComponentContext(result, out target);
+    }
+
+    private bool TryFindTargetByComponentContext(TranslationResult result, out IUnityTextTarget target)
+    {
+        var best = _targets.Values
+            .Where(target => target.IsAlive)
+            .Where(target => ComponentContextMatches(result, target))
+            .OrderByDescending(target => target.IsVisible)
+            .FirstOrDefault();
+
+        if (best != null)
+        {
+            target = best;
+            return true;
+        }
+
+        target = null!;
+        return false;
+    }
+
+    private bool ApplyResultToTarget(TranslationResult result, IUnityTextTarget target)
+    {
+        var currentText = target.GetText();
+        if (!_writebacks.TryRememberForCurrentText(
+            target.Id,
+            currentText,
+            result.SourceText,
+            result.TranslatedText,
+            result.PreviousTranslatedText))
+        {
+            return false;
+        }
+
+        ForgetPendingComponentRefresh(result);
+        return TryApplyRemembered(target);
+    }
+
+    private bool RememberPendingComponentRefresh(TranslationResult result)
+    {
+        if (!result.HasComponentContext)
+        {
+            return false;
+        }
+
+        var key = ComponentContextKey(result.SceneName, result.ComponentHierarchy, result.ComponentType);
+        if (_pendingComponentRefreshes.TryGetValue(key, out var existing) && existing.UpdatedUtc > result.UpdatedUtc)
+        {
+            return true;
+        }
+
+        _pendingComponentRefreshes[key] = result;
+        TrimPendingComponentRefreshes();
+        return true;
+    }
+
+    private void TryApplyPendingComponentRefresh(IUnityTextTarget target)
+    {
+        var pending = _pendingComponentRefreshes.Values
+            .Where(result => ComponentContextMatches(result, target))
+            .OrderByDescending(result => result.UpdatedUtc)
+            .ToArray();
+        foreach (var result in pending)
+        {
+            var key = ComponentContextKey(result.SceneName, result.ComponentHierarchy, result.ComponentType);
+            _pendingComponentRefreshes.Remove(key);
+            if (ApplyResultToTarget(result, target))
+            {
+                break;
+            }
+        }
+    }
+
+    private void ForgetPendingComponentRefresh(TranslationResult result)
+    {
+        if (!result.HasComponentContext)
+        {
+            return;
+        }
+
+        _pendingComponentRefreshes.Remove(ComponentContextKey(result.SceneName, result.ComponentHierarchy, result.ComponentType));
+    }
+
+    private void TrimPendingComponentRefreshes()
+    {
+        var excess = _pendingComponentRefreshes.Count - MaxPendingComponentRefreshes;
+        if (excess <= 0)
+        {
+            return;
+        }
+
+        foreach (var key in _pendingComponentRefreshes
+            .OrderBy(item => item.Value.UpdatedUtc)
+            .Take(excess)
+            .Select(item => item.Key)
+            .ToArray())
+        {
+            _pendingComponentRefreshes.Remove(key);
+        }
+    }
+
+    private static bool ComponentContextMatches(TranslationResult result, IUnityTextTarget target)
+    {
+        if (!result.HasComponentContext)
+        {
+            return false;
+        }
+
+        var resultHierarchy = Normalize(result.ComponentHierarchy);
+        if (!string.Equals(Normalize(target.HierarchyPath), resultHierarchy, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var resultScene = Normalize(result.SceneName);
+        if (resultScene.Length > 0 && !string.Equals(Normalize(target.SceneName), resultScene, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return ComponentTypeMatches(result.ComponentType, target.ComponentType);
+    }
+
+    private static bool ComponentTypeMatches(string? expected, string? actual)
+    {
+        var normalizedExpected = Normalize(expected);
+        if (normalizedExpected.Length == 0)
+        {
+            return true;
+        }
+
+        var normalizedActual = Normalize(actual);
+        return string.Equals(normalizedActual, normalizedExpected, StringComparison.Ordinal) ||
+            string.Equals(SimpleName(normalizedActual), SimpleName(normalizedExpected), StringComparison.Ordinal);
+    }
+
+    private static string ComponentContextKey(string? sceneName, string? componentHierarchy, string? componentType)
+    {
+        return string.Join(
+            "\u001f",
+            Normalize(sceneName),
+            Normalize(componentHierarchy),
+            Normalize(componentType));
+    }
+
+    private static string SimpleName(string value)
+    {
+        var index = value.LastIndexOf('.');
+        return index < 0 || index == value.Length - 1 ? value : value.Substring(index + 1);
+    }
+
+    private static string Normalize(string? value)
+    {
+        return value?.Trim() ?? string.Empty;
+    }
+
     private bool TryApplyRemembered(IUnityTextTarget target)
     {
-        if (!_writebacks.TryGetReplacement(target.Id, target.GetText(), out var replacement))
+        if (!_writebacks.TryGetDisplayText(target.Id, target.GetText(), _useTranslatedText, out var replacement))
         {
             return false;
         }
 
         target.SetText(replacement);
+        ApplyFontSizeState(target, translatedTextIsActive: _useTranslatedText);
         return true;
+    }
+
+    private void RememberOriginalFontSize(IUnityTextTarget target)
+    {
+        if (_originalFontSizes.ContainsKey(target.Id))
+        {
+            return;
+        }
+
+        if (target.TryGetFontSize(out var fontSize) && fontSize > 0)
+        {
+            _originalFontSizes[target.Id] = fontSize;
+        }
+    }
+
+    private void ApplyCurrentFontSizeState(IUnityTextTarget target)
+    {
+        var translatedTextIsActive = _useTranslatedText && _writebacks.IsRememberedTranslation(target.Id, target.GetText());
+        ApplyFontSizeState(target, translatedTextIsActive);
+    }
+
+    private void ApplyFontSizeState(IUnityTextTarget target, bool translatedTextIsActive)
+    {
+        RememberOriginalFontSize(target);
+        if (!_originalFontSizes.TryGetValue(target.Id, out var originalSize))
+        {
+            return;
+        }
+
+        var config = _configProvider();
+        if (!translatedTextIsActive ||
+            !FontSizeAdjustment.IsEnabled(config.FontSizeAdjustmentMode, config.FontSizeAdjustmentValue))
+        {
+            RestoreOriginalFontSize(target);
+            return;
+        }
+
+        var adjustedSize = FontSizeAdjustment.Calculate(
+            originalSize,
+            config.FontSizeAdjustmentMode,
+            config.FontSizeAdjustmentValue);
+        if (target.TrySetFontSize(adjustedSize))
+        {
+            LogFontSizeAdjustment(target, originalSize, adjustedSize, config);
+        }
+    }
+
+    private void RestoreOriginalFontSize(IUnityTextTarget target)
+    {
+        if (_originalFontSizes.TryGetValue(target.Id, out var originalSize))
+        {
+            target.TrySetFontSize(originalSize);
+        }
+    }
+
+    private void ForgetTarget(string targetId)
+    {
+        _targets.Remove(targetId);
+        _writebacks.Forget(targetId);
+        _originalFontSizes.Remove(targetId);
+        _loggedFontSizeAdjustmentTargets.Remove(targetId);
+    }
+
+    private void LogFontSizeAdjustment(
+        IUnityTextTarget target,
+        float originalSize,
+        float adjustedSize,
+        RuntimeConfig config)
+    {
+        if (_fontSizeAdjustmentLogger == null ||
+            _fontSizeAdjustmentLogCount >= MaxFontSizeAdjustmentLogCount ||
+            !_loggedFontSizeAdjustmentTargets.Add(target.Id))
+        {
+            return;
+        }
+
+        _fontSizeAdjustmentLogCount++;
+        _fontSizeAdjustmentLogger(
+            $"Font size adjusted for {target.ComponentType}: {originalSize:0.##} -> {adjustedSize:0.##} " +
+            $"({config.FontSizeAdjustmentMode} {config.FontSizeAdjustmentValue:0.##}).");
     }
 }

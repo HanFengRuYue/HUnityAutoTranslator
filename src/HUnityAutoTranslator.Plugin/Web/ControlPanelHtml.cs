@@ -821,11 +821,29 @@ internal static class ControlPanelHtml
         </div>
 
         <div class="band">
+          <h2>快捷键</h2>
+          <div class="grid four">
+            <label><span>打开控制面板</span><input id="openControlPanelHotkey" autocomplete="off" placeholder="Alt+H"></label>
+            <label><span>原文/译文切换</span><input id="toggleTranslationHotkey" autocomplete="off" placeholder="Alt+F"></label>
+            <label><span>全局扫描更新</span><input id="forceScanHotkey" autocomplete="off" placeholder="Alt+G"></label>
+            <label><span>原字体/替换字体</span><input id="toggleFontHotkey" autocomplete="off" placeholder="Alt+D"></label>
+          </div>
+        </div>
+
+        <div class="band">
           <h2>字体替换</h2>
           <div class="grid four">
-            <label><span>字体名称</span><input id="replacementFontName" autocomplete="off" placeholder="留空自动选择，如 Microsoft YaHei / Noto Sans SC"></label>
-            <label><span>字体文件路径</span><input id="replacementFontFile" autocomplete="off" placeholder="留空自动选择，如 C:\Windows\Fonts\msyh.ttc"></label>
+            <label><span>字体名称</span><input id="replacementFontName" autocomplete="off" placeholder="手动填写字体名，如 Noto Sans SC"></label>
+            <label><span>字体文件路径</span><input id="replacementFontFile" autocomplete="off" placeholder="留空自动选择 TTF，如 C:\Windows\Fonts\NotoSansSC-VF.ttf"></label>
             <label><span>TMP 采样字号</span><input id="fontSamplingPointSize" type="number" min="16" max="180"></label>
+            <label><span>译文字号方式</span>
+              <select id="fontSizeAdjustmentMode">
+                <option value="0">不调整</option>
+                <option value="1">点数增减</option>
+                <option value="2">百分比增减</option>
+              </select>
+            </label>
+            <label><span>译文字号调整值</span><input id="fontSizeAdjustmentValue" type="number" min="-99" max="300" step="0.1" placeholder="-5 或 -10"></label>
           </div>
           <div class="checks" style="margin-top:14px">
             <label class="check"><input id="enableFontReplacement" type="checkbox">启用字体替换</label>
@@ -1087,16 +1105,19 @@ internal static class ControlPanelHtml
       1: [["deepseek-v4-flash", "DeepSeek V4 Flash"], ["deepseek-v4-pro", "DeepSeek V4 Pro"], ["deepseek-chat", "DeepSeek Chat"], ["deepseek-reasoner", "DeepSeek Reasoner"], ["custom", "手动填写"]],
       2: [["local-model", "本地/兼容模型"], ["custom", "手动填写"]]
     };
-    const defaultFontNamePlaceholder = "\u7559\u7a7a\u81ea\u52a8\u9009\u62e9\uff0c\u5982 Microsoft YaHei / Noto Sans SC";
-    const defaultFontFilePlaceholder = "\u7559\u7a7a\u81ea\u52a8\u9009\u62e9\uff0c\u5982 C:\\Windows\\Fonts\\msyh.ttc";
-    const textFields = ["targetLanguage", "baseUrl", "endpoint", "model", "replacementFontName", "replacementFontFile"];
+    const defaultFontNamePlaceholder = "\u624b\u52a8\u586b\u5199\u5b57\u4f53\u540d\uff0c\u5982 Noto Sans SC";
+    const defaultFontFilePlaceholder = "\u7559\u7a7a\u81ea\u52a8\u9009\u62e9 TTF\uff0c\u5982 C:\\Windows\\Fonts\\NotoSansSC-VF.ttf";
+    const textFields = [
+      "targetLanguage", "baseUrl", "endpoint", "model", "replacementFontName", "replacementFontFile",
+      "openControlPanelHotkey", "toggleTranslationHotkey", "forceScanHotkey", "toggleFontHotkey"
+    ];
     const numberFields = [
       "maxConcurrentRequests", "requestsPerMinute", "maxBatchCharacters",
       "scanIntervalMilliseconds", "maxScanTargetsPerTick", "maxWritebacksPerFrame",
       "requestTimeoutSeconds", "temperature", "maxSourceTextLength",
       "translationContextMaxExamples", "translationContextMaxCharacters",
       "glossaryMaxTerms", "glossaryMaxCharacters",
-      "fontSamplingPointSize"
+      "fontSamplingPointSize", "fontSizeAdjustmentValue"
     ];
     const checks = [
       "enabled", "autoOpenControlPanel", "enableUgui", "enableTmp", "enableImgui", "ignoreInvisibleText",
@@ -1105,6 +1126,11 @@ internal static class ControlPanelHtml
       "reapplyRememberedTranslations", "enableFontReplacement", "replaceUguiFonts", "replaceTmpFonts",
       "replaceImguiFonts", "autoUseCjkFallbackFonts"
     ];
+    const selectFields = [
+      "style", "providerKind", "reasoningEffort", "outputVerbosity", "deepSeekThinkingMode",
+      "deepSeekReasoningEffort", "fontSizeAdjustmentMode", "modelPreset"
+    ];
+    const configFieldIds = new Set([...textFields, ...numberFields, ...checks, ...selectFields, "customPrompt"]);
     const tableColumns = [
       { key: "SourceText", title: "原文", sort: "source_text", editable: false, width: 260 },
       { key: "TranslatedText", title: "译文", sort: "translated_text", editable: true, width: 260 },
@@ -1151,15 +1177,25 @@ internal static class ControlPanelHtml
       totalCount: 0
     };
     let promptTouched = false;
+    let configFormDirty = false;
 
     function setText(id, value) {
       const element = $(id);
       if (element) element.textContent = value ?? "";
     }
 
-    function isEditing() {
-      const active = document.activeElement;
-      return active && ["INPUT", "SELECT", "TEXTAREA"].includes(active.tagName);
+    function markConfigFormDirty(event) {
+      const target = event && event.target;
+      if (target && target.id && configFieldIds.has(target.id)) configFormDirty = true;
+    }
+
+    function trackConfigFormEdits() {
+      for (const id of configFieldIds) {
+        const element = $(id);
+        if (!element) continue;
+        element.addEventListener("input", markConfigFormDirty);
+        element.addEventListener("change", markConfigFormDirty);
+      }
     }
 
     async function api(path, options) {
@@ -1263,8 +1299,14 @@ internal static class ControlPanelHtml
         ReplacementFontName: $("replacementFontName").value,
         ReplacementFontFile: $("replacementFontFile").value,
         FontSamplingPointSize: numberValue("fontSamplingPointSize"),
+        FontSizeAdjustmentMode: Number($("fontSizeAdjustmentMode").value),
+        FontSizeAdjustmentValue: numberValue("fontSizeAdjustmentValue"),
         Enabled: $("enabled").checked,
         AutoOpenControlPanel: $("autoOpenControlPanel").checked,
+        OpenControlPanelHotkey: $("openControlPanelHotkey").value,
+        ToggleTranslationHotkey: $("toggleTranslationHotkey").value,
+        ForceScanHotkey: $("forceScanHotkey").value,
+        ToggleFontHotkey: $("toggleFontHotkey").value,
         EnableUgui: $("enableUgui").checked,
         EnableTmp: $("enableTmp").checked,
         EnableImgui: $("enableImgui").checked,
@@ -1342,7 +1384,39 @@ internal static class ControlPanelHtml
       }
     }
 
-    function applyState(state) {
+    function applyConfigFormState(state) {
+      if (hasStateField(state, "TargetLanguage")) {
+        setSelectValue("targetLanguage", state.TargetLanguage || "zh-Hans", state.TargetLanguage || "zh-Hans");
+        if (!$("glossaryTargetLanguage").value) $("glossaryTargetLanguage").value = state.TargetLanguage || "zh-Hans";
+      }
+      setKnownSelectValue("style", state.Style);
+      setKnownSelectValue("providerKind", state.ProviderKind);
+      setStateTextValue(state, "baseUrl", "BaseUrl");
+      setStateTextValue(state, "endpoint", "Endpoint");
+      setStateTextValue(state, "model", "Model");
+      setStateTextValue(state, "replacementFontName", "ReplacementFontName");
+      setStateTextValue(state, "replacementFontFile", "ReplacementFontFile");
+      setStateTextValue(state, "openControlPanelHotkey", "OpenControlPanelHotkey");
+      setStateTextValue(state, "toggleTranslationHotkey", "ToggleTranslationHotkey");
+      setStateTextValue(state, "forceScanHotkey", "ForceScanHotkey");
+      setStateTextValue(state, "toggleFontHotkey", "ToggleFontHotkey");
+      applyAutomaticFontPlaceholders(state);
+      setStateNumberValues(state);
+      setKnownSelectValue("fontSizeAdjustmentMode", state.FontSizeAdjustmentMode);
+      if (hasStateField(state, "ReasoningEffort")) {
+        setKnownSelectValue("reasoningEffort", state.ReasoningEffort);
+        setKnownSelectValue("deepSeekReasoningEffort", normalizeDeepSeekEffort(state.ReasoningEffort));
+      }
+      setKnownSelectValue("outputVerbosity", state.OutputVerbosity);
+      setKnownSelectValue("deepSeekThinkingMode", state.DeepSeekThinkingMode);
+      setStateCheckboxValues(state);
+      updateProviderUi(false);
+      if (!promptTouched && hasStateField(state, "CustomPrompt")) {
+        $("customPrompt").value = state.CustomPrompt || buildDefaultPrompt();
+      }
+    }
+
+    function applyState(state, options = {}) {
       setText("enabledText", state.Enabled ? "运行中" : "已暂停");
       $("enabledText").className = state.Enabled ? "ok" : "warn";
       setText("capturedTextCount", state.CapturedTextCount || 0);
@@ -1362,32 +1436,8 @@ internal static class ControlPanelHtml
       $("status").textContent = "已连接";
       $("status").className = "connection ok";
       renderRecentTranslations(state.RecentTranslations || []);
-      if (isEditing()) return;
-
-      if (hasStateField(state, "TargetLanguage")) {
-        setSelectValue("targetLanguage", state.TargetLanguage || "zh-Hans", state.TargetLanguage || "zh-Hans");
-        if (!$("glossaryTargetLanguage").value) $("glossaryTargetLanguage").value = state.TargetLanguage || "zh-Hans";
-      }
-      setKnownSelectValue("style", state.Style);
-      setKnownSelectValue("providerKind", state.ProviderKind);
-      setStateTextValue(state, "baseUrl", "BaseUrl");
-      setStateTextValue(state, "endpoint", "Endpoint");
-      setStateTextValue(state, "model", "Model");
-      setStateTextValue(state, "replacementFontName", "ReplacementFontName");
-      setStateTextValue(state, "replacementFontFile", "ReplacementFontFile");
-      applyAutomaticFontPlaceholders(state);
-      setStateNumberValues(state);
-      if (hasStateField(state, "ReasoningEffort")) {
-        setKnownSelectValue("reasoningEffort", state.ReasoningEffort);
-        setKnownSelectValue("deepSeekReasoningEffort", normalizeDeepSeekEffort(state.ReasoningEffort));
-      }
-      setKnownSelectValue("outputVerbosity", state.OutputVerbosity);
-      setKnownSelectValue("deepSeekThinkingMode", state.DeepSeekThinkingMode);
-      setStateCheckboxValues(state);
-      updateProviderUi(false);
-      if (!promptTouched && hasStateField(state, "CustomPrompt")) {
-        $("customPrompt").value = state.CustomPrompt || buildDefaultPrompt();
-      }
+      if (!options.forceConfigFields && configFormDirty) return;
+      applyConfigFormState(state);
     }
 
     function setSelectValue(id, value, label) {
@@ -1451,7 +1501,8 @@ ${style}`;
     }
 
     async function saveConfigOnly() {
-      applyState(await api("/api/config", { method: "POST", body: JSON.stringify(readConfig()) }));
+      applyState(await api("/api/config", { method: "POST", body: JSON.stringify(readConfig()) }), { forceConfigFields: true });
+      configFormDirty = false;
     }
 
     async function savePendingApiKey() {
@@ -2351,6 +2402,7 @@ ${style}`;
     loadColumnFilters();
     renderColumnChooser();
     updateProviderUi(false);
+    trackConfigFormEdits();
     refresh();
     setInterval(refresh, 2000);
   </script>

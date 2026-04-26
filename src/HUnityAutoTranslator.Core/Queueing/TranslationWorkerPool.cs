@@ -8,6 +8,8 @@ using HUnityAutoTranslator.Core.Prompts;
 using HUnityAutoTranslator.Core.Providers;
 using HUnityAutoTranslator.Core.Text;
 using System.Diagnostics;
+using System.Text;
+using System.Text.RegularExpressions;
 
 namespace HUnityAutoTranslator.Core.Queueing;
 
@@ -23,6 +25,7 @@ public sealed class TranslationWorkerPool
     private readonly ITranslationCache? _cache;
     private readonly ControlPanelMetrics? _metrics;
     private readonly IGlossaryStore? _glossary;
+    private readonly Action<string>? _failureReporter;
 
     public TranslationWorkerPool(
         TranslationJobQueue queue,
@@ -32,7 +35,8 @@ public sealed class TranslationWorkerPool
         RuntimeConfig config,
         ITranslationCache? cache = null,
         ControlPanelMetrics? metrics = null,
-        IGlossaryStore? glossary = null)
+        IGlossaryStore? glossary = null,
+        Action<string>? failureReporter = null)
     {
         _queue = queue;
         _dispatcher = dispatcher;
@@ -42,6 +46,7 @@ public sealed class TranslationWorkerPool
         _cache = cache;
         _metrics = metrics;
         _glossary = glossary;
+        _failureReporter = failureReporter;
     }
 
     public async Task RunUntilIdleAsync(CancellationToken cancellationToken)
@@ -97,7 +102,8 @@ public sealed class TranslationWorkerPool
                 stopwatch.Stop();
                 if (response.Succeeded)
                 {
-                    var restoredTexts = RestoreTokens(protectedTexts, response.TranslatedTexts);
+                    var translatedTexts = NormalizeProviderResponseShape(batch, response.TranslatedTexts);
+                    var restoredTexts = RestoreTokens(protectedTexts, translatedTexts);
                     var validation = TranslationOutputValidator.ValidateBatch(
                         batch.Select(job => job.SourceText).ToArray(),
                         restoredTexts);
@@ -114,12 +120,30 @@ public sealed class TranslationWorkerPool
                             batch.Select(job => job.SourceText).ToArray(),
                             restoredTexts,
                             glossaryTerms);
-                        if (glossaryValidation.IsValid &&
-                            TranslationOutputValidator.ValidateBatch(batch.Select(job => job.SourceText).ToArray(), restoredTexts).IsValid)
+                        var finalValidation = TranslationOutputValidator.ValidateBatch(
+                            batch.Select(job => job.SourceText).ToArray(),
+                            restoredTexts);
+                        if (glossaryValidation.IsValid && finalValidation.IsValid)
                         {
                             completedCount = PublishResults(batch, restoredTexts, response.TotalTokens, stopwatch.Elapsed);
                         }
+                        else if (!glossaryValidation.IsValid)
+                        {
+                            ReportFailure(batch, $"Translation output rejected by glossary validation: {glossaryValidation.Reason}");
+                        }
+                        else
+                        {
+                            ReportFailure(batch, $"Translation output rejected after glossary repair: {finalValidation.Reason}");
+                        }
                     }
+                    else
+                    {
+                        ReportFailure(batch, $"Translation output rejected: {validation.Reason}");
+                    }
+                }
+                else
+                {
+                    ReportFailure(batch, $"Translation provider failed: {response.ErrorMessage ?? "unknown error"}");
                 }
             }
             finally
@@ -146,6 +170,115 @@ public sealed class TranslationWorkerPool
         return restored;
     }
 
+    private void ReportFailure(IReadOnlyList<TranslationJob> jobs, string reason)
+    {
+        if (_failureReporter == null)
+        {
+            return;
+        }
+
+        _failureReporter($"{reason}. Source preview: {BuildSourcePreview(jobs)}");
+    }
+
+    private static string BuildSourcePreview(IReadOnlyList<TranslationJob> jobs)
+    {
+        if (jobs.Count == 0)
+        {
+            return "<empty>";
+        }
+
+        var source = jobs[0].SourceText
+            .Replace("\r", "\\r", StringComparison.Ordinal)
+            .Replace("\n", "\\n", StringComparison.Ordinal);
+        return source.Length <= 160 ? source : source[..160] + "...";
+    }
+
+    private static IReadOnlyList<string> NormalizeProviderResponseShape(
+        IReadOnlyList<TranslationJob> jobs,
+        IReadOnlyList<string> translatedTexts)
+    {
+        if (jobs.Count == translatedTexts.Count ||
+            jobs.Count != 1 ||
+            translatedTexts.Count <= 1)
+        {
+            return translatedTexts;
+        }
+
+        return new[]
+        {
+            ReassembleSplitSingleItemResponse(jobs[0].SourceText, translatedTexts)
+        };
+    }
+
+    private static string ReassembleSplitSingleItemResponse(
+        string sourceText,
+        IReadOnlyList<string> translatedTexts)
+    {
+        var segments = translatedTexts
+            .Where(text => !string.IsNullOrWhiteSpace(text))
+            .Select(text => text.Trim())
+            .ToArray();
+        if (segments.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var lineReassembled = TryReassembleUsingSourceLineBreaks(sourceText, segments);
+        if (lineReassembled != null)
+        {
+            return lineReassembled;
+        }
+
+        return string.Join(FindDominantSourceSeparator(sourceText), segments);
+    }
+
+    private static string? TryReassembleUsingSourceLineBreaks(
+        string sourceText,
+        IReadOnlyList<string> translatedSegments)
+    {
+        var parts = Regex.Matches(sourceText, @"[^\r\n]+|(?:\r\n|\r|\n)+")
+            .Cast<Match>()
+            .Select(match => match.Value)
+            .ToArray();
+        var sourceTextPartCount = parts.Count(part => !IsLineBreakRun(part));
+        if (sourceTextPartCount != translatedSegments.Count)
+        {
+            return null;
+        }
+
+        var builder = new StringBuilder(sourceText.Length);
+        var translatedIndex = 0;
+        foreach (var part in parts)
+        {
+            if (IsLineBreakRun(part))
+            {
+                builder.Append(part);
+                continue;
+            }
+
+            builder.Append(translatedSegments[translatedIndex++]);
+        }
+
+        return builder.ToString();
+    }
+
+    private static string FindDominantSourceSeparator(string sourceText)
+    {
+        var paragraphBreak = Regex.Match(sourceText, @"(?:\r\n|\r|\n){2,}");
+        if (paragraphBreak.Success)
+        {
+            return paragraphBreak.Value;
+        }
+
+        var lineBreak = Regex.Match(sourceText, @"\r\n|\r|\n");
+        return lineBreak.Success ? lineBreak.Value : "\n";
+    }
+
+    private static bool IsLineBreakRun(string value)
+    {
+        return value.All(character => character is '\r' or '\n');
+    }
+
     private int PublishResults(IReadOnlyList<TranslationJob> jobs, IReadOnlyList<string> translatedTexts, int totalTokens, TimeSpan elapsed)
     {
         var count = Math.Min(jobs.Count, translatedTexts.Count);
@@ -159,11 +292,16 @@ public sealed class TranslationWorkerPool
             _cache?.Set(cacheKey, translatedTexts[i], jobs[i].Context);
             if (jobs[i].PublishResult)
             {
+                var resultUpdatedUtc = DateTimeOffset.UtcNow;
                 _dispatcher.Publish(new TranslationResult(
                     jobs[i].Id,
                     jobs[i].SourceText,
                     translatedTexts[i],
-                    (int)jobs[i].Priority));
+                    (int)jobs[i].Priority,
+                    sceneName: jobs[i].Context.SceneName,
+                    componentHierarchy: jobs[i].Context.ComponentHierarchy,
+                    componentType: jobs[i].Context.ComponentType,
+                    updatedUtc: resultUpdatedUtc));
             }
 
             var itemTokens = totalTokens <= 0 ? 0 : totalTokens / count + (i == 0 ? totalTokens % count : 0);

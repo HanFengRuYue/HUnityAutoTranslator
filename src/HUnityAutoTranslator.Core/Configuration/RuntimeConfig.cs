@@ -10,6 +10,10 @@ public sealed record RuntimeConfig(
     string HttpHost,
     int HttpPort,
     bool AutoOpenControlPanel,
+    string OpenControlPanelHotkey,
+    string ToggleTranslationHotkey,
+    string ForceScanHotkey,
+    string ToggleFontHotkey,
     int MaxConcurrentRequests,
     int RequestsPerMinute,
     int MaxBatchCharacters,
@@ -47,7 +51,9 @@ public sealed record RuntimeConfig(
     bool AutoUseCjkFallbackFonts,
     string? ReplacementFontName,
     string? ReplacementFontFile,
-    int FontSamplingPointSize)
+    int FontSamplingPointSize,
+    FontSizeAdjustmentMode FontSizeAdjustmentMode,
+    double FontSizeAdjustmentValue)
 {
     public static RuntimeConfig CreateDefault()
     {
@@ -59,6 +65,10 @@ public sealed record RuntimeConfig(
             HttpHost: "127.0.0.1",
             HttpPort: 48110,
             AutoOpenControlPanel: true,
+            OpenControlPanelHotkey: "Alt+H",
+            ToggleTranslationHotkey: "Alt+F",
+            ForceScanHotkey: "Alt+G",
+            ToggleFontHotkey: "Alt+D",
             MaxConcurrentRequests: 4,
             RequestsPerMinute: 60,
             MaxBatchCharacters: 1800,
@@ -96,6 +106,8 @@ public sealed record RuntimeConfig(
             AutoUseCjkFallbackFonts: true,
             ReplacementFontName: null,
             ReplacementFontFile: null,
-            FontSamplingPointSize: 90);
+            FontSamplingPointSize: 90,
+            FontSizeAdjustmentMode: FontSizeAdjustmentMode.Disabled,
+            FontSizeAdjustmentValue: 0);
     }
 }

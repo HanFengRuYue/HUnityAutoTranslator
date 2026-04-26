@@ -253,6 +253,7 @@ internal sealed class LocalHttpServer : IDisposable
                     return;
                 }
 
+                entry = entry with { UpdatedUtc = DateTimeOffset.UtcNow };
                 var previousTranslatedText = TryGetExistingTranslation(entry, out var existingTranslatedText)
                     ? existingTranslatedText
                     : null;
@@ -287,9 +288,19 @@ internal sealed class LocalHttpServer : IDisposable
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/translations/import")
             {
+                var refreshSince = DateTimeOffset.UtcNow;
                 var format = context.Request.QueryString["format"] ?? "json";
                 var body = await ReadBodyAsync(context.Request).ConfigureAwait(false);
-                await WriteJsonAsync(context.Response, _cache.Import(body, format)).ConfigureAwait(false);
+                var importResult = _cache.Import(body, format);
+                var refreshQueued = PublishUpdatedWritebacks(refreshSince);
+                await WriteJsonAsync(
+                    context.Response,
+                    new
+                    {
+                        importResult.ImportedCount,
+                        importResult.Errors,
+                        RefreshQueuedCount = refreshQueued
+                    }).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "GET" && path == "/api/provider/models")
             {
@@ -444,15 +455,20 @@ internal sealed class LocalHttpServer : IDisposable
         return _cache.TryGet(key, context, out translatedText);
     }
 
-    private void PublishManualWriteback(TranslationCacheEntry entry, string? previousTranslatedText)
+    private bool PublishManualWriteback(TranslationCacheEntry entry, string? previousTranslatedText)
     {
         if (string.IsNullOrWhiteSpace(entry.SourceText) ||
             string.IsNullOrWhiteSpace(entry.TranslatedText) ||
-            string.Equals(entry.TranslatedText, previousTranslatedText, StringComparison.Ordinal) ||
-            _highlighter == null ||
-            !_highlighter.TryResolveTargetId(TranslationHighlightRequest.FromEntry(entry), out var targetId))
+            string.Equals(entry.TranslatedText, previousTranslatedText, StringComparison.Ordinal))
         {
-            return;
+            return false;
+        }
+
+        var targetId = string.Empty;
+        _highlighter?.TryResolveTargetId(TranslationHighlightRequest.FromEntry(entry), out targetId);
+        if (string.IsNullOrEmpty(targetId) && string.IsNullOrWhiteSpace(entry.ComponentHierarchy))
+        {
+            return false;
         }
 
         _dispatcher.Publish(new TranslationResult(
@@ -460,7 +476,27 @@ internal sealed class LocalHttpServer : IDisposable
             entry.SourceText,
             entry.TranslatedText!,
             ManualWritebackPriority,
-            previousTranslatedText: previousTranslatedText));
+            previousTranslatedText: previousTranslatedText,
+            sceneName: entry.SceneName,
+            componentHierarchy: entry.ComponentHierarchy,
+            componentType: entry.ComponentType,
+            updatedUtc: entry.UpdatedUtc));
+        return true;
+    }
+
+    private int PublishUpdatedWritebacks(DateTimeOffset updatedAfterUtc)
+    {
+        var page = _cache.Query(new TranslationCacheQuery(null, "updated_utc", true, 0, 500));
+        var queued = 0;
+        foreach (var entry in page.Items.Where(entry => entry.UpdatedUtc > updatedAfterUtc))
+        {
+            if (PublishManualWriteback(entry, previousTranslatedText: null))
+            {
+                queued++;
+            }
+        }
+
+        return queued;
     }
 
     private static async Task<T?> ReadJsonAsync<T>(HttpListenerRequest request)

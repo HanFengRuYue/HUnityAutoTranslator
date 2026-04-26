@@ -52,7 +52,7 @@ Use natural game localization. Keep menu and button text short; keep dialogue co
         IReadOnlyList<GlossaryPromptTerm>? glossaryTerms = null)
     {
         var json = JsonConvert.SerializeObject(protectedTexts, Formatting.None);
-        var instruction = "Translate each string in the JSON array below. Return only a JSON string array with the same length and order. Do not return object keys, indexes, item numbers, labels, or list markers.";
+        var instruction = "Translate each string in the JSON array below. Return only a JSON string array with the same length and order. Do not split one input string into multiple output items, even when it contains line breaks. Do not return object keys, indexes, item numbers, labels, or list markers.";
         var sections = new List<string>();
         if (glossaryTerms != null && glossaryTerms.Count > 0)
         {

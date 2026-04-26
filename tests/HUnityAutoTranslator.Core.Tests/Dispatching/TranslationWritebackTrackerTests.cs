@@ -21,13 +21,14 @@ public sealed class TranslationWritebackTrackerTests
     }
 
     [Fact]
-    public void TryGetReplacement_forgets_translation_when_target_changes_to_different_source()
+    public void TryGetReplacement_keeps_memory_when_target_temporarily_changes_to_different_text()
     {
         var tracker = new TranslationWritebackTracker();
         tracker.Remember("title", "IMPORTANT", "IMPORTANT_ZH");
 
         tracker.TryGetReplacement("title", "OPTIONS", out _).Should().BeFalse();
-        tracker.TryGetReplacement("title", "IMPORTANT", out _).Should().BeFalse();
+        tracker.TryGetReplacement("title", "IMPORTANT", out var replacement).Should().BeTrue();
+        replacement.Should().Be("IMPORTANT_ZH");
     }
 
     [Fact]
@@ -66,5 +67,47 @@ public sealed class TranslationWritebackTrackerTests
         tracker.TryGetReplacement("title", "Options", out _).Should().BeFalse();
         tracker.TryGetReplacement("title", "开始", out _).Should().BeFalse();
         tracker.TryGetReplacement("missing", "Start Game", out _).Should().BeFalse();
+    }
+    [Fact]
+    public void TryRememberForCurrentText_does_not_replace_existing_memory_when_result_is_stale_for_component()
+    {
+        var tracker = new TranslationWritebackTracker();
+        tracker.Remember("title", "Current", "Current ZH");
+
+        tracker.TryRememberForCurrentText("title", "Current ZH", "Previous", "Previous ZH").Should().BeFalse();
+
+        tracker.TryGetReplacement("title", "Current", out var replacement).Should().BeTrue();
+        replacement.Should().Be("Current ZH");
+    }
+
+    [Fact]
+    public void TryRememberForCurrentText_accepts_source_previous_or_translated_text_for_the_same_component()
+    {
+        var tracker = new TranslationWritebackTracker();
+
+        tracker.TryRememberForCurrentText("title", "Start Game", "Start Game", "Start Game ZH").Should().BeTrue();
+        tracker.IsRememberedTranslation("title", "Start Game ZH").Should().BeTrue();
+
+        tracker.TryRememberForCurrentText("title", "Start Game ZH", "Start Game", "Start Game ZH").Should().BeTrue();
+        tracker.IsRememberedTranslation("title", "Start Game ZH").Should().BeTrue();
+
+        tracker.TryRememberForCurrentText("title", "Start Game ZH", "Start Game", "Start ZH", "Start Game ZH").Should().BeTrue();
+        tracker.TryGetReplacement("title", "Start Game", out var replacement).Should().BeTrue();
+        replacement.Should().Be("Start ZH");
+    }
+
+    [Fact]
+    public void TryGetDisplayText_switches_between_source_and_translated_text()
+    {
+        var tracker = new TranslationWritebackTracker();
+        tracker.Remember("title", "Start Game", "Start Game ZH");
+
+        tracker.TryGetDisplayText("title", "Start Game ZH", useTranslatedText: false, out var replacement)
+            .Should().BeTrue();
+        replacement.Should().Be("Start Game");
+
+        tracker.TryGetDisplayText("title", "Start Game", useTranslatedText: true, out replacement)
+            .Should().BeTrue();
+        replacement.Should().Be("Start Game ZH");
     }
 }

@@ -87,6 +87,82 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
         _textProperty.SetValue(_component, value, null);
     }
 
+    public bool TryGetFontSize(out float fontSize)
+    {
+        fontSize = 0;
+        var property = FindFontSizeProperty();
+        if (property == null || !property.CanRead)
+        {
+            return false;
+        }
+
+        try
+        {
+            var value = property.GetValue(_component, null);
+            switch (value)
+            {
+                case int intValue:
+                    fontSize = intValue;
+                    return fontSize > 0;
+                case float floatValue:
+                    fontSize = floatValue;
+                    return fontSize > 0;
+                case double doubleValue:
+                    fontSize = (float)doubleValue;
+                    return fontSize > 0;
+                default:
+                    return false;
+            }
+        }
+        catch
+        {
+            fontSize = 0;
+            return false;
+        }
+    }
+
+    public bool TrySetFontSize(float fontSize)
+    {
+        if (fontSize <= 0)
+        {
+            return false;
+        }
+
+        var property = FindFontSizeProperty();
+        if (property == null || !property.CanWrite)
+        {
+            return false;
+        }
+
+        try
+        {
+            object value;
+            if (property.PropertyType == typeof(int))
+            {
+                value = Math.Max(1, (int)Math.Round(fontSize));
+            }
+            else if (property.PropertyType == typeof(float))
+            {
+                value = fontSize;
+            }
+            else if (property.PropertyType == typeof(double))
+            {
+                value = (double)fontSize;
+            }
+            else
+            {
+                return false;
+            }
+
+            property.SetValue(_component, value, null);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public bool TryGetScreenRect(out Rect screenRect)
     {
         screenRect = default;
@@ -109,6 +185,11 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
             screenRect = default;
             return false;
         }
+    }
+
+    private PropertyInfo? FindFontSizeProperty()
+    {
+        return _component.GetType().GetProperty("fontSize", BindingFlags.Instance | BindingFlags.Public);
     }
 
     private static string BuildHierarchyPath(Transform transform)

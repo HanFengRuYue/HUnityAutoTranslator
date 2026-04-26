@@ -17,13 +17,13 @@ internal sealed class TextCaptureCoordinator : IDisposable
         }
     }
 
-    public void Tick()
+    public void Tick(bool forceFullScan = false)
     {
         foreach (var module in _modules)
         {
             if (module.IsEnabled)
             {
-                module.Tick();
+                module.Tick(forceFullScan);
             }
         }
     }

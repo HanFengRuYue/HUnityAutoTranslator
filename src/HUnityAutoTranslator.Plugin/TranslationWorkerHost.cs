@@ -91,7 +91,8 @@ internal sealed class TranslationWorkerHost : IDisposable
                     config,
                     _cache,
                     _metrics,
-                    _glossary);
+                    _glossary,
+                    message => _logger.LogWarning(message));
 
                 await pool.RunUntilIdleAsync(cancellationToken).ConfigureAwait(false);
                 await TryExtractGlossaryAsync(provider, config, cancellationToken).ConfigureAwait(false);

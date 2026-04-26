@@ -9,6 +9,10 @@ public sealed record UpdateConfigRequest(
     int? RequestsPerMinute = null,
     bool? Enabled = null,
     bool? AutoOpenControlPanel = null,
+    string? OpenControlPanelHotkey = null,
+    string? ToggleTranslationHotkey = null,
+    string? ForceScanHotkey = null,
+    string? ToggleFontHotkey = null,
     ProviderKind? ProviderKind = null,
     string? BaseUrl = null,
     string? Endpoint = null,
@@ -50,4 +54,6 @@ public sealed record UpdateConfigRequest(
     bool? AutoUseCjkFallbackFonts = null,
     string? ReplacementFontName = null,
     string? ReplacementFontFile = null,
-    int? FontSamplingPointSize = null);
+    int? FontSamplingPointSize = null,
+    FontSizeAdjustmentMode? FontSizeAdjustmentMode = null,
+    double? FontSizeAdjustmentValue = null);

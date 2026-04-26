@@ -287,6 +287,57 @@ public sealed class WorkerPoolTests
         dispatcher.PendingCount.Should().Be(0);
     }
 
+    [Fact]
+    public async Task WorkerPool_reassembles_split_single_item_response_before_validation_and_cache_write()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var provider = new CapturingProvider(new[]
+        {
+            "第一段。",
+            "第二段。"
+        });
+        var config = RuntimeConfig.CreateDefault() with { MaxConcurrentRequests = 1 };
+        var pool = new TranslationWorkerPool(queue, dispatcher, provider, new ProviderRateLimiter(600), config, cache);
+        var source = "First paragraph.\n\nSecond paragraph.";
+
+        queue.Enqueue(TranslationJob.Create("ui-1", source, TranslationPriority.VisibleUi));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        var key = TranslationCacheKey.Create(source, config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, TranslationCacheContext.Empty, out var cached).Should().BeTrue();
+        cached.Should().Be("第一段。\n\n第二段。");
+        dispatcher.Drain(10).Should().ContainSingle(result => result.TranslatedText == "第一段。\n\n第二段。");
+    }
+
+    [Fact]
+    public async Task WorkerPool_reports_provider_failures_that_do_not_produce_cache_entries()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var failures = new List<string>();
+        var config = RuntimeConfig.CreateDefault() with { MaxConcurrentRequests = 1 };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            new FailureProvider("request timed out"),
+            new ProviderRateLimiter(600),
+            config,
+            cache,
+            failureReporter: failures.Add);
+
+        queue.Enqueue(TranslationJob.Create("ui-1", "Disclaimer text", TranslationPriority.VisibleUi));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        failures.Should().ContainSingle().Which.Should().Contain("request timed out");
+        var key = TranslationCacheKey.Create("Disclaimer text", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, TranslationCacheContext.Empty, out _).Should().BeFalse();
+    }
+
     private sealed class DelayedProvider : ITranslationProvider
     {
         private int _current;
@@ -361,6 +412,20 @@ public sealed class WorkerPoolTests
         {
             LastRequest = request;
             return Task.FromResult(TranslationResponse.Success(_translations));
+        }
+    }
+
+    private sealed class FailureProvider : ITranslationProvider
+    {
+        private readonly string _message;
+
+        public FailureProvider(string message) => _message = message;
+
+        public ProviderKind Kind => ProviderKind.OpenAI;
+
+        public Task<TranslationResponse> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(TranslationResponse.Failure(_message));
         }
     }
 

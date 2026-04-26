@@ -31,7 +31,29 @@ public sealed class TranslationWritebackTracker
             && string.Equals(currentText, remembered.TranslatedText, StringComparison.Ordinal);
     }
 
+    public bool TryRememberForCurrentText(
+        string targetId,
+        string? currentText,
+        string sourceText,
+        string translatedText,
+        string? previousTranslatedText = null)
+    {
+        if (currentText == null ||
+            !CanBindToCurrentText(currentText, sourceText, translatedText, previousTranslatedText))
+        {
+            return false;
+        }
+
+        Remember(targetId, sourceText, translatedText, previousTranslatedText);
+        return true;
+    }
+
     public bool TryGetReplacement(string targetId, string? currentText, out string replacement)
+    {
+        return TryGetDisplayText(targetId, currentText, useTranslatedText: true, out replacement);
+    }
+
+    public bool TryGetDisplayText(string targetId, string? currentText, bool useTranslatedText, out string replacement)
     {
         if (!_remembered.TryGetValue(targetId, out var remembered) || currentText == null)
         {
@@ -39,22 +61,47 @@ public sealed class TranslationWritebackTracker
             return false;
         }
 
-        if (string.Equals(currentText, remembered.TranslatedText, StringComparison.Ordinal))
+        if (useTranslatedText && string.Equals(currentText, remembered.TranslatedText, StringComparison.Ordinal))
         {
             replacement = string.Empty;
             return false;
         }
 
-        if (string.Equals(currentText, remembered.SourceText, StringComparison.Ordinal) ||
-            string.Equals(currentText, remembered.PreviousTranslatedText, StringComparison.Ordinal))
+        if (!useTranslatedText && string.Equals(currentText, remembered.SourceText, StringComparison.Ordinal))
+        {
+            replacement = string.Empty;
+            return false;
+        }
+
+        if (useTranslatedText &&
+            (string.Equals(currentText, remembered.SourceText, StringComparison.Ordinal) ||
+             string.Equals(currentText, remembered.PreviousTranslatedText, StringComparison.Ordinal)))
         {
             replacement = remembered.TranslatedText;
             return true;
         }
 
-        _remembered.Remove(targetId);
+        if (!useTranslatedText &&
+            (string.Equals(currentText, remembered.TranslatedText, StringComparison.Ordinal) ||
+             string.Equals(currentText, remembered.PreviousTranslatedText, StringComparison.Ordinal)))
+        {
+            replacement = remembered.SourceText;
+            return true;
+        }
+
         replacement = string.Empty;
         return false;
+    }
+
+    private static bool CanBindToCurrentText(
+        string currentText,
+        string sourceText,
+        string translatedText,
+        string? previousTranslatedText)
+    {
+        return string.Equals(currentText, sourceText, StringComparison.Ordinal) ||
+            string.Equals(currentText, translatedText, StringComparison.Ordinal) ||
+            string.Equals(currentText, previousTranslatedText, StringComparison.Ordinal);
     }
 
     private sealed record RememberedTranslation(

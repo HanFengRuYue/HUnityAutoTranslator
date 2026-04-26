@@ -9,24 +9,21 @@ namespace HUnityAutoTranslator.Plugin.Unity;
 
 internal sealed class UnityTextFontReplacementService
 {
-    private static readonly string[] CandidateFontNames =
-    {
-        "Noto Sans SC",
-        "Microsoft YaHei UI",
-        "Microsoft YaHei",
-        "SimSun",
-        "SimHei",
-        "DengXian",
-        "Arial Unicode MS",
-        "Noto Sans CJK SC"
-    };
-
     private static readonly string[] CandidateFontFiles =
     {
         @"C:\Windows\Fonts\NotoSansSC-VF.ttf",
-        @"C:\Windows\Fonts\msyh.ttc",
         @"C:\Windows\Fonts\simhei.ttf",
-        @"C:\Windows\Fonts\simsun.ttc"
+        @"C:\Windows\Fonts\Deng.ttf",
+        @"C:\Windows\Fonts\NotoSerifSC-VF.ttf",
+        @"C:\Windows\Fonts\simfang.ttf",
+        @"C:\Windows\Fonts\simkai.ttf",
+        @"C:\Windows\Fonts\simsunb.ttf"
+    };
+
+    private static readonly Dictionary<string, string[]> VariableFontRegularFaces = new(StringComparer.OrdinalIgnoreCase)
+    {
+        [@"C:\Windows\Fonts\NotoSansSC-VF.ttf"] = new[] { "Noto Sans SC Regular", "Noto Sans SC" },
+        [@"C:\Windows\Fonts\NotoSerifSC-VF.ttf"] = new[] { "Noto Serif SC Regular", "Noto Serif SC" }
     };
 
     private static readonly string[] TmpFontAssetTypeNames =
@@ -49,9 +46,19 @@ internal sealed class UnityTextFontReplacementService
     private readonly Action<string?, string?> _automaticFontFallbackReporter;
     private readonly Dictionary<string, Font> _unityFonts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, object> _tmpFontAssets = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<int, UnityEngine.Object> _uguiFontTargets = new();
+    private readonly Dictionary<int, object?> _uguiOriginalFonts = new();
+    private readonly Dictionary<int, object?> _uguiReplacementFonts = new();
+    private readonly Dictionary<int, UnityEngine.Object> _tmpFontTargets = new();
+    private readonly Dictionary<int, object?> _tmpOriginalFonts = new();
+    private readonly Dictionary<int, object?> _tmpReplacementFonts = new();
     private readonly Dictionary<string, string> _failedTmpFontAssetKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _warnedUnityFontFailures = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _warnedTmpCandidateFailureSets = new(StringComparer.OrdinalIgnoreCase);
+    private Font? _originalImguiFont;
+    private Font? _imguiReplacementFont;
+    private bool _capturedImguiFont;
+    private bool _runtimeReplacementFontsEnabled = true;
     private bool _warnedNoUnityFont;
     private bool _warnedTmpUnavailable;
 
@@ -92,12 +99,20 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
+        if (!_runtimeReplacementFontsEnabled)
+        {
+            RestoreKnownFont(component, _uguiOriginalFonts);
+            return;
+        }
+
         var resolved = ResolveFont(config, key, context);
         if (resolved?.Font == null)
         {
             return;
         }
 
+        RememberFontTarget(component, _uguiFontTargets, _uguiOriginalFonts);
+        _uguiReplacementFonts[component.GetInstanceID()] = resolved.Font;
         SetProperty(component, "font", resolved.Font);
     }
 
@@ -107,6 +122,12 @@ internal sealed class UnityTextFontReplacementService
         ReportAutomaticFontFallbacks(config);
         if (!config.EnableFontReplacement || !config.ReplaceTmpFonts)
         {
+            return;
+        }
+
+        if (!_runtimeReplacementFontsEnabled)
+        {
+            RestoreKnownFont(component, _tmpOriginalFonts);
             return;
         }
 
@@ -122,6 +143,8 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
+        RememberFontTarget(component, _tmpFontTargets, _tmpOriginalFonts);
+        _tmpReplacementFonts[component.GetInstanceID()] = fontAsset;
         SetProperty(component, "font", fontAsset);
         AddTmpFallback(fontAsset);
     }
@@ -135,13 +158,140 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
+        if (!_runtimeReplacementFontsEnabled)
+        {
+            RestoreImguiFont();
+            return;
+        }
+
         var resolved = ResolveFont(config, key, context);
         if (resolved?.Font == null || GUI.skin == null)
         {
             return;
         }
 
+        if (!_capturedImguiFont)
+        {
+            _originalImguiFont = GUI.skin.font;
+            _capturedImguiFont = true;
+        }
+
+        _imguiReplacementFont = resolved.Font;
         GUI.skin.font = resolved.Font;
+    }
+
+    public int SetReplacementFontsEnabledForRuntime(bool enabled)
+    {
+        _runtimeReplacementFontsEnabled = enabled;
+        return enabled ? ApplyReplacementFontTargets() : RestoreOriginalFontTargets();
+    }
+
+    private void RememberFontTarget(
+        UnityEngine.Object component,
+        Dictionary<int, UnityEngine.Object> targets,
+        Dictionary<int, object?> originalFonts)
+    {
+        var id = component.GetInstanceID();
+        targets[id] = component;
+        if (!originalFonts.ContainsKey(id))
+        {
+            originalFonts[id] = GetProperty(component, "font");
+        }
+    }
+
+    private void RestoreKnownFont(UnityEngine.Object component, Dictionary<int, object?> originalFonts)
+    {
+        if (originalFonts.TryGetValue(component.GetInstanceID(), out var originalFont))
+        {
+            SetProperty(component, "font", originalFont);
+        }
+    }
+
+    private int RestoreOriginalFontTargets()
+    {
+        return RestoreFontTargets(_uguiFontTargets, _uguiOriginalFonts, _uguiReplacementFonts) +
+            RestoreFontTargets(_tmpFontTargets, _tmpOriginalFonts, _tmpReplacementFonts) +
+            RestoreImguiFont();
+    }
+
+    private int ApplyReplacementFontTargets()
+    {
+        return ApplyFontTargets(_uguiFontTargets, _uguiOriginalFonts, _uguiReplacementFonts) +
+            ApplyFontTargets(_tmpFontTargets, _tmpOriginalFonts, _tmpReplacementFonts) +
+            ApplyImguiReplacementFont();
+    }
+
+    private static int RestoreFontTargets(
+        Dictionary<int, UnityEngine.Object> targets,
+        Dictionary<int, object?> originalFonts,
+        Dictionary<int, object?> replacementFonts)
+    {
+        var changed = 0;
+        foreach (var item in targets.ToArray())
+        {
+            if (item.Value == null)
+            {
+                targets.Remove(item.Key);
+                originalFonts.Remove(item.Key);
+                replacementFonts.Remove(item.Key);
+                continue;
+            }
+
+            if (originalFonts.TryGetValue(item.Key, out var originalFont) && SetProperty(item.Value, "font", originalFont))
+            {
+                changed++;
+            }
+        }
+
+        return changed;
+    }
+
+    private static int ApplyFontTargets(
+        Dictionary<int, UnityEngine.Object> targets,
+        Dictionary<int, object?> originalFonts,
+        Dictionary<int, object?> replacementFonts)
+    {
+        var changed = 0;
+        foreach (var item in targets.ToArray())
+        {
+            if (item.Value == null)
+            {
+                targets.Remove(item.Key);
+                originalFonts.Remove(item.Key);
+                replacementFonts.Remove(item.Key);
+                continue;
+            }
+
+            if (replacementFonts.TryGetValue(item.Key, out var replacementFont) &&
+                SetProperty(item.Value, "font", replacementFont))
+            {
+                changed++;
+            }
+        }
+
+        return changed;
+    }
+
+    private int RestoreImguiFont()
+    {
+        if (!_capturedImguiFont || GUI.skin == null)
+        {
+            return 0;
+        }
+
+        GUI.skin.font = _originalImguiFont;
+        return 1;
+    }
+
+    private int ApplyImguiReplacementFont()
+    {
+        if (!_capturedImguiFont || GUI.skin == null || _imguiReplacementFont == null)
+        {
+            return 0;
+        }
+
+        GUI.skin.font = _imguiReplacementFont;
+        return 1;
     }
 
     private void ReportAutomaticFontFallbacks(RuntimeConfig config)
@@ -155,23 +305,7 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
-        _automaticFontFallbackReporter(
-            ResolveFirstUsableAutomaticFontName(config.FontSamplingPointSize),
-            ResolveFirstUsableAutomaticFontFile(config.FontSamplingPointSize));
-    }
-
-    private string? ResolveFirstUsableAutomaticFontName(int size)
-    {
-        foreach (var fontName in CandidateFontNames)
-        {
-            var candidate = FontCandidate.Create("auto-name", fontName, warnOnUnityFailure: false);
-            if (candidate != null && ResolveExplicitFont(candidate, size) != null)
-            {
-                return fontName;
-            }
-        }
-
-        return null;
+        _automaticFontFallbackReporter(null, ResolveFirstUsableAutomaticFontFile(config.FontSamplingPointSize));
     }
 
     private string? ResolveFirstUsableAutomaticFontFile(int size)
@@ -303,15 +437,6 @@ internal sealed class UnityTextFontReplacementService
             yield break;
         }
 
-        foreach (var fontName in CandidateFontNames)
-        {
-            var candidate = FontCandidate.Create("auto-name", fontName, warnOnUnityFailure: false);
-            if (candidate != null)
-            {
-                yield return candidate;
-            }
-        }
-
         foreach (var fontFile in CandidateFontFiles)
         {
             if (!File.Exists(fontFile))
@@ -329,13 +454,13 @@ internal sealed class UnityTextFontReplacementService
 
     private ResolvedFont? ResolveExplicitFont(FontCandidate candidate, int size)
     {
-        var cacheKey = $"{candidate.Source}:{candidate.Value}:{size}";
+        var cacheKey = $"{candidate.Source}:{candidate.Value}:{candidate.RegularFaceNamesKey}:{size}";
         if (_unityFonts.TryGetValue(cacheKey, out var cached))
         {
             return new ResolvedFont(cacheKey, candidate.DisplayName, cached);
         }
 
-        var font = CreateUnityFont(candidate.Value, size);
+        var font = CreateUnityFont(candidate, size);
         if (font == null)
         {
             if (candidate.WarnOnUnityFailure && _warnedUnityFontFailures.Add(cacheKey))
@@ -348,6 +473,20 @@ internal sealed class UnityTextFontReplacementService
 
         _unityFonts[cacheKey] = font;
         return new ResolvedFont(cacheKey, candidate.DisplayName, font);
+    }
+
+    private static Font? CreateUnityFont(FontCandidate candidate, int size)
+    {
+        foreach (var regularFaceName in candidate.RegularFaceNames)
+        {
+            var regularFont = CreateUnityFont(regularFaceName, size);
+            if (regularFont != null)
+            {
+                return regularFont;
+            }
+        }
+
+        return CreateUnityFont(candidate.Value, size);
     }
 
     private static Font? CreateUnityFont(string value, int size)
@@ -382,6 +521,25 @@ internal sealed class UnityTextFontReplacementService
         catch
         {
             return null;
+        }
+    }
+
+    private static string[] ResolveVariableFontRegularFaceNames(string value)
+    {
+        return VariableFontRegularFaces.TryGetValue(NormalizeFontPath(value), out var regularFaceNames)
+            ? regularFaceNames
+            : Array.Empty<string>();
+    }
+
+    private static string NormalizeFontPath(string value)
+    {
+        try
+        {
+            return Path.GetFullPath(value);
+        }
+        catch
+        {
+            return value;
         }
     }
 
@@ -511,26 +669,44 @@ internal sealed class UnityTextFontReplacementService
         SetProperty(fontAsset, "isMultiAtlasTexturesEnabled", true);
     }
 
-    private static void SetProperty(object instance, string propertyName, object value)
+    private static object? GetProperty(object instance, string propertyName)
+    {
+        var property = instance.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
+        return property == null || !property.CanRead ? null : property.GetValue(instance, null);
+    }
+
+    private static bool SetProperty(object instance, string propertyName, object? value)
     {
         var property = instance.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
         if (property == null || !property.CanWrite)
         {
-            return;
+            return false;
+        }
+
+        if (value == null)
+        {
+            if (property.PropertyType.IsValueType && Nullable.GetUnderlyingType(property.PropertyType) == null)
+            {
+                return false;
+            }
+
+            property.SetValue(instance, null, null);
+            return true;
         }
 
         if (property.PropertyType.IsEnum && value is string enumName)
         {
             property.SetValue(instance, Enum.Parse(property.PropertyType, enumName), null);
-            return;
+            return true;
         }
 
         if (!property.PropertyType.IsInstanceOfType(value))
         {
-            return;
+            return false;
         }
 
         property.SetValue(instance, value, null);
+        return true;
     }
 
     private void WarnNoUnityFont()
@@ -570,12 +746,16 @@ internal sealed class UnityTextFontReplacementService
 
     private sealed class FontCandidate
     {
-        private FontCandidate(string source, string value, bool warnOnUnityFailure)
+        private FontCandidate(string source, string value, bool warnOnUnityFailure, string[] regularFaceNames)
         {
             Source = source;
             Value = value;
             WarnOnUnityFailure = warnOnUnityFailure;
-            DisplayName = $"{source}:{value}";
+            RegularFaceNames = regularFaceNames;
+            RegularFaceNamesKey = string.Join("|", regularFaceNames);
+            DisplayName = regularFaceNames.Length == 0
+                ? $"{source}:{value}"
+                : $"{source}:{value} regular:{regularFaceNames[0]}";
         }
 
         public string Source { get; }
@@ -583,6 +763,10 @@ internal sealed class UnityTextFontReplacementService
         public string Value { get; }
 
         public bool WarnOnUnityFailure { get; }
+
+        public string[] RegularFaceNames { get; }
+
+        public string RegularFaceNamesKey { get; }
 
         public string DisplayName { get; }
 
@@ -593,7 +777,8 @@ internal sealed class UnityTextFontReplacementService
                 return null;
             }
 
-            return new FontCandidate(source, value.Trim(), warnOnUnityFailure);
+            var trimmed = value.Trim();
+            return new FontCandidate(source, trimmed, warnOnUnityFailure, ResolveVariableFontRegularFaceNames(trimmed));
         }
     }
 
