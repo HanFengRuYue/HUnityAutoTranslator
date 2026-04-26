@@ -8,7 +8,7 @@ public sealed class MemoryTranslationCache : ITranslationCache
 {
     private readonly ConcurrentDictionary<TranslationCacheKey, TranslationCacheEntry> _items = new();
 
-    public int Count => _items.Count;
+    public int Count => _items.Values.Count(item => item.TranslatedText != null);
 
     public bool TryGet(TranslationCacheKey key, out string translatedText)
     {
@@ -19,6 +19,20 @@ public sealed class MemoryTranslationCache : ITranslationCache
         }
 
         translatedText = string.Empty;
+        return false;
+    }
+
+    public bool TryGetReplacementFont(TranslationCacheKey key, TranslationCacheContext context, out string replacementFont)
+    {
+        if (_items.TryGetValue(key, out var entry) &&
+            !string.IsNullOrWhiteSpace(entry.ReplacementFont) &&
+            ContextMatches(entry, context))
+        {
+            replacementFont = entry.ReplacementFont!;
+            return true;
+        }
+
+        replacementFont = string.Empty;
         return false;
     }
 
@@ -161,6 +175,7 @@ public sealed class MemoryTranslationCache : ITranslationCache
             context.SceneName,
             context.ComponentHierarchy,
             context.ComponentType,
+            ReplacementFont: null,
             createdUtc,
             updatedUtc);
     }
@@ -186,6 +201,13 @@ public sealed class MemoryTranslationCache : ITranslationCache
             CreatedUtc = entry.CreatedUtc == default ? now : entry.CreatedUtc,
             UpdatedUtc = entry.UpdatedUtc == default ? now : entry.UpdatedUtc
         };
+    }
+
+    private static bool ContextMatches(TranslationCacheEntry entry, TranslationCacheContext context)
+    {
+        return string.Equals(entry.SceneName, context.SceneName, StringComparison.Ordinal)
+            && string.Equals(entry.ComponentHierarchy, context.ComponentHierarchy, StringComparison.Ordinal)
+            && string.Equals(entry.ComponentType, context.ComponentType, StringComparison.Ordinal);
     }
 
     private static bool Contains(string? value, string search)

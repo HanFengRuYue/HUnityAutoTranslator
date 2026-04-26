@@ -34,4 +34,12 @@ public sealed record UpdateConfigRequest(
     int? CacheRetentionDays = null,
     bool? EnableUgui = null,
     bool? EnableTmp = null,
-    bool? EnableImgui = null);
+    bool? EnableImgui = null,
+    bool? EnableFontReplacement = null,
+    bool? ReplaceUguiFonts = null,
+    bool? ReplaceTmpFonts = null,
+    bool? ReplaceImguiFonts = null,
+    bool? AutoUseCjkFallbackFonts = null,
+    string? ReplacementFontName = null,
+    string? ReplacementFontFile = null,
+    int? FontSamplingPointSize = null);

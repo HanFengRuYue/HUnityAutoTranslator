@@ -31,6 +31,20 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
         return false;
     }
 
+    public bool TryGetReplacementFont(TranslationCacheKey key, TranslationCacheContext context, out string replacementFont)
+    {
+        if (_items.TryGetValue(key, out var entry) &&
+            !string.IsNullOrWhiteSpace(entry.ReplacementFont) &&
+            ContextMatches(entry, context))
+        {
+            replacementFont = entry.ReplacementFont!;
+            return true;
+        }
+
+        replacementFont = string.Empty;
+        return false;
+    }
+
     public void RecordCaptured(TranslationCacheKey key, TranslationCacheContext? context = null)
     {
         var now = DateTimeOffset.UtcNow;
@@ -100,7 +114,8 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
                 Contains(row.TranslatedText, search) ||
                 Contains(row.SceneName, search) ||
                 Contains(row.ComponentHierarchy, search) ||
-                Contains(row.ComponentType, search));
+                Contains(row.ComponentType, search) ||
+                Contains(row.ReplacementFont, search));
         }
 
         rows = Sort(rows, query.SortColumn, query.SortDescending);
@@ -240,6 +255,7 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
             context.SceneName,
             context.ComponentHierarchy,
             context.ComponentType,
+            ReplacementFont: null,
             createdUtc,
             updatedUtc);
     }
@@ -274,9 +290,17 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
             "scene_name" => row => row.SceneName,
             "component_hierarchy" => row => row.ComponentHierarchy,
             "component_type" => row => row.ComponentType,
+            "replacement_font" => row => row.ReplacementFont,
             "created_utc" => row => row.CreatedUtc,
             _ => row => row.UpdatedUtc
         };
         return descending ? rows.OrderByDescending(selector) : rows.OrderBy(selector);
+    }
+
+    private static bool ContextMatches(TranslationCacheEntry entry, TranslationCacheContext context)
+    {
+        return string.Equals(entry.SceneName, context.SceneName, StringComparison.Ordinal)
+            && string.Equals(entry.ComponentHierarchy, context.ComponentHierarchy, StringComparison.Ordinal)
+            && string.Equals(entry.ComponentType, context.ComponentType, StringComparison.Ordinal);
     }
 }

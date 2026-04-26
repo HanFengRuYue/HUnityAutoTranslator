@@ -87,6 +87,14 @@ public sealed class ControlPanelService
                 _config.EnableUgui,
                 _config.EnableTmp,
                 _config.EnableImgui,
+                _config.EnableFontReplacement,
+                _config.ReplaceUguiFonts,
+                _config.ReplaceTmpFonts,
+                _config.ReplaceImguiFonts,
+                _config.AutoUseCjkFallbackFonts,
+                _config.ReplacementFontName,
+                _config.ReplacementFontFile,
+                _config.FontSamplingPointSize,
                 _lastError);
         }
     }
@@ -162,6 +170,13 @@ public sealed class ControlPanelService
         return allowed.FirstOrDefault(item => string.Equals(item, trimmed, StringComparison.OrdinalIgnoreCase)) ?? fallback;
     }
 
+    private static string? SelectOptionalText(string? value, string? fallback)
+    {
+        return value == null
+            ? fallback
+            : (string.IsNullOrWhiteSpace(value) ? null : value.Trim());
+    }
+
     private void Load(ControlPanelSettings settings)
     {
         lock (_gate)
@@ -210,6 +225,9 @@ public sealed class ControlPanelService
         var cacheRetentionDays = request.CacheRetentionDays.HasValue
             ? Clamp(request.CacheRetentionDays.Value, 1, 3650)
             : _config.CacheRetentionDays;
+        var fontSamplingPointSize = request.FontSamplingPointSize.HasValue
+            ? Clamp(request.FontSamplingPointSize.Value, 16, 180)
+            : _config.FontSamplingPointSize;
         var temperature = request.Temperature.HasValue
             ? Clamp(request.Temperature.Value, 0.0, 2.0)
             : _config.Temperature;
@@ -249,7 +267,15 @@ public sealed class ControlPanelService
             CacheRetentionDays = cacheRetentionDays,
             EnableUgui = request.EnableUgui ?? _config.EnableUgui,
             EnableTmp = request.EnableTmp ?? _config.EnableTmp,
-            EnableImgui = request.EnableImgui ?? _config.EnableImgui
+            EnableImgui = request.EnableImgui ?? _config.EnableImgui,
+            EnableFontReplacement = request.EnableFontReplacement ?? _config.EnableFontReplacement,
+            ReplaceUguiFonts = request.ReplaceUguiFonts ?? _config.ReplaceUguiFonts,
+            ReplaceTmpFonts = request.ReplaceTmpFonts ?? _config.ReplaceTmpFonts,
+            ReplaceImguiFonts = request.ReplaceImguiFonts ?? _config.ReplaceImguiFonts,
+            AutoUseCjkFallbackFonts = request.AutoUseCjkFallbackFonts ?? _config.AutoUseCjkFallbackFonts,
+            ReplacementFontName = SelectOptionalText(request.ReplacementFontName, _config.ReplacementFontName),
+            ReplacementFontFile = SelectOptionalText(request.ReplacementFontFile, _config.ReplacementFontFile),
+            FontSamplingPointSize = fontSamplingPointSize
         };
     }
 
@@ -298,7 +324,15 @@ public sealed class ControlPanelService
                 CacheRetentionDays: _config.CacheRetentionDays,
                 EnableUgui: _config.EnableUgui,
                 EnableTmp: _config.EnableTmp,
-                EnableImgui: _config.EnableImgui),
+                EnableImgui: _config.EnableImgui,
+                EnableFontReplacement: _config.EnableFontReplacement,
+                ReplaceUguiFonts: _config.ReplaceUguiFonts,
+                ReplaceTmpFonts: _config.ReplaceTmpFonts,
+                ReplaceImguiFonts: _config.ReplaceImguiFonts,
+                AutoUseCjkFallbackFonts: _config.AutoUseCjkFallbackFonts,
+                ReplacementFontName: _config.ReplacementFontName,
+                ReplacementFontFile: _config.ReplacementFontFile,
+                FontSamplingPointSize: _config.FontSamplingPointSize),
             ApiKey = null,
             EncryptedApiKey = string.IsNullOrWhiteSpace(_apiKey) ? null : ApiKeyProtector.Protect(_apiKey)
         });

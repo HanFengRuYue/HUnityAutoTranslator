@@ -156,6 +156,33 @@ FROM translations;
     }
 
     [Fact]
+    public void MemoryCache_count_excludes_pending_captures()
+    {
+        var cache = new MemoryTranslationCache();
+        var key = TranslationCacheKey.Create("Continue", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+
+        cache.RecordCaptured(key, TranslationCacheContext.Empty);
+
+        cache.Count.Should().Be(0);
+        cache.Set(key, "Continue translated", TranslationCacheContext.Empty);
+        cache.Count.Should().Be(1);
+    }
+
+    [Fact]
+    public void SqliteCache_count_excludes_pending_captures()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        var cache = new SqliteTranslationCache(path);
+        var key = TranslationCacheKey.Create("Continue", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+
+        cache.RecordCaptured(key, TranslationCacheContext.Empty);
+
+        cache.Count.Should().Be(0);
+        cache.Set(key, "Continue translated", TranslationCacheContext.Empty);
+        cache.Count.Should().Be(1);
+    }
+
+    [Fact]
     public void SqliteCache_completes_pending_source_and_preserves_created_timestamp()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
@@ -355,6 +382,7 @@ VALUES ('legacy-cache-key', 'legacy translated', '2026-04-25T00:00:00Z');
             SceneName: "Menu",
             ComponentHierarchy: "Canvas/Button",
             ComponentType: "Text",
+            ReplacementFont: null,
             CreatedUtc: page.Items[0].CreatedUtc,
             UpdatedUtc: DateTimeOffset.Parse("2026-04-26T00:00:00Z")));
 
@@ -426,5 +454,71 @@ VALUES ('legacy-cache-key', 'legacy translated', '2026-04-25T00:00:00Z');
         result.Errors.Should().BeEmpty();
         target.Query(new TranslationCacheQuery(Search: "Settings", SortColumn: "source_text", SortDescending: false, Offset: 0, Limit: 20))
             .Items[0].TranslatedText.Should().Be("Settings translated");
+    }
+
+    [Fact]
+    public void Cache_rows_store_component_font_override_and_match_exact_context()
+    {
+        var memory = new MemoryTranslationCache();
+        var key = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+        var context = new TranslationCacheContext("Menu", "Canvas/Start", "UnityEngine.UI.Text");
+        var now = DateTimeOffset.UtcNow;
+
+        memory.Update(new TranslationCacheEntry(
+            SourceText: "Start Game",
+            TargetLanguage: "zh-Hans",
+            ProviderKind: "OpenAI",
+            ProviderBaseUrl: "https://api.openai.com",
+            ProviderEndpoint: "/v1/responses",
+            ProviderModel: "gpt-5.5",
+            PromptPolicyVersion: "prompt-v1",
+            TranslatedText: "Start translated",
+            SceneName: "Menu",
+            ComponentHierarchy: "Canvas/Start",
+            ComponentType: "UnityEngine.UI.Text",
+            ReplacementFont: "Noto Sans SC",
+            CreatedUtc: now,
+            UpdatedUtc: now));
+
+        memory.TryGetReplacementFont(key, context, out var replacementFont).Should().BeTrue();
+        replacementFont.Should().Be("Noto Sans SC");
+        memory.TryGetReplacementFont(key, new TranslationCacheContext("Menu", "Canvas/Other", "UnityEngine.UI.Text"), out _)
+            .Should().BeFalse();
+    }
+
+    [Fact]
+    public void Sqlite_cache_persists_component_font_override_and_exports_it()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        var key = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+        var context = new TranslationCacheContext("Menu", "Canvas/Start", "UnityEngine.UI.Text");
+        var now = DateTimeOffset.UtcNow;
+
+        using (var cache = new SqliteTranslationCache(path))
+        {
+            cache.Update(new TranslationCacheEntry(
+                SourceText: "Start Game",
+                TargetLanguage: "zh-Hans",
+                ProviderKind: "OpenAI",
+                ProviderBaseUrl: "https://api.openai.com",
+                ProviderEndpoint: "/v1/responses",
+                ProviderModel: "gpt-5.5",
+                PromptPolicyVersion: "prompt-v1",
+                TranslatedText: "Start translated",
+                SceneName: "Menu",
+                ComponentHierarchy: "Canvas/Start",
+                ComponentType: "UnityEngine.UI.Text",
+                ReplacementFont: @"C:\Fonts\NotoSansSC-Regular.otf",
+                CreatedUtc: now,
+                UpdatedUtc: now));
+        }
+
+        using var reopened = new SqliteTranslationCache(path);
+        reopened.TryGetReplacementFont(key, context, out var replacementFont).Should().BeTrue();
+        replacementFont.Should().Be(@"C:\Fonts\NotoSansSC-Regular.otf");
+        reopened.Query(new TranslationCacheQuery("NotoSans", "replacement_font", false, 0, 10))
+            .Items[0].ReplacementFont.Should().Be(@"C:\Fonts\NotoSansSC-Regular.otf");
+        reopened.Export("json").Should().Contain("ReplacementFont");
+        reopened.Export("csv").Should().Contain("replacement_font");
     }
 }

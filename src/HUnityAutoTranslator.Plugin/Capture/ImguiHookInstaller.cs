@@ -4,6 +4,7 @@ using HarmonyLib;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Pipeline;
+using HUnityAutoTranslator.Plugin.Unity;
 using UnityEngine.SceneManagement;
 
 namespace HUnityAutoTranslator.Plugin.Capture;
@@ -17,21 +18,28 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
     private readonly ITranslationCache _cache;
     private readonly ManualLogSource _logger;
     private readonly Func<RuntimeConfig> _configProvider;
+    private readonly UnityTextFontReplacementService? _fontReplacement;
     private Harmony? _harmony;
     private bool _enabled;
     private bool _warned;
 
     public ImguiHookInstaller(TextPipeline pipeline, ITranslationCache cache, ManualLogSource logger, RuntimeConfig config)
-        : this(pipeline, cache, logger, () => config)
+        : this(pipeline, cache, logger, () => config, fontReplacement: null)
     {
     }
 
-    public ImguiHookInstaller(TextPipeline pipeline, ITranslationCache cache, ManualLogSource logger, Func<RuntimeConfig> configProvider)
+    public ImguiHookInstaller(
+        TextPipeline pipeline,
+        ITranslationCache cache,
+        ManualLogSource logger,
+        Func<RuntimeConfig> configProvider,
+        UnityTextFontReplacementService? fontReplacement = null)
     {
         _pipeline = pipeline;
         _cache = cache;
         _logger = logger;
         _configProvider = configProvider;
+        _fontReplacement = fontReplacement;
     }
 
     public string Name => "IMGUI";
@@ -113,12 +121,13 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
     {
         var config = _configProvider();
         var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        var context = new TranslationCacheContext(GetActiveSceneName(), ComponentHierarchy: null, ComponentType: "IMGUI");
+        _fontReplacement?.ApplyToImgui(key, context);
         if (_cache.TryGet(key, out var translated))
         {
             return translated;
         }
 
-        var context = new TranslationCacheContext(GetActiveSceneName(), ComponentHierarchy: null, ComponentType: "IMGUI");
         _pipeline.Process(new CapturedText("imgui:" + key.SourceText, text, isVisible: true, context));
         return text;
     }

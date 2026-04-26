@@ -118,6 +118,40 @@ public sealed class ControlPanelHtmlSourceTests
         htmlSource.Should().NotContain("width: min(280px, calc(100vw - 44px));");
     }
 
+    [Fact]
+    public void Status_page_keeps_zero_waiting_queue_count()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("state.QueueCount ?? state.QueuedTextCount ?? 0");
+        htmlSource.Should().NotContain("state.QueueCount || state.QueuedTextCount || 0");
+    }
+
+    [Fact]
+    public void Plugin_settings_expose_font_replacement_controls()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("id=\"enableFontReplacement\"");
+        htmlSource.Should().Contain("id=\"replaceUguiFonts\"");
+        htmlSource.Should().Contain("id=\"replaceTmpFonts\"");
+        htmlSource.Should().Contain("id=\"replaceImguiFonts\"");
+        htmlSource.Should().Contain("id=\"autoUseCjkFallbackFonts\"");
+        htmlSource.Should().Contain("id=\"replacementFontName\"");
+        htmlSource.Should().Contain("id=\"replacementFontFile\"");
+        htmlSource.Should().Contain("id=\"fontSamplingPointSize\"");
+    }
+
+    [Fact]
+    public void Translation_editor_exposes_component_font_override_column()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("key: \"ReplacementFont\"");
+        htmlSource.Should().Contain("title: \"替换字体\"");
+        htmlSource.Should().Contain("sort: \"replacement_font\"");
+    }
+
     private static string FindRepositoryFile(params string[] relativeSegments)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

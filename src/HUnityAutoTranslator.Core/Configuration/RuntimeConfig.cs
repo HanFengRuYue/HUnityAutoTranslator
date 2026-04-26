@@ -32,7 +32,15 @@ public sealed record RuntimeConfig(
     int CacheRetentionDays,
     bool EnableUgui,
     bool EnableTmp,
-    bool EnableImgui)
+    bool EnableImgui,
+    bool EnableFontReplacement,
+    bool ReplaceUguiFonts,
+    bool ReplaceTmpFonts,
+    bool ReplaceImguiFonts,
+    bool AutoUseCjkFallbackFonts,
+    string? ReplacementFontName,
+    string? ReplacementFontFile,
+    int FontSamplingPointSize)
 {
     public static RuntimeConfig CreateDefault()
     {
@@ -66,6 +74,14 @@ public sealed record RuntimeConfig(
             CacheRetentionDays: 365,
             EnableUgui: true,
             EnableTmp: true,
-            EnableImgui: true);
+            EnableImgui: true,
+            EnableFontReplacement: true,
+            ReplaceUguiFonts: true,
+            ReplaceTmpFonts: true,
+            ReplaceImguiFonts: true,
+            AutoUseCjkFallbackFonts: true,
+            ReplacementFontName: null,
+            ReplacementFontFile: null,
+            FontSamplingPointSize: 90);
     }
 }

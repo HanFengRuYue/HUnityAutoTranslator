@@ -23,6 +23,7 @@ public sealed class Plugin : BaseUnityPlugin
     private UnityMainThreadResultApplier? _resultApplier;
     private TextCaptureCoordinator? _captureCoordinator;
     private ControlPanelMetrics? _metrics;
+    private UnityTextFontReplacementService? _fontReplacement;
     private float _nextScanTime;
     private float _nextSkippedWritebackLogTime;
     private bool _openedControlPanel;
@@ -41,13 +42,14 @@ public sealed class Plugin : BaseUnityPlugin
             _queue = new TranslationJobQueue();
             _dispatcher = new ResultDispatcher();
             _resultApplier = new UnityMainThreadResultApplier();
-            TmpFallbackFontInstaller.TryInstall(Logger);
+            _fontReplacement = new UnityTextFontReplacementService(_cache, Logger, _controlPanel.GetConfig);
+            _fontReplacement.InstallStartupFallbacks();
             var pipeline = new TextPipeline(_cache, _queue, _controlPanel.GetConfig, _metrics);
             _captureCoordinator = new TextCaptureCoordinator(new ITextCaptureModule[]
             {
-                new UguiTextScanner(pipeline, _resultApplier, Logger, _controlPanel.GetConfig),
-                new TmpTextScanner(pipeline, _resultApplier, Logger, _controlPanel.GetConfig),
-                new ImguiHookInstaller(pipeline, _cache, Logger, _controlPanel.GetConfig)
+                new UguiTextScanner(pipeline, _resultApplier, Logger, _controlPanel.GetConfig, _fontReplacement),
+                new TmpTextScanner(pipeline, _resultApplier, Logger, _controlPanel.GetConfig, _fontReplacement),
+                new ImguiHookInstaller(pipeline, _cache, Logger, _controlPanel.GetConfig, _fontReplacement)
             });
             _captureCoordinator.Start();
             _workerHost = new TranslationWorkerHost(_controlPanel, _queue, _dispatcher, _cache, _metrics, Logger);

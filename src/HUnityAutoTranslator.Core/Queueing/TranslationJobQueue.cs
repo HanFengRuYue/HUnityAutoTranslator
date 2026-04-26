@@ -32,19 +32,19 @@ public sealed class TranslationJobQueue
         }
     }
 
-    public void Enqueue(TranslationJob job)
+    public bool Enqueue(TranslationJob job)
     {
         var key = TextNormalizer.NormalizeForCache(job.SourceText);
         if (string.IsNullOrEmpty(key))
         {
-            return;
+            return false;
         }
 
         lock (_gate)
         {
             if (_inFlightSources.Contains(key))
             {
-                return;
+                return false;
             }
 
             if (_pendingBySource.TryGetValue(key, out var existing))
@@ -54,11 +54,12 @@ public sealed class TranslationJobQueue
                     _pendingBySource[key] = job;
                 }
 
-                return;
+                return false;
             }
 
             _pendingBySource[key] = job;
             _sequences[key] = _sequence++;
+            return true;
         }
     }
 

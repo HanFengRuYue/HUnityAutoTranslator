@@ -138,17 +138,21 @@ internal sealed class TranslationWorkerHost : IDisposable
             TextPipeline.PromptPolicyVersion,
             PendingResumeBatchSize);
 
+        var enqueued = 0;
         foreach (var row in pending)
         {
-            _queue.Enqueue(TranslationJob.Create(
+            if (_queue.Enqueue(TranslationJob.Create(
                 "pending:" + row.SourceText,
                 row.SourceText,
                 TranslationPriority.Normal,
                 new TranslationCacheContext(row.SceneName, row.ComponentHierarchy, row.ComponentType),
-                publishResult: false));
+                publishResult: false)))
+            {
+                enqueued++;
+            }
         }
 
-        return pending.Count;
+        return enqueued;
     }
 
     public void Dispose()

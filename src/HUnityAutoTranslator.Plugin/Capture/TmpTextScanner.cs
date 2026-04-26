@@ -21,22 +21,29 @@ internal sealed class TmpTextScanner : ITextCaptureModule
     private readonly UnityMainThreadResultApplier _applier;
     private readonly ManualLogSource _logger;
     private readonly Func<RuntimeConfig> _configProvider;
+    private readonly UnityTextFontReplacementService? _fontReplacement;
     private Type? _textType;
     private PropertyInfo? _textProperty;
     private bool _enabled;
     private bool _warned;
 
     public TmpTextScanner(TextPipeline pipeline, UnityMainThreadResultApplier applier, ManualLogSource logger, RuntimeConfig config)
-        : this(pipeline, applier, logger, () => config)
+        : this(pipeline, applier, logger, () => config, fontReplacement: null)
     {
     }
 
-    public TmpTextScanner(TextPipeline pipeline, UnityMainThreadResultApplier applier, ManualLogSource logger, Func<RuntimeConfig> configProvider)
+    public TmpTextScanner(
+        TextPipeline pipeline,
+        UnityMainThreadResultApplier applier,
+        ManualLogSource logger,
+        Func<RuntimeConfig> configProvider,
+        UnityTextFontReplacementService? fontReplacement = null)
     {
         _pipeline = pipeline;
         _applier = applier;
         _logger = logger;
         _configProvider = configProvider;
+        _fontReplacement = fontReplacement;
     }
 
     public string Name => "TextMeshPro";
@@ -102,12 +109,15 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         }
 
         _applier.Register(target);
+        var context = new TranslationCacheContext(target.SceneName, target.HierarchyPath, target.ComponentType);
+        var config = _configProvider();
+        var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        _fontReplacement?.ApplyToTmp(component, key, context);
         if (_applier.IsRememberedTranslation(target.Id, text))
         {
             return;
         }
 
-        var context = new TranslationCacheContext(target.SceneName, target.HierarchyPath, target.ComponentType);
         var decision = _pipeline.Process(new CapturedText(target.Id, text, target.IsVisible, context));
         if (decision.Kind == PipelineDecisionKind.UseCachedTranslation && decision.TranslatedText != null)
         {

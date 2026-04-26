@@ -49,4 +49,12 @@ public sealed record ControlPanelState(
     bool EnableUgui,
     bool EnableTmp,
     bool EnableImgui,
+    bool EnableFontReplacement,
+    bool ReplaceUguiFonts,
+    bool ReplaceTmpFonts,
+    bool ReplaceImguiFonts,
+    bool AutoUseCjkFallbackFonts,
+    string? ReplacementFontName,
+    string? ReplacementFontFile,
+    int FontSamplingPointSize,
     string? LastError);

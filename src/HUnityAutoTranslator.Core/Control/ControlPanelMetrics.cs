@@ -1,9 +1,12 @@
+using HUnityAutoTranslator.Core.Caching;
+
 namespace HUnityAutoTranslator.Core.Control;
 
 public sealed class ControlPanelMetrics
 {
     private readonly object _gate = new();
     private readonly Queue<RecentTranslationPreview> _recentTranslations = new();
+    private readonly HashSet<TranslationCacheKey> _capturedKeys = new();
     private long _capturedTextCount;
     private long _queuedTextCount;
     private long _inFlightTranslationCount;
@@ -16,6 +19,17 @@ public sealed class ControlPanelMetrics
     public void RecordCaptured()
     {
         Interlocked.Increment(ref _capturedTextCount);
+    }
+
+    public void RecordCaptured(TranslationCacheKey key)
+    {
+        lock (_gate)
+        {
+            if (_capturedKeys.Add(key))
+            {
+                Interlocked.Increment(ref _capturedTextCount);
+            }
+        }
     }
 
     public void RecordQueued()

@@ -186,6 +186,12 @@ public sealed class WorkerPoolTests
             return false;
         }
 
+        public bool TryGetReplacementFont(TranslationCacheKey key, TranslationCacheContext context, out string replacementFont)
+        {
+            replacementFont = string.Empty;
+            return false;
+        }
+
         public void Set(TranslationCacheKey key, string translatedText, TranslationCacheContext? context = null)
         {
             LastKey = key;

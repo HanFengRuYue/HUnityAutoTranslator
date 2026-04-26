@@ -8,7 +8,7 @@ namespace HUnityAutoTranslator.Core.Caching;
 
 public sealed class SqliteTranslationCache : ITranslationCache, IDisposable
 {
-    private const int SchemaVersion = 2;
+    private const int SchemaVersion = 3;
     private static int s_sqliteInitialized;
     private static readonly Dictionary<string, string> SortColumns = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -20,6 +20,7 @@ public sealed class SqliteTranslationCache : ITranslationCache, IDisposable
         ["scene_name"] = "scene_name",
         ["component_hierarchy"] = "component_hierarchy",
         ["component_type"] = "component_type",
+        ["replacement_font"] = "replacement_font",
         ["created_utc"] = "created_utc",
         ["updated_utc"] = "updated_utc"
     };
@@ -47,7 +48,7 @@ public sealed class SqliteTranslationCache : ITranslationCache, IDisposable
         {
             using var connection = OpenConnection();
             using var command = connection.CreateCommand();
-            command.CommandText = "SELECT COUNT(*) FROM translations;";
+            command.CommandText = "SELECT COUNT(*) FROM translations WHERE translated_text IS NOT NULL;";
             return Convert.ToInt32(command.ExecuteScalar());
         }
     }
@@ -80,6 +81,41 @@ WHERE source_text = $source_text
         return false;
     }
 
+    public bool TryGetReplacementFont(TranslationCacheKey key, TranslationCacheContext context, out string replacementFont)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+SELECT replacement_font
+FROM translations
+WHERE source_text = $source_text
+  AND target_language = $target_language
+  AND provider_kind = $provider_kind
+  AND provider_base_url = $provider_base_url
+  AND provider_endpoint = $provider_endpoint
+  AND provider_model = $provider_model
+  AND prompt_policy_version = $prompt_policy_version
+  AND scene_name IS $scene_name
+  AND component_hierarchy IS $component_hierarchy
+  AND component_type IS $component_type
+  AND replacement_font IS NOT NULL
+  AND replacement_font <> '';
+""";
+        AddKeyParameters(command, key);
+        command.Parameters.AddWithValue("$scene_name", ToDbValue(context.SceneName));
+        command.Parameters.AddWithValue("$component_hierarchy", ToDbValue(context.ComponentHierarchy));
+        command.Parameters.AddWithValue("$component_type", ToDbValue(context.ComponentType));
+        var result = command.ExecuteScalar();
+        if (result is string value)
+        {
+            replacementFont = value;
+            return true;
+        }
+
+        replacementFont = string.Empty;
+        return false;
+    }
+
     public void RecordCaptured(TranslationCacheKey key, TranslationCacheContext? context = null)
     {
         var nowUtc = DateTime.UtcNow.ToString("O");
@@ -100,6 +136,7 @@ INSERT INTO translations (
     scene_name,
     component_hierarchy,
     component_type,
+    replacement_font,
     created_utc,
     updated_utc)
 VALUES (
@@ -114,6 +151,7 @@ VALUES (
     $scene_name,
     $component_hierarchy,
     $component_type,
+    NULL,
     $now_utc,
     $now_utc)
 ON CONFLICT(
@@ -158,6 +196,7 @@ INSERT INTO translations (
     scene_name,
     component_hierarchy,
     component_type,
+    replacement_font,
     created_utc,
     updated_utc)
 VALUES (
@@ -172,6 +211,7 @@ VALUES (
     $scene_name,
     $component_hierarchy,
     $component_type,
+    NULL,
     $now_utc,
     $now_utc)
 ON CONFLICT(
@@ -219,6 +259,7 @@ SELECT source_text,
        scene_name,
        component_hierarchy,
        component_type,
+       replacement_font,
        created_utc,
        updated_utc
 FROM translations
@@ -281,6 +322,7 @@ SELECT source_text,
        scene_name,
        component_hierarchy,
        component_type,
+       replacement_font,
        created_utc,
        updated_utc
 FROM translations
@@ -325,6 +367,7 @@ INSERT INTO translations (
     scene_name,
     component_hierarchy,
     component_type,
+    replacement_font,
     created_utc,
     updated_utc)
 VALUES (
@@ -339,6 +382,7 @@ VALUES (
     $scene_name,
     $component_hierarchy,
     $component_type,
+    $replacement_font,
     $created_utc,
     $updated_utc)
 ON CONFLICT(
@@ -354,6 +398,7 @@ DO UPDATE SET
     scene_name = excluded.scene_name,
     component_hierarchy = excluded.component_hierarchy,
     component_type = excluded.component_type,
+    replacement_font = excluded.replacement_font,
     updated_utc = excluded.updated_utc;
 """;
         AddEntryParameters(command, entry, created, now);
@@ -443,6 +488,11 @@ WHERE source_text = $source_text
                 return;
             }
 
+            if (!columns.Contains("replacement_font"))
+            {
+                AddReplacementFontColumn(connection);
+            }
+
             EnsureCurrentMetadata(connection);
             return;
         }
@@ -512,6 +562,7 @@ INSERT INTO translations (
     scene_name,
     component_hierarchy,
     component_type,
+    replacement_font,
     created_utc,
     updated_utc)
 SELECT source_text,
@@ -525,6 +576,7 @@ SELECT source_text,
        scene_name,
        component_hierarchy,
        component_type,
+       NULL,
        created_utc,
        updated_utc
 FROM translations_before_nullable;
@@ -533,6 +585,13 @@ CREATE INDEX IF NOT EXISTS ix_translations_updated_utc ON translations (updated_
 PRAGMA user_version={SchemaVersion};
 COMMIT;
 """;
+        command.ExecuteNonQuery();
+    }
+
+    private static void AddReplacementFontColumn(SqliteConnection connection)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = "ALTER TABLE translations ADD COLUMN replacement_font TEXT NULL;";
         command.ExecuteNonQuery();
     }
 
@@ -551,6 +610,7 @@ CREATE TABLE IF NOT EXISTS translations (
     scene_name TEXT NULL,
     component_hierarchy TEXT NULL,
     component_type TEXT NULL,
+    replacement_font TEXT NULL,
     created_utc TEXT NOT NULL,
     updated_utc TEXT NOT NULL,
     PRIMARY KEY (
@@ -633,6 +693,7 @@ PRAGMA user_version={SchemaVersion};
         command.Parameters.AddWithValue("$scene_name", ToDbValue(entry.SceneName));
         command.Parameters.AddWithValue("$component_hierarchy", ToDbValue(entry.ComponentHierarchy));
         command.Parameters.AddWithValue("$component_type", ToDbValue(entry.ComponentType));
+        command.Parameters.AddWithValue("$replacement_font", ToDbValue(entry.ReplacementFont));
         command.Parameters.AddWithValue("$created_utc", createdUtc);
         command.Parameters.AddWithValue("$updated_utc", updatedUtc);
     }
@@ -657,6 +718,7 @@ PRAGMA user_version={SchemaVersion};
     OR scene_name LIKE $search
     OR component_hierarchy LIKE $search
     OR component_type LIKE $search
+    OR replacement_font LIKE $search
 """
             : string.Empty;
     }
@@ -675,8 +737,9 @@ PRAGMA user_version={SchemaVersion};
             SceneName: reader.IsDBNull(8) ? null : reader.GetString(8),
             ComponentHierarchy: reader.IsDBNull(9) ? null : reader.GetString(9),
             ComponentType: reader.IsDBNull(10) ? null : reader.GetString(10),
-            CreatedUtc: ParseDate(reader.GetString(11)),
-            UpdatedUtc: ParseDate(reader.GetString(12)));
+            ReplacementFont: reader.IsDBNull(11) ? null : reader.GetString(11),
+            CreatedUtc: ParseDate(reader.GetString(12)),
+            UpdatedUtc: ParseDate(reader.GetString(13)));
     }
 
     private static IReadOnlyList<TranslationCacheEntry> ReadJsonEntries(string content)
@@ -700,6 +763,7 @@ PRAGMA user_version={SchemaVersion};
                 Optional(item, "scene_name", "SceneName"),
                 Optional(item, "component_hierarchy", "ComponentHierarchy"),
                 Optional(item, "component_type", "ComponentType"),
+                Optional(item, "replacement_font", "ReplacementFont"),
                 createdUtc == default ? now : createdUtc,
                 updatedUtc == default ? now : updatedUtc));
         }

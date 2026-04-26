@@ -754,6 +754,22 @@ internal static class ControlPanelHtml
             <label class="check"><input id="reapplyRememberedTranslations" type="checkbox">重新应用已记忆译文</label>
           </div>
         </div>
+
+        <div class="band">
+          <h2>字体替换</h2>
+          <div class="grid four">
+            <label><span>字体名称</span><input id="replacementFontName" autocomplete="off" placeholder="Microsoft YaHei / Noto Sans SC"></label>
+            <label><span>字体文件路径</span><input id="replacementFontFile" autocomplete="off" placeholder="C:\Windows\Fonts\msyh.ttc"></label>
+            <label><span>TMP 采样字号</span><input id="fontSamplingPointSize" type="number" min="16" max="180"></label>
+          </div>
+          <div class="checks" style="margin-top:14px">
+            <label class="check"><input id="enableFontReplacement" type="checkbox">启用字体替换</label>
+            <label class="check"><input id="replaceUguiFonts" type="checkbox">UGUI 替换字体</label>
+            <label class="check"><input id="replaceTmpFonts" type="checkbox">TextMeshPro fallback</label>
+            <label class="check"><input id="replaceImguiFonts" type="checkbox">IMGUI 替换字体</label>
+            <label class="check"><input id="autoUseCjkFallbackFonts" type="checkbox">自动使用系统中日韩字体</label>
+          </div>
+        </div>
       </section>
 
       <section class="page" id="page-ai">
@@ -927,16 +943,17 @@ internal static class ControlPanelHtml
       1: [["deepseek-v4-flash", "DeepSeek V4 Flash"], ["deepseek-v4-pro", "DeepSeek V4 Pro"], ["deepseek-chat", "DeepSeek Chat"], ["deepseek-reasoner", "DeepSeek Reasoner"], ["custom", "手动填写"]],
       2: [["local-model", "本地/兼容模型"], ["custom", "手动填写"]]
     };
-    const textFields = ["targetLanguage", "baseUrl", "endpoint", "model"];
+    const textFields = ["targetLanguage", "baseUrl", "endpoint", "model", "replacementFontName", "replacementFontFile"];
     const numberFields = [
       "maxConcurrentRequests", "requestsPerMinute", "maxBatchCharacters",
       "scanIntervalMilliseconds", "maxScanTargetsPerTick", "maxWritebacksPerFrame",
-      "requestTimeoutSeconds", "temperature", "maxSourceTextLength"
+      "requestTimeoutSeconds", "temperature", "maxSourceTextLength", "fontSamplingPointSize"
     ];
     const checks = [
       "enabled", "autoOpenControlPanel", "enableUgui", "enableTmp", "enableImgui", "ignoreInvisibleText",
       "skipNumericSymbolText", "enableCacheLookup", "manualEditsOverrideAi",
-      "reapplyRememberedTranslations"
+      "reapplyRememberedTranslations", "enableFontReplacement", "replaceUguiFonts", "replaceTmpFonts",
+      "replaceImguiFonts", "autoUseCjkFallbackFonts"
     ];
     const tableColumns = [
       { key: "SourceText", title: "原文", sort: "source_text", editable: false, width: 260 },
@@ -945,6 +962,7 @@ internal static class ControlPanelHtml
       { key: "SceneName", title: "场景", sort: "scene_name", editable: true, width: 160 },
       { key: "ComponentHierarchy", title: "层级", sort: "component_hierarchy", editable: true, width: 260 },
       { key: "ComponentType", title: "组件", sort: "component_type", editable: true, width: 170 },
+      { key: "ReplacementFont", title: "替换字体", sort: "replacement_font", editable: true, width: 220 },
       { key: "ProviderKind", title: "服务商", sort: "provider_kind", editable: false, width: 120 },
       { key: "ProviderModel", title: "模型", sort: "provider_model", editable: false, width: 160 },
       { key: "CreatedUtc", title: "创建时间", sort: "created_utc", editable: false, width: 170, time: true },
@@ -1069,11 +1087,19 @@ internal static class ControlPanelHtml
         Temperature: numberValue("temperature"),
         CustomPrompt: $("customPrompt").value,
         MaxSourceTextLength: numberValue("maxSourceTextLength"),
+        ReplacementFontName: $("replacementFontName").value,
+        ReplacementFontFile: $("replacementFontFile").value,
+        FontSamplingPointSize: numberValue("fontSamplingPointSize"),
         Enabled: $("enabled").checked,
         AutoOpenControlPanel: $("autoOpenControlPanel").checked,
         EnableUgui: $("enableUgui").checked,
         EnableTmp: $("enableTmp").checked,
         EnableImgui: $("enableImgui").checked,
+        EnableFontReplacement: $("enableFontReplacement").checked,
+        ReplaceUguiFonts: $("replaceUguiFonts").checked,
+        ReplaceTmpFonts: $("replaceTmpFonts").checked,
+        ReplaceImguiFonts: $("replaceImguiFonts").checked,
+        AutoUseCjkFallbackFonts: $("autoUseCjkFallbackFonts").checked,
         IgnoreInvisibleText: $("ignoreInvisibleText").checked,
         SkipNumericSymbolText: $("skipNumericSymbolText").checked,
         EnableCacheLookup: $("enableCacheLookup").checked,
@@ -1099,7 +1125,7 @@ internal static class ControlPanelHtml
       setText("enabledText", state.Enabled ? "运行中" : "已暂停");
       $("enabledText").className = state.Enabled ? "ok" : "warn";
       setText("capturedTextCount", state.CapturedTextCount || 0);
-      setText("queuedTextCount", state.QueueCount || state.QueuedTextCount || 0);
+      setText("queuedTextCount", state.QueueCount ?? state.QueuedTextCount ?? 0);
       setText("inFlightTranslationCount", state.InFlightTranslationCount || 0);
       setText("completedTranslationCount", state.CompletedTranslationCount || 0);
       setText("writebackQueueCount", state.WritebackQueueCount || 0);
@@ -1123,6 +1149,8 @@ internal static class ControlPanelHtml
       $("baseUrl").value = state.BaseUrl || "";
       $("endpoint").value = state.Endpoint || "";
       $("model").value = state.Model || "";
+      $("replacementFontName").value = state.ReplacementFontName || "";
+      $("replacementFontFile").value = state.ReplacementFontFile || "";
       for (const id of numberFields) {
         if ($(id)) $(id).value = state[id[0].toUpperCase() + id.slice(1)] ?? "";
       }

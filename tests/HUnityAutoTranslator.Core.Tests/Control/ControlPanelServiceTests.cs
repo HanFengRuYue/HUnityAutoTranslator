@@ -258,4 +258,34 @@ public sealed class ControlPanelServiceTests
         state.ReapplyRememberedTranslations.Should().BeTrue();
         state.CacheRetentionDays.Should().Be(180);
     }
+
+    [Fact]
+    public void CreateDefault_loads_font_replacement_settings()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
+        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+
+        first.UpdateConfig(new UpdateConfigRequest(
+            EnableFontReplacement: true,
+            ReplaceUguiFonts: false,
+            ReplaceTmpFonts: true,
+            ReplaceImguiFonts: false,
+            AutoUseCjkFallbackFonts: false,
+            ReplacementFontName: "Noto Sans SC",
+            ReplacementFontFile: @"C:\Fonts\NotoSansSC-Regular.otf",
+            FontSamplingPointSize: 220));
+
+        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var state = second.GetState();
+
+        state.EnableFontReplacement.Should().BeTrue();
+        state.ReplaceUguiFonts.Should().BeFalse();
+        state.ReplaceTmpFonts.Should().BeTrue();
+        state.ReplaceImguiFonts.Should().BeFalse();
+        state.AutoUseCjkFallbackFonts.Should().BeFalse();
+        state.ReplacementFontName.Should().Be("Noto Sans SC");
+        state.ReplacementFontFile.Should().Be(@"C:\Fonts\NotoSansSC-Regular.otf");
+        state.FontSamplingPointSize.Should().Be(180);
+        second.GetConfig().FontSamplingPointSize.Should().Be(180);
+    }
 }

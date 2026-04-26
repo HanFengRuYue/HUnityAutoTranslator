@@ -12,5 +12,6 @@ public sealed record TranslationCacheEntry(
     string? SceneName,
     string? ComponentHierarchy,
     string? ComponentType,
+    string? ReplacementFont,
     DateTimeOffset CreatedUtc,
     DateTimeOffset UpdatedUtc);

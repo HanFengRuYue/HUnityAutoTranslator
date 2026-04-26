@@ -14,22 +14,29 @@ internal sealed class UguiTextScanner : ITextCaptureModule
     private readonly UnityMainThreadResultApplier _applier;
     private readonly ManualLogSource _logger;
     private readonly Func<RuntimeConfig> _configProvider;
+    private readonly UnityTextFontReplacementService? _fontReplacement;
     private Type? _textType;
     private PropertyInfo? _textProperty;
     private bool _enabled;
     private bool _warned;
 
     public UguiTextScanner(TextPipeline pipeline, UnityMainThreadResultApplier applier, ManualLogSource logger, RuntimeConfig config)
-        : this(pipeline, applier, logger, () => config)
+        : this(pipeline, applier, logger, () => config, fontReplacement: null)
     {
     }
 
-    public UguiTextScanner(TextPipeline pipeline, UnityMainThreadResultApplier applier, ManualLogSource logger, Func<RuntimeConfig> configProvider)
+    public UguiTextScanner(
+        TextPipeline pipeline,
+        UnityMainThreadResultApplier applier,
+        ManualLogSource logger,
+        Func<RuntimeConfig> configProvider,
+        UnityTextFontReplacementService? fontReplacement = null)
     {
         _pipeline = pipeline;
         _applier = applier;
         _logger = logger;
         _configProvider = configProvider;
+        _fontReplacement = fontReplacement;
     }
 
     public string Name => "UGUI";
@@ -86,12 +93,15 @@ internal sealed class UguiTextScanner : ITextCaptureModule
         }
 
         _applier.Register(target);
+        var context = new TranslationCacheContext(target.SceneName, target.HierarchyPath, target.ComponentType);
+        var config = _configProvider();
+        var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        _fontReplacement?.ApplyToUgui(component, key, context);
         if (_applier.IsRememberedTranslation(target.Id, text))
         {
             return;
         }
 
-        var context = new TranslationCacheContext(target.SceneName, target.HierarchyPath, target.ComponentType);
         var decision = _pipeline.Process(new CapturedText(target.Id, text, target.IsVisible, context));
         if (decision.Kind == PipelineDecisionKind.UseCachedTranslation && decision.TranslatedText != null)
         {

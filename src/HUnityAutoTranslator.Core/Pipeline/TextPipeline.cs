@@ -30,7 +30,6 @@ public sealed class TextPipeline
 
     public PipelineDecision Process(CapturedText capturedText)
     {
-        _metrics?.RecordCaptured();
         var config = _configProvider();
         if (!config.Enabled ||
             capturedText.SourceText.Length > config.MaxSourceTextLength ||
@@ -41,26 +40,22 @@ public sealed class TextPipeline
         }
 
         var key = TranslationCacheKey.Create(capturedText.SourceText, config.TargetLanguage, config.Provider, PromptPolicyVersion);
+        _metrics?.RecordCaptured(key);
         _cache.RecordCaptured(key, capturedText.Context);
         if (config.EnableCacheLookup && _cache.TryGet(key, out var translatedText))
         {
-            _metrics?.RecordTranslationCompleted(new RecentTranslationPreview(
-                capturedText.SourceText,
-                translatedText,
-                config.TargetLanguage,
-                config.Provider.Kind.ToString(),
-                config.Provider.Model,
-                capturedText.Context.ComponentHierarchy ?? capturedText.Context.SceneName ?? capturedText.Context.ComponentType,
-                DateTimeOffset.UtcNow));
             return PipelineDecision.UseCachedTranslation(translatedText);
         }
 
-        _queue.Enqueue(TranslationJob.Create(
+        var enqueued = _queue.Enqueue(TranslationJob.Create(
             capturedText.TargetId,
             capturedText.SourceText,
             capturedText.IsVisible ? TranslationPriority.VisibleUi : TranslationPriority.Normal,
             capturedText.Context));
-        _metrics?.RecordQueued();
+        if (enqueued)
+        {
+            _metrics?.RecordQueued();
+        }
 
         return PipelineDecision.Queued();
     }

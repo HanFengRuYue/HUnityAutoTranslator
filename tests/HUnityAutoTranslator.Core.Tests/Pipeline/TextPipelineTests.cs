@@ -111,4 +111,53 @@ public sealed class TextPipelineTests
         snapshot.CapturedTextCount.Should().Be(1);
         snapshot.QueuedTextCount.Should().Be(1);
     }
+
+    [Fact]
+    public void Process_records_metrics_once_for_repeated_pending_source_text()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var metrics = new ControlPanelMetrics();
+        var pipeline = new TextPipeline(cache, queue, RuntimeConfig.CreateDefault(), metrics);
+
+        pipeline.Process(new CapturedText("target-1", "Start Game", true, TranslationCacheContext.Empty));
+        pipeline.Process(new CapturedText("target-2", "Start Game", true, TranslationCacheContext.Empty));
+
+        var snapshot = metrics.Snapshot();
+        snapshot.CapturedTextCount.Should().Be(1);
+        snapshot.QueuedTextCount.Should().Be(1);
+        queue.PendingCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void Process_does_not_count_cache_hit_as_completed_translation()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var metrics = new ControlPanelMetrics();
+        var config = RuntimeConfig.CreateDefault();
+        var key = TranslationCacheKey.Create("Start Game", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.Set(key, "Start translated");
+        var pipeline = new TextPipeline(cache, queue, config, metrics);
+
+        pipeline.Process(new CapturedText("target", "Start Game", true, TranslationCacheContext.Empty));
+
+        var snapshot = metrics.Snapshot();
+        snapshot.CapturedTextCount.Should().Be(1);
+        snapshot.CompletedTranslationCount.Should().Be(0);
+        snapshot.RecentTranslations.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Process_does_not_record_capture_metrics_for_ignored_text()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var metrics = new ControlPanelMetrics();
+        var pipeline = new TextPipeline(cache, queue, RuntimeConfig.CreateDefault(), metrics);
+
+        pipeline.Process(new CapturedText("target", "12345", true, TranslationCacheContext.Empty));
+
+        metrics.Snapshot().CapturedTextCount.Should().Be(0);
+    }
 }

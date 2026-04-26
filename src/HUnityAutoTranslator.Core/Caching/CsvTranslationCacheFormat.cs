@@ -17,6 +17,7 @@ internal static class CsvTranslationCacheFormat
         "scene_name",
         "component_hierarchy",
         "component_type",
+        "replacement_font",
         "created_utc",
         "updated_utc"
     };
@@ -40,6 +41,7 @@ internal static class CsvTranslationCacheFormat
                 Escape(row.SceneName),
                 Escape(row.ComponentHierarchy),
                 Escape(row.ComponentType),
+                Escape(row.ReplacementFont),
                 Escape(row.CreatedUtc.ToString("O")),
                 Escape(row.UpdatedUtc.ToString("O"))
             }));
@@ -63,11 +65,14 @@ internal static class CsvTranslationCacheFormat
         foreach (var line in lines.Skip(1))
         {
             var values = ParseLine(line);
-            if (values.Count < Header.Length)
+            if (values.Count < Header.Length - 1)
             {
                 throw new FormatException("CSV row has too few columns.");
             }
 
+            var hasReplacementFont = values.Count >= Header.Length;
+            var createdUtcIndex = hasReplacementFont ? 12 : 11;
+            var updatedUtcIndex = hasReplacementFont ? 13 : 12;
             rows.Add(new TranslationCacheEntry(
                 values[0],
                 values[1],
@@ -80,8 +85,9 @@ internal static class CsvTranslationCacheFormat
                 EmptyToNull(values[8]),
                 EmptyToNull(values[9]),
                 EmptyToNull(values[10]),
-                ParseDate(values[11]),
-                ParseDate(values[12])));
+                hasReplacementFont ? EmptyToNull(values[11]) : null,
+                ParseDate(values[createdUtcIndex]),
+                ParseDate(values[updatedUtcIndex])));
         }
 
         return rows;
