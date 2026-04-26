@@ -269,6 +269,119 @@ button:disabled {
   border-radius: 8px;
   color: var(--muted);
 }
+.empty-state.compact {
+  min-height: 52px;
+}
+.form-stack {
+  display: grid;
+  gap: 24px;
+}
+.form-grid {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+.form-grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.form-grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.form-grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+.field span {
+  color: var(--muted);
+  font-size: 12px;
+}
+input,
+select,
+textarea {
+  width: 100%;
+  min-height: 36px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 10px;
+  background: var(--field);
+  color: var(--ink);
+  outline: none;
+}
+textarea {
+  min-height: 96px;
+  resize: vertical;
+}
+input:focus,
+select:focus,
+textarea:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.check {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.check input {
+  width: 16px;
+  min-height: 16px;
+  accent-color: var(--accent);
+}
+.actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.inline-actions {
+  justify-content: flex-start;
+  margin-top: 14px;
+}
+.primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 700;
+}
+.hint {
+  margin: 10px 0 0;
+  color: var(--muted);
+}
+.utility-results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.utility-results h3 {
+  margin: 0 0 10px;
+  font-size: 14px;
+}
+.utility-list {
+  display: grid;
+  gap: 8px;
+}
+.utility-list button,
+.utility-row {
+  display: grid;
+  gap: 2px;
+  justify-items: start;
+  width: 100%;
+  min-height: 48px;
+  text-align: left;
+}
+.utility-list small,
+.utility-row small {
+  color: var(--muted);
+}
 .toast-host {
   position: fixed;
   top: 14px;
@@ -298,7 +411,11 @@ button:disabled {
   .sidebar { position: static; height: auto; }
   .workspace { padding: 18px 14px 34px; }
   .metric-grid,
-  .provider-summary {
+  .provider-summary,
+  .form-grid.two,
+  .form-grid.three,
+  .form-grid.four,
+  .utility-results {
     grid-template-columns: 1fr;
   }
   .recent-item {

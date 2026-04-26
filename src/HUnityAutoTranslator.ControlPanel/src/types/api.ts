@@ -32,8 +32,8 @@ export interface RecentTranslationPreview {
 export interface ControlPanelState {
   Enabled: boolean;
   TargetLanguage: string;
-  Style: string;
-  ProviderKind: string;
+  Style: number | string;
+  ProviderKind: number | string;
   BaseUrl: string;
   Endpoint: string;
   Model: string;
@@ -96,7 +96,7 @@ export interface ControlPanelState {
   AutomaticReplacementFontName: string | null;
   AutomaticReplacementFontFile: string | null;
   FontSamplingPointSize: number;
-  FontSizeAdjustmentMode: string;
+  FontSizeAdjustmentMode: number | string;
   FontSizeAdjustmentValue: number;
   LastError: string | null;
 }
@@ -111,11 +111,11 @@ export interface UpdateConfigRequest {
   ToggleTranslationHotkey?: string;
   ForceScanHotkey?: string;
   ToggleFontHotkey?: string;
-  ProviderKind?: string;
+  ProviderKind?: number;
   BaseUrl?: string;
   Endpoint?: string;
   Model?: string;
-  Style?: string;
+  Style?: number;
   MaxBatchCharacters?: number;
   ScanIntervalMilliseconds?: number;
   MaxScanTargetsPerTick?: number;
@@ -153,7 +153,7 @@ export interface UpdateConfigRequest {
   ReplacementFontName?: string | null;
   ReplacementFontFile?: string | null;
   FontSamplingPointSize?: number;
-  FontSizeAdjustmentMode?: string;
+  FontSizeAdjustmentMode?: number;
   FontSizeAdjustmentValue?: number;
 }
 

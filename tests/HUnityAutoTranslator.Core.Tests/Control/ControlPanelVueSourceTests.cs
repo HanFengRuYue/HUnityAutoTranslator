@@ -60,6 +60,85 @@ public sealed class ControlPanelVueSourceTests
         statusPageSource.Should().NotContain("state.value.QueueCount || state.value.QueuedTextCount || 0");
     }
 
+    [Fact]
+    public void Vue_plugin_settings_expose_runtime_hotkey_and_font_controls()
+    {
+        var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
+
+        pluginPageSource.Should().Contain("id=\"openControlPanelHotkey\"");
+        pluginPageSource.Should().Contain("id=\"toggleTranslationHotkey\"");
+        pluginPageSource.Should().Contain("id=\"forceScanHotkey\"");
+        pluginPageSource.Should().Contain("id=\"toggleFontHotkey\"");
+        pluginPageSource.Should().Contain("OpenControlPanelHotkey: form.OpenControlPanelHotkey");
+        pluginPageSource.Should().Contain("ToggleTranslationHotkey: form.ToggleTranslationHotkey");
+        pluginPageSource.Should().Contain("ForceScanHotkey: form.ForceScanHotkey");
+        pluginPageSource.Should().Contain("ToggleFontHotkey: form.ToggleFontHotkey");
+        pluginPageSource.Should().Contain("id=\"enableFontReplacement\"");
+        pluginPageSource.Should().Contain("id=\"replaceUguiFonts\"");
+        pluginPageSource.Should().Contain("id=\"replaceTmpFonts\"");
+        pluginPageSource.Should().Contain("id=\"replaceImguiFonts\"");
+        pluginPageSource.Should().Contain("id=\"autoUseCjkFallbackFonts\"");
+        pluginPageSource.Should().Contain("id=\"replacementFontName\"");
+        pluginPageSource.Should().Contain("id=\"replacementFontFile\"");
+        pluginPageSource.Should().Contain("ReplacementFontName: form.ReplacementFontName");
+        pluginPageSource.Should().Contain("ReplacementFontFile: form.ReplacementFontFile");
+    }
+
+    [Fact]
+    public void Vue_ai_settings_save_and_provider_utility_persist_pending_api_key()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+
+        aiPageSource.Should().Contain("async function saveConfigOnly()");
+        aiPageSource.Should().Contain("async function savePendingApiKey()");
+        aiPageSource.Should().Contain("const apiKey = form.ApiKey.trim();");
+        aiPageSource.Should().Contain("if (!apiKey)");
+        aiPageSource.Should().Contain("await saveConfigOnly();");
+        aiPageSource.Should().Contain("await savePendingApiKey();");
+        aiPageSource.Should().Contain("未填写新密钥，已保留当前密钥。");
+    }
+
+    [Fact]
+    public void Vue_ai_provider_feedback_uses_top_toasts_without_legacy_inline_output()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var toastSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "components", "ToastHost.vue"));
+
+        aiPageSource.Should().Contain("showToast(");
+        aiPageSource.Should().Contain("async function fetchModels()");
+        aiPageSource.Should().Contain("async function fetchBalance()");
+        aiPageSource.Should().Contain("async function testProvider()");
+        toastSource.Should().Contain("class=\"toast-host\"");
+        aiPageSource.Should().NotContain("providerStatusText");
+        aiPageSource.Should().NotContain("providerUtilityMessage");
+        aiPageSource.Should().NotContain("providerUtilityOutput");
+    }
+
+    [Fact]
+    public void Vue_deepseek_presets_use_current_v4_model_ids()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+
+        aiPageSource.Should().Contain("model: \"deepseek-v4-flash\"");
+        aiPageSource.Should().Contain("value: \"deepseek-v4-flash\", label: \"DeepSeek V4 Flash\"");
+        aiPageSource.Should().Contain("value: \"deepseek-v4-pro\", label: \"DeepSeek V4 Pro\"");
+    }
+
+    [Fact]
+    public void Vue_settings_refresh_preserves_unsaved_form_edits()
+    {
+        var storeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "state", "controlPanelStore.ts"));
+        var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+
+        storeSource.Should().Contain("dirtyForms: new Set<string>()");
+        storeSource.Should().Contain("export function setDirtyForm(key: string, dirty: boolean)");
+        pluginPageSource.Should().Contain("if (!state || (!force && formDirty.value))");
+        aiPageSource.Should().Contain("if (!state || (!force && formDirty.value))");
+        pluginPageSource.Should().Contain("watch(() => controlPanelStore.state");
+        aiPageSource.Should().Contain("watch(() => controlPanelStore.state");
+    }
+
     private static string FindRepositoryFile(params string[] relativeSegments)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
