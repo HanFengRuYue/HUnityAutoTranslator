@@ -7,6 +7,40 @@ namespace HUnityAutoTranslator.Core.Tests.Control;
 public sealed class ControlPanelServiceTests
 {
     [Fact]
+    public void Snapshot_reports_pipeline_metrics_and_recent_translations()
+    {
+        var metrics = new ControlPanelMetrics();
+        var service = ControlPanelService.CreateDefault(metrics);
+
+        metrics.RecordCaptured();
+        metrics.RecordQueued();
+        metrics.RecordTranslationStarted();
+        metrics.RecordTranslationCompleted(new RecentTranslationPreview(
+            SourceText: "Start Game",
+            TranslatedText: "Start translated",
+            TargetLanguage: "zh-Hans",
+            Provider: "OpenAI",
+            Model: "gpt-5.5",
+            Context: "MainMenu/Button",
+            CompletedUtc: DateTimeOffset.Parse("2026-04-26T00:00:00Z")),
+            totalTokens: 123,
+            elapsed: TimeSpan.FromMilliseconds(250));
+
+        var state = service.GetState(queueCount: 1, cacheCount: 5, writebackQueueCount: 2);
+
+        state.CapturedTextCount.Should().Be(1);
+        state.QueuedTextCount.Should().Be(1);
+        state.InFlightTranslationCount.Should().Be(0);
+        state.CompletedTranslationCount.Should().Be(1);
+        state.WritebackQueueCount.Should().Be(2);
+        state.TotalTokenCount.Should().Be(123);
+        state.AverageTranslationMilliseconds.Should().Be(250);
+        state.AverageCharactersPerSecond.Should().BeGreaterThan(0);
+        state.RecentTranslations.Should().ContainSingle();
+        state.RecentTranslations[0].TranslatedText.Should().Be("Start translated");
+    }
+
+    [Fact]
     public void Snapshot_masks_api_key_and_reports_runtime_status()
     {
         var service = ControlPanelService.CreateDefault();
@@ -31,6 +65,31 @@ public sealed class ControlPanelServiceTests
         state.TargetLanguage.Should().Be("ja");
         state.MaxConcurrentRequests.Should().Be(8);
         state.RequestsPerMinute.Should().Be(90);
+    }
+
+    [Fact]
+    public void Snapshot_reports_auto_open_control_panel_enabled_by_default()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        var state = service.GetState();
+
+        state.AutoOpenControlPanel.Should().BeTrue();
+        service.GetConfig().AutoOpenControlPanel.Should().BeTrue();
+    }
+
+    [Fact]
+    public void CreateDefault_loads_saved_auto_open_control_panel_setting()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
+        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+
+        first.UpdateConfig(new UpdateConfigRequest(AutoOpenControlPanel: false));
+
+        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+
+        second.GetState().AutoOpenControlPanel.Should().BeFalse();
+        second.GetConfig().AutoOpenControlPanel.Should().BeFalse();
     }
 
     [Fact]
@@ -70,5 +129,133 @@ public sealed class ControlPanelServiceTests
         config.EnableImgui.Should().BeTrue();
         config.MaxScanTargetsPerTick.Should().Be(12);
         config.MaxWritebacksPerFrame.Should().Be(64);
+    }
+
+    [Fact]
+    public void CreateDefault_loads_saved_config_and_api_key_from_json_store()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
+        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+
+        first.UpdateConfig(new UpdateConfigRequest(
+            TargetLanguage: "ja",
+            MaxConcurrentRequests: 7,
+            RequestsPerMinute: 123,
+            Enabled: false,
+            ProviderKind: ProviderKind.OpenAICompatible,
+            BaseUrl: "http://127.0.0.1:9000",
+            Endpoint: "/v1/chat/completions",
+            Model: "local-model",
+            EnableUgui: false,
+            EnableTmp: true,
+            EnableImgui: false,
+            MaxScanTargetsPerTick: 33,
+            MaxWritebacksPerFrame: 44));
+        first.SetApiKey("secret-value");
+
+        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+
+        var state = second.GetState();
+        state.Enabled.Should().BeFalse();
+        state.TargetLanguage.Should().Be("ja");
+        state.ProviderKind.Should().Be(ProviderKind.OpenAICompatible);
+        state.BaseUrl.Should().Be("http://127.0.0.1:9000");
+        state.Endpoint.Should().Be("/v1/chat/completions");
+        state.Model.Should().Be("local-model");
+        state.ApiKeyConfigured.Should().BeTrue();
+        second.GetApiKey().Should().Be("secret-value");
+        state.MaxConcurrentRequests.Should().Be(7);
+        state.RequestsPerMinute.Should().Be(123);
+        state.EnableUgui.Should().BeFalse();
+        state.EnableTmp.Should().BeTrue();
+        state.EnableImgui.Should().BeFalse();
+        state.MaxScanTargetsPerTick.Should().Be(33);
+        state.MaxWritebacksPerFrame.Should().Be(44);
+    }
+
+    [Fact]
+    public void Json_store_persists_api_key_encrypted()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
+        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+
+        first.SetApiKey("secret-value");
+
+        var json = File.ReadAllText(path);
+        json.Should().Contain("EncryptedApiKey");
+        json.Should().NotContain("secret-value");
+
+        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        second.GetApiKey().Should().Be("secret-value");
+        second.GetState().ApiKeyConfigured.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Json_store_migrates_legacy_plaintext_api_key_on_load()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """
+            {
+              "Config": {
+                "TargetLanguage": "ja"
+              },
+              "ApiKey": "legacy-secret"
+            }
+            """);
+
+        var service = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        service.GetApiKey().Should().Be("legacy-secret");
+        service.GetState().TargetLanguage.Should().Be("ja");
+
+        var json = File.ReadAllText(path);
+        json.Should().Contain("EncryptedApiKey");
+        json.Should().NotContain("legacy-secret");
+
+        var reloaded = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        reloaded.GetApiKey().Should().Be("legacy-secret");
+        reloaded.GetState().TargetLanguage.Should().Be("ja");
+    }
+
+    [Fact]
+    public void CreateDefault_loads_expanded_plugin_and_ai_settings()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
+        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+
+        first.UpdateConfig(new UpdateConfigRequest(
+            TargetLanguage: "zh-Hant",
+            RequestTimeoutSeconds: 45,
+            ReasoningEffort: "low",
+            OutputVerbosity: "low",
+            DeepSeekThinkingMode: "disabled",
+            Temperature: 0.2,
+            CustomInstruction: "Keep terminology consistent",
+            CustomPrompt: "Translate into {TargetLanguage}.",
+            MaxSourceTextLength: 800,
+            IgnoreInvisibleText: true,
+            SkipNumericSymbolText: true,
+            EnableCacheLookup: true,
+            ManualEditsOverrideAi: true,
+            ReapplyRememberedTranslations: true,
+            CacheRetentionDays: 180));
+
+        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var state = second.GetState();
+
+        state.RequestTimeoutSeconds.Should().Be(45);
+        state.ReasoningEffort.Should().Be("low");
+        state.OutputVerbosity.Should().Be("low");
+        state.DeepSeekThinkingMode.Should().Be("disabled");
+        state.Temperature.Should().Be(0.2);
+        state.CustomInstruction.Should().Be("Keep terminology consistent");
+        state.CustomPrompt.Should().Be("Translate into {TargetLanguage}.");
+        state.MaxSourceTextLength.Should().Be(800);
+        state.IgnoreInvisibleText.Should().BeTrue();
+        state.SkipNumericSymbolText.Should().BeTrue();
+        state.EnableCacheLookup.Should().BeTrue();
+        state.ManualEditsOverrideAi.Should().BeTrue();
+        state.ReapplyRememberedTranslations.Should().BeTrue();
+        state.CacheRetentionDays.Should().Be(180);
     }
 }

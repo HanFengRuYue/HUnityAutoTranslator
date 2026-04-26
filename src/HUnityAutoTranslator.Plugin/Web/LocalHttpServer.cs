@@ -1,7 +1,12 @@
 using System.Net;
+using System.Net.Http;
 using System.Text;
 using BepInEx.Logging;
+using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Control;
+using HUnityAutoTranslator.Core.Dispatching;
+using HUnityAutoTranslator.Core.Providers;
+using HUnityAutoTranslator.Core.Queueing;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -10,8 +15,11 @@ namespace HUnityAutoTranslator.Plugin;
 internal sealed class LocalHttpServer : IDisposable
 {
     private readonly ControlPanelService _controlPanel;
-    private readonly Func<int> _queueCountProvider;
-    private readonly Func<int> _cacheCountProvider;
+    private readonly ITranslationCache _cache;
+    private readonly TranslationJobQueue _queue;
+    private readonly ResultDispatcher _dispatcher;
+    private readonly HttpClient _httpClient = new();
+    private readonly ProviderUtilityClient _providerUtilityClient;
     private readonly ManualLogSource _logger;
     private HttpListener? _listener;
     private CancellationTokenSource? _cts;
@@ -20,13 +28,16 @@ internal sealed class LocalHttpServer : IDisposable
 
     public LocalHttpServer(
         ControlPanelService controlPanel,
-        Func<int> queueCountProvider,
-        Func<int> cacheCountProvider,
+        ITranslationCache cache,
+        TranslationJobQueue queue,
+        ResultDispatcher dispatcher,
         ManualLogSource logger)
     {
         _controlPanel = controlPanel;
-        _queueCountProvider = queueCountProvider;
-        _cacheCountProvider = cacheCountProvider;
+        _cache = cache;
+        _queue = queue;
+        _dispatcher = dispatcher;
+        _providerUtilityClient = new ProviderUtilityClient(_httpClient, _controlPanel.GetApiKey);
         _logger = logger;
     }
 
@@ -102,6 +113,7 @@ internal sealed class LocalHttpServer : IDisposable
             {
                 var request = await ReadJsonAsync<UpdateConfigRequest>(context.Request).ConfigureAwait(false);
                 _controlPanel.UpdateConfig(request ?? new UpdateConfigRequest());
+                _logger.LogInfo("Control panel config updated.");
                 await WriteStateAsync(context.Response).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/key")
@@ -109,7 +121,74 @@ internal sealed class LocalHttpServer : IDisposable
                 var body = await ReadBodyAsync(context.Request).ConfigureAwait(false);
                 var apiKey = JObject.Parse(string.IsNullOrWhiteSpace(body) ? "{}" : body).Value<string>("ApiKey");
                 _controlPanel.SetApiKey(apiKey ?? string.Empty);
+                _logger.LogInfo(string.IsNullOrWhiteSpace(apiKey) ? "Control panel API key cleared." : "Control panel API key configured.");
                 await WriteStateAsync(context.Response).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "GET" && path == "/api/translations")
+            {
+                await WriteJsonAsync(context.Response, _cache.Query(ParseTranslationQuery(context.Request))).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "PATCH" && path == "/api/translations")
+            {
+                var entry = await ReadJsonAsync<TranslationCacheEntry>(context.Request).ConfigureAwait(false);
+                if (entry == null)
+                {
+                    context.Response.StatusCode = 400;
+                    await WriteTextAsync(context.Response, "Missing translation row.").ConfigureAwait(false);
+                    return;
+                }
+
+                _cache.Update(entry);
+                await WriteJsonAsync(context.Response, _cache.Query(new TranslationCacheQuery(null, "updated_utc", true, 0, 100))).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "DELETE" && path == "/api/translations")
+            {
+                var entries = await ReadJsonAsync<List<TranslationCacheEntry>>(context.Request).ConfigureAwait(false);
+                if (entries == null || entries.Count == 0)
+                {
+                    context.Response.StatusCode = 400;
+                    await WriteTextAsync(context.Response, "Missing translation rows.").ConfigureAwait(false);
+                    return;
+                }
+
+                foreach (var entry in entries)
+                {
+                    _cache.Delete(entry);
+                }
+
+                await WriteJsonAsync(context.Response, new { DeletedCount = entries.Count }).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "GET" && path == "/api/translations/export")
+            {
+                var format = context.Request.QueryString["format"] ?? "json";
+                context.Response.ContentType = string.Equals(format, "csv", StringComparison.OrdinalIgnoreCase)
+                    ? "text/csv; charset=utf-8"
+                    : "application/json; charset=utf-8";
+                await WriteTextAsync(context.Response, _cache.Export(format)).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/translations/import")
+            {
+                var format = context.Request.QueryString["format"] ?? "json";
+                var body = await ReadBodyAsync(context.Request).ConfigureAwait(false);
+                await WriteJsonAsync(context.Response, _cache.Import(body, format)).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "GET" && path == "/api/provider/models")
+            {
+                await WriteJsonAsync(
+                    context.Response,
+                    await _providerUtilityClient.FetchModelsAsync(_controlPanel.GetConfig().Provider, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "GET" && path == "/api/provider/balance")
+            {
+                await WriteJsonAsync(
+                    context.Response,
+                    await _providerUtilityClient.FetchBalanceAsync(_controlPanel.GetConfig().Provider, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/provider/test")
+            {
+                var result = await _providerUtilityClient.FetchModelsAsync(_controlPanel.GetConfig().Provider, CancellationToken.None).ConfigureAwait(false);
+                _controlPanel.SetProviderStatus(new ProviderStatus(result.Succeeded ? "ok" : "error", result.Message, DateTimeOffset.UtcNow));
+                await WriteJsonAsync(context.Response, result).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "GET" && path == "/")
             {
@@ -131,7 +210,18 @@ internal sealed class LocalHttpServer : IDisposable
 
     private async Task WriteStateAsync(HttpListenerResponse response)
     {
-        await WriteJsonAsync(response, _controlPanel.GetState(_queueCountProvider(), _cacheCountProvider())).ConfigureAwait(false);
+        await WriteJsonAsync(response, _controlPanel.GetState(_queue.PendingCount, _cache.Count, _dispatcher.PendingCount)).ConfigureAwait(false);
+    }
+
+    private static TranslationCacheQuery ParseTranslationQuery(HttpListenerRequest request)
+    {
+        var parameters = request.QueryString;
+        return new TranslationCacheQuery(
+            Search: parameters["search"],
+            SortColumn: parameters["sort"] ?? "updated_utc",
+            SortDescending: string.Equals(parameters["direction"], "desc", StringComparison.OrdinalIgnoreCase),
+            Offset: int.TryParse(parameters["offset"], out var offset) ? offset : 0,
+            Limit: int.TryParse(parameters["limit"], out var limit) ? limit : 100);
     }
 
     private static async Task<T?> ReadJsonAsync<T>(HttpListenerRequest request)
@@ -190,6 +280,7 @@ internal sealed class LocalHttpServer : IDisposable
     {
         _cts?.Cancel();
         _listener?.Close();
+        _httpClient.Dispose();
         _cts?.Dispose();
     }
 }
