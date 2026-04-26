@@ -18,6 +18,10 @@ button {
   cursor: pointer;
 }
 button:hover { border-color: var(--line-strong); }
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.64;
+}
 .app-shell {
   min-height: 100vh;
   display: grid;
@@ -65,6 +69,8 @@ button:hover { border-color: var(--line-strong); }
   border-top: 1px solid var(--line);
 }
 .connection { color: var(--muted); font-size: 12px; }
+.connection-online { color: var(--ok); }
+.connection-offline { color: var(--danger); }
 .theme-cycle {
   width: 100%;
   display: flex;
@@ -86,10 +92,18 @@ button:hover { border-color: var(--line-strong); }
   gap: 18px;
   margin-bottom: 18px;
 }
+.page-head > div {
+  display: grid;
+  gap: 6px;
+}
 .page-head h1 {
   margin: 0;
   font-size: 24px;
   line-height: 1.25;
+}
+.page-head p {
+  margin: 0;
+  color: var(--muted);
 }
 .band {
   background: var(--surface);
@@ -104,6 +118,36 @@ button:hover { border-color: var(--line-strong); }
   color: var(--accent-hover);
   font-weight: 650;
 }
+.placeholder-band {
+  color: var(--muted);
+}
+.error-text {
+  color: var(--danger);
+}
+.toast-host {
+  position: fixed;
+  top: 14px;
+  left: 50%;
+  z-index: 80;
+  display: grid;
+  gap: 8px;
+  width: min(420px, calc(100vw - 28px));
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+.toast {
+  justify-content: center;
+  min-height: 38px;
+  width: 100%;
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow);
+  pointer-events: auto;
+}
+.toast-ok { border-color: color-mix(in srgb, var(--ok), var(--line) 45%); }
+.toast-warn { border-color: color-mix(in srgb, var(--warn), var(--line) 45%); }
+.toast-error { border-color: color-mix(in srgb, var(--danger), var(--line) 45%); }
 @media (max-width: 780px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar { position: static; height: auto; }
