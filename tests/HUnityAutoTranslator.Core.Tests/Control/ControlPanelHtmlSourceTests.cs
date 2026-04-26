@@ -335,6 +335,19 @@ public sealed class ControlPanelHtmlSourceTests
         serverSource.Should().Contain("TranslationHighlightRequest.FromEntry");
     }
 
+    [Fact]
+    public void Translation_editor_save_publishes_manual_writeback_for_known_targets()
+    {
+        var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+        var highlighterSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextHighlighter.cs"));
+
+        serverSource.Should().Contain("TryGetExistingTranslation(entry");
+        serverSource.Should().Contain("PublishManualWriteback(entry, previousTranslatedText)");
+        serverSource.Should().Contain("previousTranslatedText:");
+        serverSource.Should().Contain("TryResolveTargetId");
+        highlighterSource.Should().Contain("TryResolveTargetId");
+    }
+
     private static string FindRepositoryFile(params string[] relativeSegments)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

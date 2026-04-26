@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Text;
 using BepInEx.Logging;
 using HUnityAutoTranslator.Core.Caching;
+using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Dispatching;
 using HUnityAutoTranslator.Core.Glossary;
@@ -16,6 +17,8 @@ namespace HUnityAutoTranslator.Plugin;
 
 internal sealed class LocalHttpServer : IDisposable
 {
+    private const int ManualWritebackPriority = (int)TranslationPriority.VisibleUi + 100;
+
     private readonly ControlPanelService _controlPanel;
     private readonly ITranslationCache _cache;
     private readonly IGlossaryStore _glossary;
@@ -250,7 +253,11 @@ internal sealed class LocalHttpServer : IDisposable
                     return;
                 }
 
+                var previousTranslatedText = TryGetExistingTranslation(entry, out var existingTranslatedText)
+                    ? existingTranslatedText
+                    : null;
                 _cache.Update(entry);
+                PublishManualWriteback(entry, previousTranslatedText);
                 await WriteJsonAsync(context.Response, _cache.Query(new TranslationCacheQuery(null, "updated_utc", true, 0, 100))).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "DELETE" && path == "/api/translations")
@@ -418,6 +425,42 @@ internal sealed class LocalHttpServer : IDisposable
         }
 
         return queued;
+    }
+
+    private bool TryGetExistingTranslation(TranslationCacheEntry entry, out string translatedText)
+    {
+        var providerKind = Enum.TryParse<ProviderKind>(entry.ProviderKind, ignoreCase: true, out var parsedProviderKind)
+            ? parsedProviderKind
+            : ProviderKind.OpenAI;
+        var key = new TranslationCacheKey(
+            entry.SourceText,
+            entry.TargetLanguage,
+            providerKind,
+            entry.ProviderBaseUrl,
+            entry.ProviderEndpoint,
+            entry.ProviderModel,
+            entry.PromptPolicyVersion);
+        var context = new TranslationCacheContext(entry.SceneName, entry.ComponentHierarchy, entry.ComponentType);
+        return _cache.TryGet(key, context, out translatedText);
+    }
+
+    private void PublishManualWriteback(TranslationCacheEntry entry, string? previousTranslatedText)
+    {
+        if (string.IsNullOrWhiteSpace(entry.SourceText) ||
+            string.IsNullOrWhiteSpace(entry.TranslatedText) ||
+            string.Equals(entry.TranslatedText, previousTranslatedText, StringComparison.Ordinal) ||
+            _highlighter == null ||
+            !_highlighter.TryResolveTargetId(TranslationHighlightRequest.FromEntry(entry), out var targetId))
+        {
+            return;
+        }
+
+        _dispatcher.Publish(new TranslationResult(
+            targetId,
+            entry.SourceText,
+            entry.TranslatedText!,
+            ManualWritebackPriority,
+            previousTranslatedText: previousTranslatedText));
     }
 
     private static async Task<T?> ReadJsonAsync<T>(HttpListenerRequest request)
