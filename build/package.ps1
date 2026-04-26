@@ -12,6 +12,20 @@ $pluginRoot = Join-Path $packageRoot "BepInEx\plugins\HUnityAutoTranslator"
 $buildOutput = Join-Path $root "src\HUnityAutoTranslator.Plugin\bin\$Configuration\netstandard2.1"
 $zipPath = Join-Path $outputRoot "HUnityAutoTranslator-0.1.0.zip"
 
+$controlPanelRoot = Join-Path $root "src\HUnityAutoTranslator.ControlPanel"
+if (Test-Path -LiteralPath (Join-Path $controlPanelRoot "package.json")) {
+    Push-Location $controlPanelRoot
+    if (Test-Path -LiteralPath "package-lock.json") {
+        npm ci
+    }
+    else {
+        npm install
+    }
+    npm run build
+    Pop-Location
+    powershell -ExecutionPolicy Bypass -File (Join-Path $root "build\generate-control-panel.ps1")
+}
+
 dotnet build $project -c $Configuration
 
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
