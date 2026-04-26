@@ -25,6 +25,12 @@ $inputPath = Resolve-Path -LiteralPath $InputHtml
 $distRoot = Split-Path -Parent $inputPath
 $html = Get-Content -LiteralPath $inputPath -Raw -Encoding UTF8
 
+function Normalize-Newlines([string]$value) {
+    return ($value -replace "`r`n", "`n") -replace "`r", "`n"
+}
+
+$html = Normalize-Newlines $html
+
 if ($html -match '(?i)<(?:script|link|img|source|iframe|audio|video)[^>]+(?:src|href)="https?://') {
     throw "Generated control panel must not reference remote assets."
 }
@@ -36,7 +42,7 @@ function Read-DistAsset([string]$assetReference) {
         throw "Referenced control panel asset not found: $assetReference"
     }
 
-    return Get-Content -LiteralPath $fullPath -Raw -Encoding UTF8
+    return Normalize-Newlines (Get-Content -LiteralPath $fullPath -Raw -Encoding UTF8)
 }
 
 $html = [regex]::Replace(

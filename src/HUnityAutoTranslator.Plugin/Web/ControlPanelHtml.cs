@@ -22,6 +22,7 @@ internal static class ControlPanelHtml
   <body>
     <noscript>控制面板需要启用 JavaScript。</noscript>
     <div id="app" data-app="hunity-control-panel">正在加载控制面板...</div>
+
   </body>
 </html>
 
