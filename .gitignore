@@ -5,6 +5,8 @@ artifacts/
 publish/
 /build/HUnityAutoTranslator/
 /build/HUnityAutoTranslator-*.zip
+/src/HUnityAutoTranslator.ControlPanel/node_modules/
+/src/HUnityAutoTranslator.ControlPanel/dist/
 *.user
 *.suo
 *.tmp
