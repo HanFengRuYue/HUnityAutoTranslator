@@ -55,6 +55,16 @@ export function getJson<T>(path: string): Promise<T> {
   return api<T>(path);
 }
 
+export async function getText(path: string): Promise<string> {
+  const response = await fetch(path, { cache: "no-store" });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(text || `请求失败：HTTP ${response.status}`);
+  }
+
+  return text;
+}
+
 export function postJson<T>(path: string, body: unknown = {}): Promise<T> {
   return api<T>(path, { method: "POST", body });
 }

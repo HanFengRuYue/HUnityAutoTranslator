@@ -139,6 +139,74 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("watch(() => controlPanelStore.state");
     }
 
+    [Fact]
+    public void Vue_glossary_page_exposes_settings_and_crud_endpoints()
+    {
+        var glossaryPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "GlossaryPage.vue"));
+
+        glossaryPageSource.Should().Contain("data-page=\"glossary\"");
+        glossaryPageSource.Should().Contain("id=\"page-glossary\"");
+        glossaryPageSource.Should().Contain("id=\"enableGlossary\"");
+        glossaryPageSource.Should().Contain("id=\"enableAutoTermExtraction\"");
+        glossaryPageSource.Should().Contain("AI 自动提取默认关闭");
+        glossaryPageSource.Should().Contain("async function loadGlossaryTerms()");
+        glossaryPageSource.Should().Contain("async function saveGlossaryTerm(");
+        glossaryPageSource.Should().Contain("async function deleteGlossaryTerm(");
+        glossaryPageSource.Should().Contain("/api/glossary");
+    }
+
+    [Fact]
+    public void Vue_editor_exposes_persistent_column_visibility_and_order_controls()
+    {
+        var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
+        var tableSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "table.ts"));
+
+        editorPageSource.Should().Contain("id=\"columnMenuButton\"");
+        editorPageSource.Should().Contain("id=\"columnChooser\"");
+        tableSource.Should().Contain("hunity.editor.visibleColumns");
+        tableSource.Should().Contain("hunity.editor.columnOrder");
+        tableSource.Should().Contain("export function loadColumnOrder()");
+        editorPageSource.Should().Contain("function moveColumn(");
+        editorPageSource.Should().Contain("data-column-key");
+        editorPageSource.Should().Contain("data-column-move");
+    }
+
+    [Fact]
+    public void Vue_editor_exposes_import_export_filter_and_row_actions()
+    {
+        var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
+        var tableSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "table.ts"));
+
+        editorPageSource.Should().Contain("id=\"importRows\"");
+        editorPageSource.Should().Contain("id=\"exportRows\"");
+        editorPageSource.Should().Contain("id=\"importFile\"");
+        editorPageSource.Should().Contain("id=\"exportMenu\"");
+        editorPageSource.Should().NotContain("id=\"exportJson\"");
+        editorPageSource.Should().NotContain("id=\"exportCsv\"");
+        editorPageSource.Should().Contain("data-table-action=\"retranslate\"");
+        editorPageSource.Should().Contain("data-table-action=\"highlight\"");
+        editorPageSource.Should().Contain("async function retranslateSelectedRows()");
+        editorPageSource.Should().Contain("async function highlightSelectedRow()");
+        editorPageSource.Should().Contain("/api/translations/retranslate");
+        editorPageSource.Should().Contain("/api/translations/highlight");
+        editorPageSource.Should().Contain("id=\"columnFilterMenu\"");
+        editorPageSource.Should().Contain("async function loadColumnFilterOptions(");
+        editorPageSource.Should().Contain("function appendColumnFilters(");
+        editorPageSource.Should().Contain("/api/translations/filter-options");
+        editorPageSource.Should().Contain("data-filter-column");
+        tableSource.Should().Contain("hunity.editor.columnFilters");
+    }
+
+    [Fact]
+    public void Vue_editor_exposes_component_font_override_column()
+    {
+        var tableSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "table.ts"));
+
+        tableSource.Should().Contain("key: \"ReplacementFont\"");
+        tableSource.Should().Contain("label: \"替换字体\"");
+        tableSource.Should().Contain("sort: \"replacement_font\"");
+    }
+
     private static string FindRepositoryFile(params string[] relativeSegments)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

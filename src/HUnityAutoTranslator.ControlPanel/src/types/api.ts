@@ -185,6 +185,16 @@ export interface TranslationCacheImportResult {
   RefreshQueuedCount?: number;
 }
 
+export interface TranslationCacheFilterOption {
+  Value: string | null;
+  Count: number;
+}
+
+export interface TranslationCacheFilterOptionPage {
+  Column: string;
+  Items: TranslationCacheFilterOption[];
+}
+
 export interface GlossaryTerm {
   SourceTerm: string;
   TargetTerm: string;
@@ -248,4 +258,10 @@ export interface DeleteResult {
 export interface RetranslateResult {
   RequestedCount: number;
   QueuedCount: number;
+}
+
+export interface TranslationHighlightResult {
+  Status: string;
+  Message: string;
+  TargetId: string | null;
 }
