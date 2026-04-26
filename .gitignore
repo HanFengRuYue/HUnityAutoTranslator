@@ -3,6 +3,8 @@ bin/
 obj/
 artifacts/
 publish/
+/build/HUnityAutoTranslator/
+/build/HUnityAutoTranslator-*.zip
 *.user
 *.suo
 *.tmp

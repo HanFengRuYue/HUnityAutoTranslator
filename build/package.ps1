@@ -6,20 +6,20 @@ $ErrorActionPreference = "Stop"
 
 $root = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")
 $project = Join-Path $root "src\HUnityAutoTranslator.Plugin\HUnityAutoTranslator.Plugin.csproj"
-$artifactsRoot = Join-Path $root "artifacts"
-$packageRoot = Join-Path $artifactsRoot "HUnityAutoTranslator"
+$outputRoot = Resolve-Path -LiteralPath $PSScriptRoot
+$packageRoot = Join-Path $outputRoot "HUnityAutoTranslator"
 $pluginRoot = Join-Path $packageRoot "BepInEx\plugins\HUnityAutoTranslator"
 $buildOutput = Join-Path $root "src\HUnityAutoTranslator.Plugin\bin\$Configuration\netstandard2.1"
-$zipPath = Join-Path $artifactsRoot "HUnityAutoTranslator-0.1.0.zip"
+$zipPath = Join-Path $outputRoot "HUnityAutoTranslator-0.1.0.zip"
 
 dotnet build $project -c $Configuration
 
-New-Item -ItemType Directory -Force -Path $artifactsRoot | Out-Null
+New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
 if (Test-Path -LiteralPath $packageRoot) {
-    $resolvedArtifacts = (Resolve-Path -LiteralPath $artifactsRoot).Path
+    $resolvedOutputRoot = (Resolve-Path -LiteralPath $outputRoot).Path.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
     $resolvedPackage = (Resolve-Path -LiteralPath $packageRoot).Path
-    if (-not $resolvedPackage.StartsWith($resolvedArtifacts, [System.StringComparison]::OrdinalIgnoreCase)) {
-        throw "Refusing to remove a path outside artifacts: $resolvedPackage"
+    if (-not $resolvedPackage.StartsWith($resolvedOutputRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove a path outside build output: $resolvedPackage"
     }
 
     Remove-Item -LiteralPath $packageRoot -Recurse -Force

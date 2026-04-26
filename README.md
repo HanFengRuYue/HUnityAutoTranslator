@@ -20,8 +20,8 @@
 
 打包结果：
 
-- `artifacts\HUnityAutoTranslator\BepInEx\plugins\HUnityAutoTranslator`
-- `artifacts\HUnityAutoTranslator-0.1.0.zip`
+- `build\HUnityAutoTranslator\BepInEx\plugins\HUnityAutoTranslator`
+- `build\HUnityAutoTranslator-0.1.0.zip`
 
 把 `BepInEx\plugins\HUnityAutoTranslator` 复制到游戏目录下同名位置即可。
 
