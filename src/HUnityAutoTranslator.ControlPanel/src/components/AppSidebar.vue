@@ -22,7 +22,7 @@ const emit = defineEmits<{
 }>();
 
 const collapsedStorageKey = "hunity.controlPanel.sidebarCollapsed";
-const collapsedControlSize = 44;
+const collapsedControlSize = 40;
 
 const pages: Array<{ key: PageKey; label: string; icon: typeof Activity }> = [
   { key: "status", label: "运行状态", icon: Activity },
@@ -84,8 +84,8 @@ watch(collapsed, (value) => {
 <template>
   <aside class="sidebar" :class="{ collapsed }" :style="`--collapsed-control-size: ${collapsedControlSize}px`">
     <div class="brand">
-      <strong>HUnityAutoTranslator</strong>
-      <span v-if="!collapsed">本机控制面板</span>
+      <strong>HUnity</strong>
+      <span v-if="!collapsed">控制面板</span>
     </div>
     <button
       class="sidebar-collapse"

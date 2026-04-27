@@ -561,11 +561,11 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
       </SectionPanel>
 
       <SectionPanel title="提示词" :icon="MessageSquareText">
-        <template #actions>
+        <div class="prompt-editor-head">
           <span class="prompt-mode">{{ promptModeText }}</span>
           <button id="restoreDefaultPrompt" class="secondary" type="button" :disabled="promptUsesDefault" @click="restoreDefaultPrompt"><RotateCcw class="button-icon" />{{ restorePromptText }}</button>
-        </template>
-        <label class="field"><span class="field-label"><MessageSquareText class="field-label-icon" />完整提示词</span><textarea id="customPrompt" v-model="form.CustomPrompt" rows="12" spellcheck="false"></textarea></label>
+        </div>
+        <textarea id="customPrompt" class="prompt-editor-field" v-model="form.CustomPrompt" rows="12" spellcheck="false"></textarea>
       </SectionPanel>
     </div>
   </section>

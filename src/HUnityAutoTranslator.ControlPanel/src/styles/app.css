@@ -57,21 +57,21 @@ button:disabled {
 .app-shell {
   min-height: 100vh;
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr);
+  grid-template-columns: 220px minmax(0, 1fr);
   transition: grid-template-columns 0.22s ease;
 }
 .app-shell.sidebar-collapsed {
-  grid-template-columns: 76px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
 }
 .sidebar {
-  --collapsed-control-size: 44px;
+  --collapsed-control-size: 40px;
   position: sticky;
   top: 0;
   height: 100vh;
   display: flex;
   flex-direction: column;
   gap: 16px;
-  padding: 16px;
+  padding: 14px;
   border-right: 1px solid var(--chrome-line);
   background: var(--chrome);
   color: var(--chrome-ink);
@@ -80,8 +80,8 @@ button:disabled {
 }
 .sidebar.collapsed {
   align-items: center;
-  padding-left: 10px;
-  padding-right: 10px;
+  padding-left: 8px;
+  padding-right: 8px;
 }
 .brand {
   display: grid;
@@ -192,9 +192,12 @@ button:disabled {
 .connection {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 8px;
+  width: 100%;
   color: var(--chrome-muted);
   font-size: 12px;
+  text-align: center;
   transition: color 0.16s ease, background 0.16s ease, border-color 0.16s ease;
 }
 .sidebar.collapsed .connection {
@@ -798,6 +801,16 @@ textarea:hover { border-color: var(--line-strong); }
   font-size: 12px;
   font-weight: 700;
 }
+.prompt-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.prompt-editor-field {
+  min-height: 290px;
+}
 .utility-results {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1098,6 +1111,18 @@ th[data-sort-state="descending"] .sort-icon {
   min-height: 32px;
   padding: 5px 8px;
 }
+.glossary-enabled-cell {
+  text-align: center;
+  vertical-align: middle;
+}
+input.compact-check {
+  width: 16px;
+  min-height: 16px;
+  height: 16px;
+  padding: 0;
+  margin: 0;
+  accent-color: var(--accent);
+}
 .cell-editor {
   min-height: 72px;
   padding: 0;
@@ -1145,8 +1170,6 @@ th[data-sort-state="descending"] .sort-icon {
 .context-menu button:hover { background: var(--surface-2); }
 .column-filter-menu {
   position: fixed;
-  top: 96px;
-  right: 24px;
   z-index: 70;
   display: none;
   width: min(320px, calc(100vw - 32px));
@@ -1280,9 +1303,7 @@ th[data-sort-state="descending"] .sort-icon {
   .editor-tools { grid-template-columns: 1fr; }
   .editor-actions { justify-content: flex-start; }
   .column-filter-menu {
-    top: auto;
-    right: 12px;
-    bottom: 12px;
+    width: min(320px, calc(100vw - 24px));
   }
   .metric[data-help]::after {
     left: 12px;

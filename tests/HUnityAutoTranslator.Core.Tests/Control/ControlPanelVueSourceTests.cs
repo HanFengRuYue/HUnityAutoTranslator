@@ -60,7 +60,7 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
-    public void Vue_status_and_settings_surfaces_use_lucide_option_icons()
+    public void Vue_status_and_settings_surfaces_keep_structural_icons_without_plugin_checkbox_icons()
     {
         var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
         var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
@@ -77,7 +77,7 @@ public sealed class ControlPanelVueSourceTests
         statusPageSource.Should().Contain(":icon=\"Activity\"");
         statusPageSource.Should().Contain(":icon=\"Gauge\"");
         pluginPageSource.Should().Contain("from \"lucide-vue-next\"");
-        pluginPageSource.Should().Contain("class=\"option-icon\"");
+        pluginPageSource.Should().NotContain("class=\"option-icon\"");
         aiPageSource.Should().Contain("from \"lucide-vue-next\"");
         aiPageSource.Should().Contain("class=\"option-icon\"");
         glossaryPageSource.Should().Contain("class=\"option-icon\"");
@@ -96,9 +96,15 @@ public sealed class ControlPanelVueSourceTests
         sidebarSource.Should().Contain("localStorage");
         sidebarSource.Should().Contain("nav-icon");
         sidebarSource.Should().Contain(":title=\"page.label\"");
+        sidebarSource.Should().Contain("<strong>HUnity</strong>");
+        sidebarSource.Should().Contain("<span v-if=\"!collapsed\">控制面板</span>");
+        sidebarSource.Should().NotContain("HUnityAutoTranslator</strong>");
+        sidebarSource.Should().NotContain("本机控制面板");
         sidebarSource.Should().NotContain("caption:");
         sidebarSource.Should().NotContain("<small>{{ page.caption }}</small>");
         cssSource.Should().Contain(".app-shell.sidebar-collapsed");
+        cssSource.Should().Contain("grid-template-columns: 220px minmax(0, 1fr);");
+        cssSource.Should().Contain("grid-template-columns: 64px minmax(0, 1fr);");
         cssSource.Should().Contain(".sidebar-collapse");
         cssSource.Should().Contain(".nav-icon");
     }
@@ -109,7 +115,7 @@ public sealed class ControlPanelVueSourceTests
         var sidebarSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "components", "AppSidebar.vue"));
         var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
 
-        sidebarSource.Should().Contain("const collapsedControlSize");
+        sidebarSource.Should().Contain("const collapsedControlSize = 40;");
         sidebarSource.Should().Contain("const themeIcon");
         sidebarSource.Should().Contain("MonitorCog");
         sidebarSource.Should().Contain("Sun");
@@ -117,6 +123,8 @@ public sealed class ControlPanelVueSourceTests
         sidebarSource.Should().Contain("<component v-if=\"collapsed\" :is=\"themeIcon\" class=\"nav-icon\" />");
         cssSource.Should().Contain("--collapsed-control-size");
         cssSource.Should().Contain(".sidebar.collapsed .connection");
+        cssSource.Should().Contain("justify-content: center;");
+        cssSource.Should().Contain("text-align: center;");
         cssSource.Should().Contain(".sidebar.collapsed .sidebar-collapse");
         cssSource.Should().Contain(".sidebar.collapsed .theme-cycle");
     }
@@ -184,8 +192,11 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("function restoreDefaultPrompt");
         aiPageSource.Should().Contain("function normalizePrompt(value: string | null | undefined): string");
         aiPageSource.Should().Contain("promptModeText");
+        aiPageSource.Should().Contain("class=\"prompt-editor-head\"");
+        aiPageSource.Should().Contain("class=\"prompt-editor-field\"");
         aiPageSource.Should().Contain("正在使用内置提示词");
         aiPageSource.Should().Contain("恢复内置提示词");
+        aiPageSource.Should().NotContain("完整提示词");
         aiPageSource.Should().NotContain("customInstruction");
         aiPageSource.Should().NotContain("CustomInstruction");
     }
@@ -317,7 +328,13 @@ public sealed class ControlPanelVueSourceTests
         glossaryPageSource.Should().Contain("async function loadGlossaryTerms()");
         glossaryPageSource.Should().Contain("async function saveGlossaryTerm(");
         glossaryPageSource.Should().Contain("async function deleteGlossaryTerm(");
+        glossaryPageSource.Should().Contain("const showInlineTermEditor");
+        glossaryPageSource.Should().Contain("const glossarySourceTermInput");
+        glossaryPageSource.Should().Contain("function beginAddGlossaryTerm()");
+        glossaryPageSource.Should().Contain("id=\"addGlossaryTerm\"");
         glossaryPageSource.Should().Contain("id=\"glossaryNewRow\"");
+        glossaryPageSource.Should().Contain("v-if=\"showInlineTermEditor\"");
+        glossaryPageSource.Should().Contain("class=\"compact-check\"");
         glossaryPageSource.Should().Contain("id=\"saveGlossaryInlineRow\"");
         glossaryPageSource.Should().NotContain("clearGlossaryForm");
         glossaryPageSource.Should().NotContain("title=\"新增或更新术语\"");
@@ -365,9 +382,16 @@ public sealed class ControlPanelVueSourceTests
         editorPageSource.Should().Contain("/api/translations/highlight");
         editorPageSource.Should().Contain("id=\"columnFilterMenu\"");
         editorPageSource.Should().Contain("async function loadColumnFilterOptions(");
+        editorPageSource.Should().Contain("function positionFilterMenu(");
+        editorPageSource.Should().Contain("function hideColumnFilterMenu()");
         editorPageSource.Should().Contain("function appendColumnFilters(");
         editorPageSource.Should().Contain("/api/translations/filter-options");
         editorPageSource.Should().Contain("data-filter-column");
+        editorPageSource.Should().Contain("filterMenu.x");
+        editorPageSource.Should().Contain("filterMenu.y");
+        editorPageSource.Should().Contain("@click.stop=\"openColumnFilterMenu(column, $event)\"");
+        editorPageSource.Should().Contain("closest(\"#columnFilterMenu\")");
+        editorPageSource.Should().Contain("closest(\".header-filter\")");
         tableSource.Should().Contain("hunity.editor.columnFilters");
     }
 

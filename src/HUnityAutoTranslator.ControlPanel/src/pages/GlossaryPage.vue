@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref, watch } from "vue";
+import { computed, nextTick, onMounted, reactive, ref, watch } from "vue";
 import {
   BookOpenCheck,
   FileText,
   Hash,
   Languages,
+  Plus,
   RefreshCw,
   Save,
   Search,
@@ -22,6 +23,8 @@ const rows = ref<GlossaryTerm[]>([]);
 const totalCount = ref(0);
 const search = ref("");
 const loading = ref(false);
+const showInlineTermEditor = ref(false);
+const glossarySourceTermInput = ref<HTMLInputElement | null>(null);
 
 const settings = reactive({
   EnableGlossary: true,
@@ -109,12 +112,24 @@ function resetInlineTerm(): void {
   inlineTerm.Enabled = true;
 }
 
+function focusInlineTerm(): void {
+  void nextTick(() => glossarySourceTermInput.value?.focus());
+}
+
+function beginAddGlossaryTerm(): void {
+  resetInlineTerm();
+  showInlineTermEditor.value = true;
+  focusInlineTerm();
+}
+
 function editGlossaryTerm(row: GlossaryTerm): void {
   inlineTerm.SourceTerm = row.SourceTerm;
   inlineTerm.TargetTerm = row.TargetTerm;
   inlineTerm.TargetLanguage = row.TargetLanguage;
   inlineTerm.Note = row.Note ?? "";
   inlineTerm.Enabled = row.Enabled;
+  showInlineTermEditor.value = true;
+  focusInlineTerm();
 }
 
 async function saveGlossaryTerm(term?: GlossaryTermRequest): Promise<void> {
@@ -130,6 +145,7 @@ async function saveGlossaryTerm(term?: GlossaryTermRequest): Promise<void> {
   rows.value = page.Items;
   totalCount.value = page.TotalCount;
   resetInlineTerm();
+  showInlineTermEditor.value = false;
   showToast("术语已保存。", "ok");
 }
 
@@ -186,6 +202,10 @@ onMounted(loadGlossaryTerms);
 
       <SectionPanel title="术语条目" :icon="BookOpenCheck">
         <template #actions>
+          <button id="addGlossaryTerm" class="secondary" type="button" @click="beginAddGlossaryTerm">
+            <Plus class="button-icon" />
+            新增术语
+          </button>
           <button id="refreshGlossary" class="secondary" type="button" :disabled="loading" @click="loadGlossaryTerms">
             <RefreshCw class="button-icon" />
             {{ loading ? "刷新中" : "刷新" }}
@@ -212,9 +232,9 @@ onMounted(loadGlossaryTerms);
               </tr>
             </thead>
             <tbody id="glossaryBody">
-              <tr id="glossaryNewRow" class="inline-new-row">
-                <td><input v-model="inlineTerm.Enabled" type="checkbox"></td>
-                <td><input id="glossarySourceTerm" v-model="inlineTerm.SourceTerm" autocomplete="off" placeholder="新增原术语"></td>
+              <tr v-if="showInlineTermEditor" id="glossaryNewRow" class="inline-new-row">
+                <td class="glossary-enabled-cell"><input v-model="inlineTerm.Enabled" class="compact-check" type="checkbox"></td>
+                <td><input id="glossarySourceTerm" ref="glossarySourceTermInput" v-model="inlineTerm.SourceTerm" autocomplete="off" placeholder="新增原术语"></td>
                 <td><input id="glossaryTargetTerm" v-model="inlineTerm.TargetTerm" autocomplete="off" placeholder="指定译名"></td>
                 <td><input id="glossaryTargetLanguage" v-model="inlineTerm.TargetLanguage" autocomplete="off" placeholder="zh-Hans"></td>
                 <td>手动</td>
@@ -228,7 +248,7 @@ onMounted(loadGlossaryTerms);
                 </td>
               </tr>
               <tr v-for="row in rows" :key="`${row.NormalizedSourceTerm}-${row.TargetLanguage}`">
-                <td><input type="checkbox" :checked="row.Enabled" @change="toggleGlossaryTerm(row, ($event.target as HTMLInputElement).checked)"></td>
+                <td class="glossary-enabled-cell"><input class="compact-check" type="checkbox" :checked="row.Enabled" @change="toggleGlossaryTerm(row, ($event.target as HTMLInputElement).checked)"></td>
                 <td>{{ row.SourceTerm }}</td>
                 <td>{{ row.TargetTerm }}</td>
                 <td>{{ row.TargetLanguage }}</td>

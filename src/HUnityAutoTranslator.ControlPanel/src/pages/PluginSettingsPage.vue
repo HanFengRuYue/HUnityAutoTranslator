@@ -1,20 +1,14 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import {
-  Bot,
-  EyeOff,
   FileClock,
   FileText,
-  History,
   Keyboard,
   Maximize2,
-  MousePointerClick,
   Pencil,
-  Play,
   RotateCcw,
   Save,
   ScanLine,
-  ShieldCheck,
   Sparkles,
   Timer,
   Type,
@@ -328,11 +322,11 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
     <div class="form-stack" @input="markDirty" @change="markDirty">
       <SectionPanel title="运行与采集" :icon="ScanLine">
         <div class="checks">
-          <label class="check"><input id="enabled" v-model="form.Enabled" type="checkbox"><Play class="option-icon" />启用翻译</label>
-          <label class="check"><input id="autoOpenControlPanel" v-model="form.AutoOpenControlPanel" type="checkbox"><MousePointerClick class="option-icon" />启动后自动打开面板</label>
-          <label class="check"><input id="enableUgui" v-model="form.EnableUgui" type="checkbox"><FileText class="option-icon" />采集 UGUI</label>
-          <label class="check"><input id="enableTmp" v-model="form.EnableTmp" type="checkbox"><Type class="option-icon" />采集 TextMeshPro</label>
-          <label class="check"><input id="enableImgui" v-model="form.EnableImgui" type="checkbox"><Bot class="option-icon" />采集 IMGUI</label>
+          <label class="check"><input id="enabled" v-model="form.Enabled" type="checkbox">启用翻译</label>
+          <label class="check"><input id="autoOpenControlPanel" v-model="form.AutoOpenControlPanel" type="checkbox">启动后自动打开面板</label>
+          <label class="check"><input id="enableUgui" v-model="form.EnableUgui" type="checkbox">采集 UGUI</label>
+          <label class="check"><input id="enableTmp" v-model="form.EnableTmp" type="checkbox">采集 TextMeshPro</label>
+          <label class="check"><input id="enableImgui" v-model="form.EnableImgui" type="checkbox">采集 IMGUI</label>
         </div>
         <div class="form-grid four">
           <label class="field"><span class="field-label"><Timer class="field-label-icon" />扫描间隔 (毫秒)</span><input id="scanIntervalMilliseconds" v-model.number="form.ScanIntervalMilliseconds" type="number" min="100"></label>
@@ -344,12 +338,12 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
 
       <SectionPanel title="文本策略" :icon="FileText">
         <div class="checks">
-          <label class="check"><input id="ignoreInvisibleText" v-model="form.IgnoreInvisibleText" type="checkbox"><EyeOff class="option-icon" />忽略不可见文本</label>
-          <label class="check"><input id="skipNumericSymbolText" v-model="form.SkipNumericSymbolText" type="checkbox"><ShieldCheck class="option-icon" />跳过数字/符号文本</label>
-          <label class="check"><input id="enableCacheLookup" v-model="form.EnableCacheLookup" type="checkbox"><FileClock class="option-icon" />启用缓存查找</label>
-          <label class="check"><input id="enableTranslationContext" v-model="form.EnableTranslationContext" type="checkbox"><Sparkles class="option-icon" />启用翻译上下文</label>
-          <label class="check"><input id="manualEditsOverrideAi" v-model="form.ManualEditsOverrideAi" type="checkbox"><Pencil class="option-icon" />手动编辑优先</label>
-          <label class="check"><input id="reapplyRememberedTranslations" v-model="form.ReapplyRememberedTranslations" type="checkbox"><History class="option-icon" />重新应用已记住译文</label>
+          <label class="check"><input id="ignoreInvisibleText" v-model="form.IgnoreInvisibleText" type="checkbox">忽略不可见文本</label>
+          <label class="check"><input id="skipNumericSymbolText" v-model="form.SkipNumericSymbolText" type="checkbox">跳过数字/符号文本</label>
+          <label class="check"><input id="enableCacheLookup" v-model="form.EnableCacheLookup" type="checkbox">启用缓存查找</label>
+          <label class="check"><input id="enableTranslationContext" v-model="form.EnableTranslationContext" type="checkbox">启用翻译上下文</label>
+          <label class="check"><input id="manualEditsOverrideAi" v-model="form.ManualEditsOverrideAi" type="checkbox">手动编辑优先</label>
+          <label class="check"><input id="reapplyRememberedTranslations" v-model="form.ReapplyRememberedTranslations" type="checkbox">重新应用已记住译文</label>
         </div>
         <div class="form-grid three">
           <label class="field"><span class="field-label"><Sparkles class="field-label-icon" />上下文示例数</span><input id="translationContextMaxExamples" v-model.number="form.TranslationContextMaxExamples" type="number" min="0"></label>
@@ -369,11 +363,11 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
 
       <SectionPanel title="字体替换" :icon="Type">
         <div class="checks">
-          <label class="check"><input id="enableFontReplacement" v-model="form.EnableFontReplacement" type="checkbox"><Type class="option-icon" />启用字体替换</label>
-          <label class="check"><input id="replaceUguiFonts" v-model="form.ReplaceUguiFonts" type="checkbox"><FileText class="option-icon" />UGUI 替换字体</label>
-          <label class="check"><input id="replaceTmpFonts" v-model="form.ReplaceTmpFonts" type="checkbox"><Sparkles class="option-icon" />TextMeshPro fallback</label>
-          <label class="check"><input id="replaceImguiFonts" v-model="form.ReplaceImguiFonts" type="checkbox"><Bot class="option-icon" />IMGUI 替换字体</label>
-          <label class="check"><input id="autoUseCjkFallbackFonts" v-model="form.AutoUseCjkFallbackFonts" type="checkbox"><ShieldCheck class="option-icon" />自动使用 CJK 字体</label>
+          <label class="check"><input id="enableFontReplacement" v-model="form.EnableFontReplacement" type="checkbox">启用字体替换</label>
+          <label class="check"><input id="replaceUguiFonts" v-model="form.ReplaceUguiFonts" type="checkbox">UGUI 替换字体</label>
+          <label class="check"><input id="replaceTmpFonts" v-model="form.ReplaceTmpFonts" type="checkbox">TextMeshPro fallback</label>
+          <label class="check"><input id="replaceImguiFonts" v-model="form.ReplaceImguiFonts" type="checkbox">IMGUI 替换字体</label>
+          <label class="check"><input id="autoUseCjkFallbackFonts" v-model="form.AutoUseCjkFallbackFonts" type="checkbox">自动使用 CJK 字体</label>
         </div>
         <div class="form-grid two">
           <label class="field">

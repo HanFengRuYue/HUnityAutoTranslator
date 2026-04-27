@@ -78,6 +78,8 @@ const contextMenu = reactive({
 const filterMenu = reactive({
   open: false,
   column: "",
+  x: 0,
+  y: 0,
   optionSearch: "",
   options: [] as TranslationCacheFilterOption[],
   draft: [] as string[]
@@ -519,12 +521,35 @@ async function loadColumnFilterOptions(column: string, optionSearch = ""): Promi
   filterMenu.options = page.Items;
 }
 
-async function openColumnFilterMenu(column: TableColumn): Promise<void> {
+function positionFilterMenu(anchor: HTMLElement): void {
+  const rect = anchor.getBoundingClientRect();
+  const margin = 12;
+  const menuWidth = Math.min(320, window.innerWidth - margin * 2);
+  const menuHeight = Math.min(360, window.innerHeight - margin * 2);
+  const preferredLeft = rect.right - menuWidth;
+  const preferredTop = rect.bottom + 8;
+  const fallbackTop = rect.top - menuHeight - 8;
+
+  filterMenu.x = Math.max(margin, Math.min(preferredLeft, window.innerWidth - menuWidth - margin));
+  filterMenu.y = preferredTop + menuHeight <= window.innerHeight - margin
+    ? Math.max(margin, preferredTop)
+    : Math.max(margin, fallbackTop);
+}
+
+async function openColumnFilterMenu(column: TableColumn, event: MouseEvent): Promise<void> {
+  const anchor = event.currentTarget as HTMLElement | null;
+  if (anchor) {
+    positionFilterMenu(anchor);
+  }
   filterMenu.open = true;
   filterMenu.column = column.sort;
   filterMenu.optionSearch = "";
   filterMenu.draft = [...(columnFilters[column.sort] ?? [])];
   await loadColumnFilterOptions(column.sort);
+}
+
+function hideColumnFilterMenu(): void {
+  filterMenu.open = false;
 }
 
 function toggleFilterValue(value: string, checked: boolean): void {
@@ -541,7 +566,7 @@ function applyColumnFilter(column = filterMenu.column, values = filterMenu.draft
     delete columnFilters[column];
   }
   persistColumnFilters(columnFilters);
-  filterMenu.open = false;
+  hideColumnFilterMenu();
   void loadTranslations();
 }
 
@@ -554,7 +579,7 @@ function clearAllColumnFilters(): void {
     delete columnFilters[key];
   }
   persistColumnFilters(columnFilters);
-  filterMenu.open = false;
+  hideColumnFilterMenu();
   void loadTranslations();
 }
 
@@ -621,8 +646,13 @@ function handleTableKeydown(event: KeyboardEvent): void {
 }
 
 function handleDocumentClick(event: MouseEvent): void {
-  if (!(event.target as HTMLElement | null)?.closest("#tableContextMenu")) {
+  const target = event.target as HTMLElement | null;
+  if (!target?.closest("#tableContextMenu")) {
     hideContextMenu();
+  }
+
+  if (!target?.closest("#columnFilterMenu") && !target?.closest(".header-filter")) {
+    hideColumnFilterMenu();
   }
 }
 
@@ -703,7 +733,7 @@ onBeforeUnmount(() => {
                     <span>{{ column.label }}</span>
                     <component :is="sortIcon(column)" class="sort-icon" aria-hidden="true" />
                   </button>
-                  <button class="header-filter" type="button" aria-label="筛选" :title="`筛选 ${column.label}`" :class="{ 'filter-active': hasColumnFilter(column) }" :data-filter-column="column.sort" @click.stop="openColumnFilterMenu(column)"><Filter class="table-icon" /></button>
+                  <button class="header-filter" type="button" aria-label="筛选" :title="`筛选 ${column.label}`" :class="{ 'filter-active': hasColumnFilter(column) }" :data-filter-column="column.sort" @click.stop="openColumnFilterMenu(column, $event)"><Filter class="table-icon" /></button>
                 </div>
                 <span class="col-resizer" :data-column-key="column.key" @pointerdown.stop.prevent="startColumnResize($event, column)"></span>
               </th>
@@ -755,7 +785,15 @@ onBeforeUnmount(() => {
       <button data-table-action="save" type="button" @click="handleTableAction('save')"><Save class="button-icon" />保存修改</button>
     </div>
 
-    <div class="column-filter-menu" id="columnFilterMenu" :class="{ open: filterMenu.open }" role="dialog" aria-label="列筛选">
+    <div
+      class="column-filter-menu"
+      id="columnFilterMenu"
+      :class="{ open: filterMenu.open }"
+      :style="{ left: `${filterMenu.x}px`, top: `${filterMenu.y}px` }"
+      role="dialog"
+      aria-label="列筛选"
+      @click.stop
+    >
       <input id="columnFilterSearch" v-model="filterMenu.optionSearch" placeholder="搜索筛选值" @input="loadColumnFilterOptions(filterMenu.column, filterMenu.optionSearch)">
       <div class="filter-option-list">
         <label v-for="option in filterMenu.options" :key="filterValueKey(option.Value)" class="filter-option-row">
