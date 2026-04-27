@@ -9,7 +9,7 @@ internal static class SystemBrowserLauncher
     {
         if (string.IsNullOrWhiteSpace(url))
         {
-            logger.LogWarning("Control panel auto-open skipped because the URL is empty.");
+            logger.LogWarning("控制面板地址为空，已跳过自动打开。");
             return;
         }
 
@@ -20,11 +20,11 @@ internal static class SystemBrowserLauncher
                 FileName = url,
                 UseShellExecute = true
             });
-            logger.LogInfo($"Opened control panel in the system default browser: {url}");
+            logger.LogInfo($"已在系统默认浏览器打开控制面板：{url}");
         }
         catch (Exception ex)
         {
-            logger.LogWarning($"Failed to open control panel in the system default browser: {ex.Message}");
+            logger.LogWarning($"无法自动打开控制面板：{ex.Message}");
         }
     }
 }

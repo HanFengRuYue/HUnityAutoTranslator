@@ -128,21 +128,21 @@ public sealed class TranslationWorkerPool
                         }
                         else if (!glossaryValidation.IsValid)
                         {
-                            ReportFailure(batch, $"Translation output rejected by glossary validation: {glossaryValidation.Reason}");
+                            ReportFailure(batch, $"翻译结果未通过术语检查：{glossaryValidation.Reason}");
                         }
                         else
                         {
-                            ReportFailure(batch, $"Translation output rejected after glossary repair: {finalValidation.Reason}");
+                            ReportFailure(batch, $"术语修正后的翻译仍未通过检查：{finalValidation.Reason}");
                         }
                     }
                     else
                     {
-                        ReportFailure(batch, $"Translation output rejected: {validation.Reason}");
+                        ReportFailure(batch, $"翻译结果未通过格式检查：{validation.Reason}");
                     }
                 }
                 else
                 {
-                    ReportFailure(batch, $"Translation provider failed: {response.ErrorMessage ?? "unknown error"}");
+                    ReportFailure(batch, $"翻译服务请求失败：{response.ErrorMessage ?? "未知错误"}");
                 }
             }
             finally
@@ -176,14 +176,14 @@ public sealed class TranslationWorkerPool
             return;
         }
 
-        _failureReporter($"{reason}. Source preview: {BuildSourcePreview(jobs)}");
+        _failureReporter($"{reason}。源文本预览：{BuildSourcePreview(jobs)}");
     }
 
     private static string BuildSourcePreview(IReadOnlyList<TranslationJob> jobs)
     {
         if (jobs.Count == 0)
         {
-            return "<empty>";
+            return "<空>";
         }
 
         var source = jobs[0].SourceText

@@ -60,6 +60,17 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_status_metric_help_tooltips_stack_above_neighboring_cards()
+    {
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+        var hoverBlock = System.Text.RegularExpressions.Regex.Match(cssSource, @"\.metric:hover,\s*\.metric:focus-visible\s*\{[^}]*\}", System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        hoverBlock.Success.Should().BeTrue();
+        hoverBlock.Value.Should().Contain("z-index: 35;");
+        cssSource.Should().Contain(".metric[data-help]::after");
+    }
+
+    [Fact]
     public void Vue_status_and_settings_surfaces_keep_structural_icons_without_plugin_checkbox_icons()
     {
         var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
@@ -72,6 +83,7 @@ public sealed class ControlPanelVueSourceTests
 
         sectionPanelSource.Should().Contain("icon?: Component");
         sectionPanelSource.Should().Contain("class=\"section-icon\"");
+        sectionPanelSource.Should().Contain("class=\"section-actions\"");
         metricCardSource.Should().Contain("icon?: Component");
         metricCardSource.Should().Contain("class=\"metric-icon\"");
         statusPageSource.Should().Contain(":icon=\"Activity\"");
@@ -83,6 +95,7 @@ public sealed class ControlPanelVueSourceTests
         glossaryPageSource.Should().Contain("class=\"option-icon\"");
         cssSource.Should().Contain(".option-icon");
         cssSource.Should().Contain(".field-label-icon");
+        cssSource.Should().Contain(".section-actions");
     }
 
     [Fact]
@@ -358,6 +371,21 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_editor_persists_resized_column_widths()
+    {
+        var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
+        var tableSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "table.ts"));
+
+        tableSource.Should().Contain("hunity.editor.columnWidths");
+        tableSource.Should().Contain("export function loadColumnWidths()");
+        tableSource.Should().Contain("export function saveColumnWidths(");
+        editorPageSource.Should().Contain("loadColumnWidths");
+        editorPageSource.Should().Contain("const columnWidths = reactive<Record<string, number>>(loadColumnWidths());");
+        editorPageSource.Should().Contain("function clampColumnWidth(");
+        editorPageSource.Should().Contain("saveColumnWidths(columnWidths);");
+    }
+
+    [Fact]
     public void Vue_editor_exposes_import_export_filter_and_row_actions()
     {
         var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
@@ -393,6 +421,20 @@ public sealed class ControlPanelVueSourceTests
         editorPageSource.Should().Contain("closest(\"#columnFilterMenu\")");
         editorPageSource.Should().Contain("closest(\".header-filter\")");
         tableSource.Should().Contain("hunity.editor.columnFilters");
+    }
+
+    [Fact]
+    public void Vue_editor_aligns_search_box_and_toolbar_actions()
+    {
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+        var editorToolsBlock = System.Text.RegularExpressions.Regex.Match(cssSource, @"\.editor-tools\s*\{[^}]*\}", System.Text.RegularExpressions.RegexOptions.Singleline);
+        var editorActionsBlock = System.Text.RegularExpressions.Regex.Match(cssSource, @"\.editor-actions\s*\{[^}]*\}", System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        editorToolsBlock.Success.Should().BeTrue();
+        editorToolsBlock.Value.Should().Contain("grid-template-columns: minmax(260px, 1fr) auto;");
+        editorToolsBlock.Value.Should().Contain("align-items: end;");
+        editorActionsBlock.Success.Should().BeTrue();
+        editorActionsBlock.Value.Should().Contain("align-self: end;");
     }
 
     [Fact]

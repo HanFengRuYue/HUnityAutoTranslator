@@ -135,7 +135,7 @@ internal sealed class UnityTextHighlighter
             return;
         }
 
-        _logger.LogWarning($"Highlight target disappeared before it could be drawn: {targetId}");
+        _logger.LogWarning($"定位目标在绘制前已消失：{targetId}");
         _nextMissingLogTime = Time.unscaledTime + 5f;
     }
 

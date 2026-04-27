@@ -86,7 +86,7 @@ internal sealed class UnityTextFontReplacementService
         var fontAsset = ResolveTmpFontAsset(config, key: null, context: null, out var resolved);
         if (fontAsset != null && resolved != null && AddTmpFallback(fontAsset))
         {
-            _logger.LogInfo($"TMP fallback font installed: {resolved.Font.name}.");
+            _logger.LogInfo($"已安装 TMP 后备字体：{resolved.Font.name}。");
         }
     }
 
@@ -465,7 +465,7 @@ internal sealed class UnityTextFontReplacementService
         {
             if (candidate.WarnOnUnityFailure && _warnedUnityFontFailures.Add(cacheKey))
             {
-                _logger.LogWarning($"Font replacement skipped because the font could not be created: {candidate.Value}");
+                _logger.LogWarning($"字体替换已跳过：无法创建字体 {candidate.Value}");
             }
 
             return null;
@@ -717,7 +717,7 @@ internal sealed class UnityTextFontReplacementService
         }
 
         _warnedNoUnityFont = true;
-        _logger.LogWarning("Font replacement is enabled, but no usable CJK fallback font was found.");
+        _logger.LogWarning("已开启字体替换，但没有找到可用的中文后备字体。");
     }
 
     private void WarnTmpUnavailable()
@@ -728,7 +728,7 @@ internal sealed class UnityTextFontReplacementService
         }
 
         _warnedTmpUnavailable = true;
-        _logger.LogWarning("TMP font replacement skipped because TextMeshPro settings or font asset APIs were not available.");
+        _logger.LogWarning("TMP 字体替换已跳过：当前游戏缺少可用的 TextMeshPro 设置或字体接口。");
     }
 
     private void WarnTmpCandidatesFailed(IReadOnlyList<string> attemptedCandidates, string? lastError)
@@ -740,22 +740,23 @@ internal sealed class UnityTextFontReplacementService
         }
 
         _logger.LogWarning(
-            "TMP fallback font asset could not be created from any candidate. " +
-            $"Tried: {string.Join(", ", attemptedCandidates)}. Last error: {lastError ?? "none"}");
+            "无法用候选字体创建 TMP 后备字体。" +
+            $"已尝试：{string.Join(", ", attemptedCandidates)}。最后错误：{lastError ?? "无"}");
     }
 
     private sealed class FontCandidate
     {
         private FontCandidate(string source, string value, bool warnOnUnityFailure, string[] regularFaceNames)
         {
+            var sourceLabel = SourceLabel(source);
             Source = source;
             Value = value;
             WarnOnUnityFailure = warnOnUnityFailure;
             RegularFaceNames = regularFaceNames;
             RegularFaceNamesKey = string.Join("|", regularFaceNames);
             DisplayName = regularFaceNames.Length == 0
-                ? $"{source}:{value}"
-                : $"{source}:{value} regular:{regularFaceNames[0]}";
+                ? $"{sourceLabel}:{value}"
+                : $"{sourceLabel}:{value} 常规字重:{regularFaceNames[0]}";
         }
 
         public string Source { get; }
@@ -779,6 +780,18 @@ internal sealed class UnityTextFontReplacementService
 
             var trimmed = value.Trim();
             return new FontCandidate(source, trimmed, warnOnUnityFailure, ResolveVariableFontRegularFaceNames(trimmed));
+        }
+
+        private static string SourceLabel(string source)
+        {
+            return source switch
+            {
+                "row" => "行内字体",
+                "file" => "字体文件",
+                "name" => "字体名",
+                "auto-file" => "自动字体",
+                _ => source
+            };
         }
     }
 

@@ -38,10 +38,12 @@ import {
   emptyFilterValue,
   loadColumnFilters,
   loadColumnOrder,
+  loadColumnWidths,
   loadVisibleColumns,
   persistColumnFilters,
   rowKey,
   saveColumnOrder,
+  saveColumnWidths,
   saveVisibleColumns,
   type TableColumn
 } from "../utils/table";
@@ -69,7 +71,7 @@ const exportMenuOpen = ref(false);
 const importFile = ref<HTMLInputElement | null>(null);
 const tableMessage = ref("");
 const columnFilters = reactive<Record<string, string[]>>(loadColumnFilters());
-const columnWidths = reactive<Record<string, number>>(Object.fromEntries(defaultColumns.map((column) => [column.key, column.width])));
+const columnWidths = reactive<Record<string, number>>(loadColumnWidths());
 const contextMenu = reactive({
   open: false,
   x: 0,
@@ -211,20 +213,27 @@ function columnWidth(column: TableColumn): number {
   return columnWidths[column.key] ?? column.width;
 }
 
+function clampColumnWidth(width: number): number {
+  return Math.max(72, Math.min(640, width));
+}
+
 function startColumnResize(event: PointerEvent, column: TableColumn): void {
   event.preventDefault();
   event.stopPropagation();
   const startX = event.clientX;
   const startWidth = columnWidth(column);
   const move = (moveEvent: PointerEvent): void => {
-    columnWidths[column.key] = Math.max(72, Math.min(640, startWidth + moveEvent.clientX - startX));
+    columnWidths[column.key] = clampColumnWidth(startWidth + moveEvent.clientX - startX);
   };
-  const up = (): void => {
+  const finish = (): void => {
     document.removeEventListener("pointermove", move);
-    document.removeEventListener("pointerup", up);
+    document.removeEventListener("pointerup", finish);
+    document.removeEventListener("pointercancel", finish);
+    saveColumnWidths(columnWidths);
   };
   document.addEventListener("pointermove", move);
-  document.addEventListener("pointerup", up);
+  document.addEventListener("pointerup", finish);
+  document.addEventListener("pointercancel", finish);
 }
 
 function cellKey(rowIndex: number, columnKey: TableColumn["key"]): string {

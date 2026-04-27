@@ -133,7 +133,7 @@ internal sealed class LlamaCppServerManager : IDisposable
             _process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
             _process.OutputDataReceived += (_, args) => AppendOutput(args.Data);
             _process.ErrorDataReceived += (_, args) => AppendOutput(args.Data);
-            _process.Exited += (_, _) => _logger.LogInfo("llama.cpp server process exited.");
+            _process.Exited += (_, _) => _logger.LogInfo("llama.cpp 服务进程已退出。");
             if (!_process.Start())
             {
                 _process.Dispose();
@@ -157,7 +157,7 @@ internal sealed class LlamaCppServerManager : IDisposable
                 manifest.Release,
                 manifest.Variant,
                 manifest.ServerPath);
-            _logger.LogInfo($"llama.cpp server started on random loopback port {port}.");
+            _logger.LogInfo($"llama.cpp 服务已启动，本机端口：{port}。");
         }
 
         if (await IsReadyAsync(config, cancellationToken).ConfigureAwait(false))
@@ -312,7 +312,7 @@ internal sealed class LlamaCppServerManager : IDisposable
         }
         catch (Exception ex) when (ex is InvalidOperationException or System.ComponentModel.Win32Exception)
         {
-            _logger.LogWarning($"Stopping llama.cpp server failed: {ex.Message}");
+            _logger.LogWarning($"停止 llama.cpp 服务失败：{ex.Message}");
         }
         finally
         {

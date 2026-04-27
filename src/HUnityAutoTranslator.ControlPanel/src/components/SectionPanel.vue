@@ -20,7 +20,9 @@ const headingId = `section-${props.title.replace(/\s+/g, "-").toLowerCase()}`;
         </div>
         <p v-if="description">{{ description }}</p>
       </div>
-      <slot name="actions" />
+      <div v-if="$slots.actions" class="section-actions">
+        <slot name="actions" />
+      </div>
     </div>
     <slot />
   </section>

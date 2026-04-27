@@ -438,8 +438,19 @@ internal sealed class UnityMainThreadResultApplier
         }
 
         _fontSizeAdjustmentLogCount++;
+        var adjustmentDescription = FormatFontSizeAdjustment(config.FontSizeAdjustmentMode, config.FontSizeAdjustmentValue);
         _fontSizeAdjustmentLogger(
-            $"Font size adjusted for {target.ComponentType}: {originalSize:0.##} -> {adjustedSize:0.##} " +
-            $"({config.FontSizeAdjustmentMode} {config.FontSizeAdjustmentValue:0.##}).");
+            $"已调整 {target.ComponentType} 的字号：{originalSize:0.##} -> {adjustedSize:0.##} " +
+            $"（{adjustmentDescription}）。");
+    }
+
+    private static string FormatFontSizeAdjustment(FontSizeAdjustmentMode mode, double value)
+    {
+        return mode switch
+        {
+            FontSizeAdjustmentMode.Percent => $"百分比 {value:0.##}%",
+            FontSizeAdjustmentMode.Points => $"点数 {value:0.##}",
+            _ => $"关闭 {value:0.##}"
+        };
     }
 }

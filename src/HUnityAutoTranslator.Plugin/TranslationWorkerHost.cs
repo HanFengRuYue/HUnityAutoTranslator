@@ -81,7 +81,7 @@ internal sealed class TranslationWorkerHost : IDisposable
                     var resumed = ResumePendingTranslations(config);
                     if (resumed > 0)
                     {
-                        _logger.LogInfo($"Resumed {resumed} pending translation(s) from the persistent cache.");
+                        _logger.LogInfo($"已从缓存恢复 {resumed} 条待翻译文本。");
                     }
                     else
                     {
@@ -106,7 +106,7 @@ internal sealed class TranslationWorkerHost : IDisposable
                 await pool.RunUntilIdleAsync(cancellationToken).ConfigureAwait(false);
                 await TryExtractGlossaryAsync(provider, config, cancellationToken).ConfigureAwait(false);
                 _controlPanel.SetLastError(null);
-                _logger.LogInfo($"Translation worker processed {pendingBefore} queued text item(s). Writeback backlog: {_dispatcher.PendingCount}. Cache entries: {_cache.Count}.");
+                _logger.LogInfo($"本轮已处理 {pendingBefore} 条待翻译文本。待写回：{_dispatcher.PendingCount}，缓存条目：{_cache.Count}。");
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -115,7 +115,7 @@ internal sealed class TranslationWorkerHost : IDisposable
             catch (Exception ex)
             {
                 _controlPanel.SetLastError(ex.Message);
-                _logger.LogWarning($"Translation worker failed: {ex.Message}");
+                _logger.LogWarning($"翻译工作线程出错：{ex.Message}");
                 await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
             }
         }
@@ -227,7 +227,7 @@ internal sealed class TranslationWorkerHost : IDisposable
             cancellationToken).ConfigureAwait(false);
         if (result.ImportedCount > 0)
         {
-            _logger.LogInfo($"Glossary extraction imported {result.ImportedCount} term(s), skipped {result.SkippedCount}.");
+            _logger.LogInfo($"术语自动提取完成：新增 {result.ImportedCount} 条，跳过 {result.SkippedCount} 条。");
         }
     }
 

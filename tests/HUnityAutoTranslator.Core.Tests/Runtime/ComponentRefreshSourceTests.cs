@@ -53,7 +53,7 @@ public sealed class ComponentRefreshSourceTests
         source.Should().Contain("FontSizeAdjustment.Calculate(");
         source.Should().Contain("originalSize,");
         source.Should().Contain("RestoreOriginalFontSize(target)");
-        source.Should().Contain("Font size adjusted for");
+        source.Should().Contain("已调整 {target.ComponentType} 的字号");
         targetSource.Should().Contain("bool TryGetFontSize(out float fontSize)");
         targetSource.Should().Contain("bool TrySetFontSize(float fontSize)");
     }

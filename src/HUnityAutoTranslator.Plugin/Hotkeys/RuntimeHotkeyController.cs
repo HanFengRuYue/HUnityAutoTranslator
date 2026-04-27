@@ -59,15 +59,15 @@ internal sealed class RuntimeHotkeyController
         _useTranslatedText = !_useTranslatedText;
         var changed = _resultApplier.SetTranslatedTextMode(_useTranslatedText, int.MaxValue);
         _logger.LogInfo(_useTranslatedText
-            ? $"Runtime hotkey switched text display to translated text ({changed} target(s) updated)."
-            : $"Runtime hotkey switched text display to source text ({changed} target(s) updated).");
+            ? $"热键已切换为显示翻译文本（已更新 {changed} 个目标）。"
+            : $"热键已切换为显示原文（已更新 {changed} 个目标）。");
     }
 
     private void ForceScanAndUpdate()
     {
         _captureCoordinator.Tick(forceFullScan: true);
         var changed = _resultApplier.ReapplyRemembered(int.MaxValue);
-        _logger.LogInfo($"Runtime hotkey forced a full text scan and refreshed {changed} remembered target(s).");
+        _logger.LogInfo($"热键已执行全量文本扫描，并刷新 {changed} 个已记住的目标。");
     }
 
     private void ToggleFontReplacementMode()
@@ -75,8 +75,8 @@ internal sealed class RuntimeHotkeyController
         _useReplacementFonts = !_useReplacementFonts;
         var changed = _fontReplacement.SetReplacementFontsEnabledForRuntime(_useReplacementFonts);
         _logger.LogInfo(_useReplacementFonts
-            ? $"Runtime hotkey switched text components to replacement fonts ({changed} target(s) updated)."
-            : $"Runtime hotkey restored original text component fonts ({changed} target(s) updated).");
+            ? $"热键已切换为替换字体（已更新 {changed} 个目标）。"
+            : $"热键已恢复原始字体（已更新 {changed} 个目标）。");
     }
 
     private static bool IsPressed(string binding)

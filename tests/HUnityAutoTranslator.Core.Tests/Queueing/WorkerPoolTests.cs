@@ -333,7 +333,10 @@ public sealed class WorkerPoolTests
 
         await pool.RunUntilIdleAsync(CancellationToken.None);
 
-        failures.Should().ContainSingle().Which.Should().Contain("request timed out");
+        var failure = failures.Should().ContainSingle().Which;
+        failure.Should().Contain("翻译服务请求失败");
+        failure.Should().Contain("request timed out");
+        failure.Should().Contain("源文本预览：Disclaimer text");
         var key = TranslationCacheKey.Create("Disclaimer text", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
         cache.TryGet(key, TranslationCacheContext.Empty, out _).Should().BeFalse();
     }

@@ -76,15 +76,15 @@ public sealed class Plugin : BaseUnityPlugin
                 Logger);
             _httpServer.Start(config.HttpHost, config.HttpPort);
             _hotkeys = new RuntimeHotkeyController(_httpServer, _captureCoordinator, _resultApplier, _fontReplacement, Logger);
-            Logger.LogInfo($"{MyPluginInfo.PLUGIN_NAME} loaded. Control panel: {_httpServer.Url}");
+            Logger.LogInfo($"{MyPluginInfo.PLUGIN_NAME} 已加载。控制面板：{_httpServer.Url}");
             OpenControlPanelIfConfigured();
-            Logger.LogInfo($"Persistent settings: {settingsPath}");
-            Logger.LogInfo($"Translation cache: {cachePath} ({_cache.Count} entries)");
-            Logger.LogInfo($"Translation glossary: {glossaryPath} ({_glossary.Count} terms)");
+            Logger.LogInfo($"设置文件：{settingsPath}");
+            Logger.LogInfo($"翻译缓存：{cachePath}（{_cache.Count} 条）");
+            Logger.LogInfo($"术语库：{glossaryPath}（{_glossary.Count} 条）");
         }
         catch (Exception ex)
         {
-            Logger.LogError($"Startup failed, plugin will stay inactive: {ex}");
+            Logger.LogError($"启动失败，插件将保持停用：{ex}");
         }
     }
 
@@ -97,7 +97,7 @@ public sealed class Plugin : BaseUnityPlugin
 
         if (!_controlPanel.GetConfig().AutoOpenControlPanel)
         {
-            Logger.LogInfo("Control panel auto-open is disabled by settings.");
+            Logger.LogInfo("设置中已关闭控制面板自动打开。");
             return;
         }
 
@@ -156,11 +156,11 @@ public sealed class Plugin : BaseUnityPlugin
 
             if (applied > 0)
             {
-                Logger.LogInfo($"Applied {applied} translated text result(s).");
+                Logger.LogInfo($"已写回 {applied} 条翻译文本。");
             }
             else if (results.Count > 0 && Time.unscaledTime >= _nextSkippedWritebackLogTime)
             {
-                Logger.LogWarning($"Skipped {results.Count} translated text result(s) because targets were gone or changed before writeback.");
+                Logger.LogWarning($"跳过 {results.Count} 条翻译写回：目标文本已消失或已变化。");
                 _nextSkippedWritebackLogTime = Time.unscaledTime + 5f;
             }
         }

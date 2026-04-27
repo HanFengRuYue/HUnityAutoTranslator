@@ -101,7 +101,7 @@ internal sealed class LocalHttpServer : IDisposable
             }
             catch (Exception ex)
             {
-                _logger.LogWarning($"HTTP panel listener failed: {ex.Message}");
+                _logger.LogWarning($"控制面板监听出错：{ex.Message}");
             }
         }
     }
@@ -127,7 +127,7 @@ internal sealed class LocalHttpServer : IDisposable
             {
                 var request = await ReadJsonAsync<UpdateConfigRequest>(context.Request).ConfigureAwait(false);
                 _controlPanel.UpdateConfig(request ?? new UpdateConfigRequest());
-                _logger.LogInfo("Control panel config updated.");
+                _logger.LogInfo("控制面板设置已更新。");
                 await WriteStateAsync(context.Response).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/key")
@@ -135,7 +135,7 @@ internal sealed class LocalHttpServer : IDisposable
                 var body = await ReadBodyAsync(context.Request).ConfigureAwait(false);
                 var apiKey = JObject.Parse(string.IsNullOrWhiteSpace(body) ? "{}" : body).Value<string>("ApiKey");
                 _controlPanel.SetApiKey(apiKey ?? string.Empty);
-                _logger.LogInfo(string.IsNullOrWhiteSpace(apiKey) ? "Control panel API key cleared." : "Control panel API key configured.");
+                _logger.LogInfo(string.IsNullOrWhiteSpace(apiKey) ? "已清除 API Key。" : "已保存 API Key。");
                 await WriteStateAsync(context.Response).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/fonts/pick")
@@ -376,7 +376,7 @@ internal sealed class LocalHttpServer : IDisposable
         }
         catch (Exception ex)
         {
-            _logger.LogWarning($"HTTP panel request failed: {ex.Message}");
+            _logger.LogWarning($"控制面板请求处理失败：{ex.Message}");
             context.Response.StatusCode = 500;
             await WriteTextAsync(context.Response, "请求处理失败。").ConfigureAwait(false);
         }

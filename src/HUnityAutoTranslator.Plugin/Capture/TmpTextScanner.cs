@@ -67,11 +67,11 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         _enabled = _textType != null && _textProperty != null;
         if (!_enabled)
         {
-            _logger.LogInfo("TextMeshPro type not found; TMP capture disabled.");
+            _logger.LogInfo("未找到 TextMeshPro 类型，TMP 捕获已关闭。");
             return;
         }
 
-        _logger.LogInfo($"TMP capture enabled with type {_textType!.FullName}.");
+        _logger.LogInfo($"TMP 捕获已启用，类型：{_textType!.FullName}。");
     }
 
     public void Tick(bool forceFullScan = false)
@@ -93,7 +93,7 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         catch (Exception ex)
         {
             _enabled = false;
-            WarnOnce($"TMP scan failed; TMP capture disabled: {ex.Message}");
+            WarnOnce($"TMP 扫描失败，TMP 捕获已关闭：{ex.Message}");
         }
     }
 

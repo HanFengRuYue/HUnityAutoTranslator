@@ -457,6 +457,7 @@ button:disabled {
 }
 .metric:hover,
 .metric:focus-visible {
+  z-index: 35;
   border-color: var(--line-strong);
   background: var(--surface-2);
   transform: translateY(-1px);
@@ -551,6 +552,14 @@ button:disabled {
 .section-head p {
   margin: 4px 0 0;
   color: var(--muted);
+}
+.section-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-left: auto;
 }
 .provider-summary {
   display: grid;
@@ -839,7 +848,7 @@ textarea:hover { border-color: var(--line-strong); }
   display: grid;
   grid-template-columns: minmax(260px, 1fr) auto;
   gap: 10px;
-  align-items: center;
+  align-items: end;
   margin-bottom: 12px;
 }
 .editor-actions,
@@ -850,6 +859,7 @@ textarea:hover { border-color: var(--line-strong); }
   flex-wrap: wrap;
   justify-content: flex-end;
 }
+.editor-actions { align-self: end; }
 .table-actions { justify-content: flex-start; }
 .hidden-file-input {
   position: absolute;

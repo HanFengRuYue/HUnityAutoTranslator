@@ -105,10 +105,87 @@ public sealed class ControlPanelHtmlSourceTests
         serviceSource.Should().Contain("ResolveTmpFontAsset");
         serviceSource.Should().Contain("EnumerateFontCandidates");
         serviceSource.Should().Contain("foreach (var candidate in EnumerateFontCandidates(config, key, context))");
-        serviceSource.Should().Contain("TMP fallback font asset could not be created from any candidate");
+        serviceSource.Should().Contain("无法用候选字体创建 TMP 后备字体");
         serviceSource.Should().Contain("Action<string?, string?> automaticFontFallbackReporter");
         serviceSource.Should().Contain("ReportAutomaticFontFallbacks(config);");
         serviceSource.Should().Contain("ResolveFirstUsableAutomaticFontFile");
+    }
+
+    [Fact]
+    public void Plugin_console_logs_use_simple_chinese_messages()
+    {
+        var logSources = new[]
+        {
+            FindRepositoryFile("src", "HUnityAutoTranslator.Core", "Queueing", "TranslationWorkerPool.cs"),
+            FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Plugin.cs"),
+            FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "TranslationWorkerHost.cs"),
+            FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "LlamaCppServerManager.cs"),
+            FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "SystemBrowserLauncher.cs"),
+            FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"),
+            FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Hotkeys", "RuntimeHotkeyController.cs"),
+            FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs"),
+            FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs"),
+            FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ImguiHookInstaller.cs"),
+            FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"),
+            FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"),
+            FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextHighlighter.cs")
+        };
+        var combinedSource = string.Join("\n", logSources.Select(File.ReadAllText));
+        var oldEnglishLogPhrases = new[]
+        {
+            "Control panel auto-open skipped because the URL is empty.",
+            "Opened control panel in the system default browser",
+            "Failed to open control panel in the system default browser",
+            "HTTP panel listener failed",
+            "Control panel config updated.",
+            "Control panel API key cleared.",
+            "Control panel API key configured.",
+            "HTTP panel request failed",
+            "llama.cpp server process exited.",
+            "llama.cpp server started on random loopback port",
+            "Stopping llama.cpp server failed",
+            "Resumed ",
+            "pending translation(s) from the persistent cache.",
+            "Translation worker processed",
+            "Writeback backlog",
+            "Cache entries",
+            "Translation worker failed",
+            "Glossary extraction imported",
+            "loaded. Control panel",
+            "Persistent settings",
+            "Translation cache",
+            "Translation glossary",
+            "Startup failed, plugin will stay inactive",
+            "Control panel auto-open is disabled by settings.",
+            "translated text result(s).",
+            "targets were gone or changed before writeback.",
+            "Highlight target disappeared before it could be drawn",
+            "UGUI Text type not found; UGUI capture disabled.",
+            "UGUI capture enabled.",
+            "UGUI scan failed and will retry later",
+            "TextMeshPro type not found; TMP capture disabled.",
+            "TMP capture enabled with type",
+            "TMP scan failed; TMP capture disabled",
+            "IMGUI capture enabled.",
+            "IMGUI hook installation failed; IMGUI capture disabled",
+            "Failed to patch",
+            "Runtime hotkey switched text display",
+            "Runtime hotkey forced a full text scan",
+            "Runtime hotkey switched text components",
+            "Runtime hotkey restored original text component fonts",
+            "TMP fallback font installed",
+            "Font replacement skipped because the font could not be created",
+            "Font replacement is enabled, but no usable CJK fallback font was found.",
+            "TMP font replacement skipped because TextMeshPro settings or font asset APIs were not available.",
+            "TMP fallback font asset could not be created from any candidate.",
+            "Font size adjusted for",
+            "Translation output rejected",
+            "Translation provider failed",
+            "Source preview",
+            "unknown error"
+        };
+
+        combinedSource.Should().NotContainAny(oldEnglishLogPhrases);
     }
 
     [Fact]

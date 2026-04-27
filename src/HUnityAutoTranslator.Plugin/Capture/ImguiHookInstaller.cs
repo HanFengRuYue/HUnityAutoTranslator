@@ -55,12 +55,12 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
             PatchStringTextMethods(typeof(UnityEngine.GUI));
             PatchStringTextMethods(typeof(UnityEngine.GUILayout));
             _enabled = true;
-            _logger.LogInfo("IMGUI capture enabled.");
+            _logger.LogInfo("IMGUI 捕获已启用。");
         }
         catch (Exception ex)
         {
             _enabled = false;
-            WarnOnce($"IMGUI hook installation failed; IMGUI capture disabled: {ex.Message}");
+            WarnOnce($"IMGUI 钩子安装失败，IMGUI 捕获已关闭：{ex.Message}");
         }
     }
 
@@ -92,7 +92,7 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
             }
             catch (Exception ex)
             {
-                WarnOnce($"Failed to patch {type.FullName}.{method.Name}: {ex.Message}");
+                WarnOnce($"给 {type.FullName}.{method.Name} 安装钩子失败：{ex.Message}");
             }
         }
     }

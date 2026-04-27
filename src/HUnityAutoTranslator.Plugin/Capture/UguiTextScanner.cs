@@ -52,11 +52,11 @@ internal sealed class UguiTextScanner : ITextCaptureModule
         _enabled = _textType != null && _textProperty != null;
         if (!_enabled)
         {
-            _logger.LogInfo("UGUI Text type not found; UGUI capture disabled.");
+            _logger.LogInfo("未找到 UGUI Text 类型，UGUI 捕获已关闭。");
             return;
         }
 
-        _logger.LogInfo("UGUI capture enabled.");
+        _logger.LogInfo("UGUI 捕获已启用。");
     }
 
     public void Tick(bool forceFullScan = false)
@@ -77,7 +77,7 @@ internal sealed class UguiTextScanner : ITextCaptureModule
         }
         catch (Exception ex)
         {
-            WarnOnce($"UGUI scan failed and will retry later: {ex.Message}");
+            WarnOnce($"UGUI 扫描失败，稍后会重试：{ex.Message}");
         }
     }
 

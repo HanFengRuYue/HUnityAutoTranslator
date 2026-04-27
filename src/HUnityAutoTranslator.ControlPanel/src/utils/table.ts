@@ -12,6 +12,7 @@ export const emptyFilterValue = "__HUNITY_EMPTY__";
 export const visibleColumnStorageKey = "hunity.editor.visibleColumns";
 export const columnOrderStorageKey = "hunity.editor.columnOrder";
 export const columnFilterStorageKey = "hunity.editor.columnFilters";
+export const columnWidthStorageKey = "hunity.editor.columnWidths";
 
 export const defaultColumns: TableColumn[] = [
   { key: "SourceText", label: "原文", sort: "source_text", editable: false, width: 280 },
@@ -37,6 +38,10 @@ function readStringArray(key: string, fallback: string[]): string[] {
   }
 }
 
+function defaultColumnWidths(): Record<string, number> {
+  return Object.fromEntries(defaultColumns.map((column) => [column.key, column.width]));
+}
+
 export function loadVisibleColumns(): string[] {
   return readStringArray(visibleColumnStorageKey, defaultColumns.map((column) => column.key));
 }
@@ -51,6 +56,36 @@ export function loadColumnOrder(): string[] {
 
 export function saveColumnOrder(keys: string[]): void {
   localStorage.setItem(columnOrderStorageKey, JSON.stringify(keys));
+}
+
+export function loadColumnWidths(): Record<string, number> {
+  const fallback = defaultColumnWidths();
+  try {
+    const parsed = JSON.parse(localStorage.getItem(columnWidthStorageKey) ?? "{}");
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return fallback;
+    }
+
+    const knownKeys = new Set<string>(defaultColumns.map((column) => column.key));
+    const widths = { ...fallback };
+    for (const [key, value] of Object.entries(parsed)) {
+      if (knownKeys.has(key) && typeof value === "number" && Number.isFinite(value) && value > 0) {
+        widths[key] = value;
+      }
+    }
+    return widths;
+  } catch {
+    localStorage.removeItem(columnWidthStorageKey);
+    return fallback;
+  }
+}
+
+export function saveColumnWidths(widths: Record<string, number>): void {
+  const knownKeys = new Set<string>(defaultColumns.map((column) => column.key));
+  const clean = Object.fromEntries(
+    Object.entries(widths).filter(([key, value]) => knownKeys.has(key) && Number.isFinite(value) && value > 0)
+  );
+  localStorage.setItem(columnWidthStorageKey, JSON.stringify(clean));
 }
 
 export function loadColumnFilters(): Record<string, string[]> {
