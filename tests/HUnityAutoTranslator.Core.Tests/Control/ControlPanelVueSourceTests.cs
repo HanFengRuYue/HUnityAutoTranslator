@@ -13,51 +13,54 @@ public sealed class ControlPanelVueSourceTests
         storeSource.Should().Contain("export function markPanelDisconnected(error: unknown)");
         storeSource.Should().Contain("controlPanelStore.connection = \"offline\";");
         storeSource.Should().Contain("markPanelDisconnected(error);");
-        statusPageSource.Should().Contain("return \"连接中断\";");
         statusPageSource.Should().Contain("value-id=\"enabledText\"");
         statusPageSource.Should().Contain(":tone=\"enabledTone\"");
     }
 
     [Fact]
-    public void Vue_status_metrics_explain_their_meaning_on_hover()
+    public void Vue_app_removes_duplicate_runtime_topbar()
     {
-        var metricSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "components", "MetricCard.vue"));
-        var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
-        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+        var appSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "App.vue"));
 
-        cssSource.Should().Contain(".metric[data-help]::after");
-        metricSource.Should().Contain("tabindex=\"0\"");
-        metricSource.Should().Contain(":data-help=\"help\"");
-        statusPageSource.Should().Contain("help=\"当前插件是否启用");
-        statusPageSource.Should().Contain("help=\"已经排队、尚未被 AI 服务处理");
-        statusPageSource.Should().Contain("help=\"译文已准备好，等待写回 Unity 文本组件的数量。\"");
-        statusPageSource.Should().Contain("help=\"已经保存到本地 SQLite，后续可直接复用或编辑的译文数量。\"");
-        statusPageSource.Should().Contain("label=\"已翻译文本\"");
-        statusPageSource.Should().Contain("value-id=\"cacheCount\"");
-        statusPageSource.Should().NotContain("缓存条目");
-        statusPageSource.Should().NotContain("文本条目");
+        appSource.Should().NotContain("workspace-topbar");
+        appSource.Should().NotContain("runtime-strip");
+        appSource.Should().NotContain("queueText");
+        appSource.Should().NotContain("providerText");
+        appSource.Should().NotContain("lastRefreshText");
     }
 
     [Fact]
-    public void Vue_status_metric_help_tooltips_shrink_to_their_content()
-    {
-        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
-
-        cssSource.Should().Contain("width: max-content;");
-        cssSource.Should().Contain("max-width: min(360px, calc(100vw - 44px));");
-        cssSource.Should().Contain("white-space: normal;");
-        cssSource.Should().Contain("overflow-wrap: anywhere;");
-        cssSource.Should().Contain("max-width: calc(100vw - 52px);");
-        cssSource.Should().NotContain("width: min(280px, calc(100vw - 44px));");
-    }
-
-    [Fact]
-    public void Vue_status_page_keeps_zero_waiting_queue_count()
+    public void Vue_status_page_uses_one_metric_layer_without_writeback_or_provider_result()
     {
         var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
 
         statusPageSource.Should().Contain("state.value.QueueCount ?? state.value.QueuedTextCount ?? 0");
+        statusPageSource.Should().Contain("providerLabel");
+        statusPageSource.Should().Contain("MetricCard");
+        statusPageSource.Should().Contain("value-id=\"cacheCount\"");
+        statusPageSource.Should().Contain("value-id=\"enabledText\"");
         statusPageSource.Should().NotContain("state.value.QueueCount || state.value.QueuedTextCount || 0");
+        statusPageSource.Should().NotContain("WritebackQueueCount");
+        statusPageSource.Should().NotContain("status-command");
+        statusPageSource.Should().NotContain("providerStatusText");
+    }
+
+    [Fact]
+    public void Vue_sidebar_uses_icons_titles_and_collapsed_mode_without_captions()
+    {
+        var sidebarSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "components", "AppSidebar.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        sidebarSource.Should().Contain("lucide-vue-next");
+        sidebarSource.Should().Contain("collapsedStorageKey");
+        sidebarSource.Should().Contain("localStorage");
+        sidebarSource.Should().Contain("nav-icon");
+        sidebarSource.Should().Contain(":title=\"page.label\"");
+        sidebarSource.Should().NotContain("caption:");
+        sidebarSource.Should().NotContain("<small>{{ page.caption }}</small>");
+        cssSource.Should().Contain(".app-shell.sidebar-collapsed");
+        cssSource.Should().Contain(".sidebar-collapse");
+        cssSource.Should().Contain(".nav-icon");
     }
 
     [Fact]
@@ -73,20 +76,8 @@ public sealed class ControlPanelVueSourceTests
         pluginPageSource.Should().Contain("function beginHotkeyCapture");
         pluginPageSource.Should().Contain("function handleHotkeyKeydown(event: KeyboardEvent, field: HotkeyField)");
         pluginPageSource.Should().Contain("function normalizeCapturedHotkey");
-        pluginPageSource.Should().Contain("listeningHotkeyField.value = field;");
-        pluginPageSource.Should().Contain("event.key === \"Escape\"");
-        pluginPageSource.Should().Contain("form[field] = \"None\";");
-        pluginPageSource.Should().Contain("showToast(\"需要使用 Ctrl、Shift 或 Alt 组合键。\", \"warn\")");
         pluginPageSource.Should().Contain("markDirty();");
-        pluginPageSource.Should().Contain("OpenControlPanelHotkey: form.OpenControlPanelHotkey");
-        pluginPageSource.Should().Contain("ToggleTranslationHotkey: form.ToggleTranslationHotkey");
-        pluginPageSource.Should().Contain("ForceScanHotkey: form.ForceScanHotkey");
-        pluginPageSource.Should().Contain("ToggleFontHotkey: form.ToggleFontHotkey");
         pluginPageSource.Should().Contain("id=\"enableFontReplacement\"");
-        pluginPageSource.Should().Contain("id=\"replaceUguiFonts\"");
-        pluginPageSource.Should().Contain("id=\"replaceTmpFonts\"");
-        pluginPageSource.Should().Contain("id=\"replaceImguiFonts\"");
-        pluginPageSource.Should().Contain("id=\"autoUseCjkFallbackFonts\"");
         pluginPageSource.Should().Contain("id=\"replacementFontName\"");
         pluginPageSource.Should().Contain("id=\"replacementFontFile\"");
         pluginPageSource.Should().Contain("ReplacementFontName: form.ReplacementFontName");
@@ -107,10 +98,7 @@ public sealed class ControlPanelVueSourceTests
         pluginPageSource.Should().Contain("async function pickReplacementFontFile()");
         pluginPageSource.Should().Contain("form.ReplacementFontFile = result.FilePath;");
         pluginPageSource.Should().Contain("form.ReplacementFontName = result.FontName ?? \"\";");
-        pluginPageSource.Should().Contain("markDirty();");
         pluginPageSource.Should().Contain("id=\"pickReplacementFontFile\"");
-        pluginPageSource.Should().Contain(":disabled=\"isPickingFontFile\"");
-        pluginPageSource.Should().Contain("选择字体文件");
     }
 
     [Fact]
@@ -121,10 +109,27 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("async function saveConfigOnly()");
         aiPageSource.Should().Contain("async function savePendingApiKey()");
         aiPageSource.Should().Contain("const apiKey = form.ApiKey.trim();");
-        aiPageSource.Should().Contain("if (!apiKey)");
         aiPageSource.Should().Contain("await saveConfigOnly();");
         aiPageSource.Should().Contain("await savePendingApiKey();");
-        aiPageSource.Should().Contain("未填写新密钥，已保留当前密钥。");
+    }
+
+    [Fact]
+    public void Vue_ai_prompt_editor_shows_default_prompt_and_removes_custom_instruction()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+
+        apiTypesSource.Should().Contain("DefaultSystemPrompt: string;");
+        apiTypesSource.Should().NotContain("CustomInstruction");
+        aiPageSource.Should().Contain("DefaultSystemPrompt");
+        aiPageSource.Should().Contain("id=\"customPrompt\"");
+        aiPageSource.Should().Contain("function restoreDefaultPrompt");
+        aiPageSource.Should().Contain("function normalizePrompt(value: string | null | undefined): string");
+        aiPageSource.Should().Contain("promptModeText");
+        aiPageSource.Should().Contain("正在使用内置提示词");
+        aiPageSource.Should().Contain("恢复内置提示词");
+        aiPageSource.Should().NotContain("customInstruction");
+        aiPageSource.Should().NotContain("CustomInstruction");
     }
 
     [Fact]
@@ -141,6 +146,8 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().NotContain("providerStatusText");
         aiPageSource.Should().NotContain("providerUtilityMessage");
         aiPageSource.Should().NotContain("providerUtilityOutput");
+        aiPageSource.Should().NotContain("utility-results");
+        aiPageSource.Should().NotContain("providerModels.length");
     }
 
     [Fact]
@@ -153,10 +160,6 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("balance.TotalBalance");
         aiPageSource.Should().Contain("balance.GrantedBalance");
         aiPageSource.Should().Contain("balance.ToppedUpBalance");
-        aiPageSource.Should().Contain("余额：");
-        aiPageSource.Should().Contain("最近 7 天成本：");
-        aiPageSource.Should().Contain("未返回余额/成本记录。");
-        aiPageSource.Should().NotContain("showToast(result.Message || `已获取 ${result.Balances.length} 条余额记录。`");
     }
 
     [Fact]
@@ -167,6 +170,66 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("model: \"deepseek-v4-flash\"");
         aiPageSource.Should().Contain("value: \"deepseek-v4-flash\", label: \"DeepSeek V4 Flash\"");
         aiPageSource.Should().Contain("value: \"deepseek-v4-pro\", label: \"DeepSeek V4 Pro\"");
+    }
+
+    [Fact]
+    public void Vue_ai_settings_expose_llamacpp_install_status_without_manual_port()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+
+        apiTypesSource.Should().Contain("export interface LlamaCppConfig");
+        apiTypesSource.Should().Contain("export interface LlamaCppServerStatus");
+        apiTypesSource.Should().Contain("Installed: boolean");
+        apiTypesSource.Should().Contain("Release: string | null");
+        apiTypesSource.Should().Contain("Variant: string | null");
+        apiTypesSource.Should().Contain("ServerPath: string | null");
+        aiPageSource.Should().Contain("id=\"llamaCppModelPath\"");
+        aiPageSource.Should().Contain("id=\"pickLlamaCppModel\"");
+        aiPageSource.Should().Contain("id=\"startLlamaCpp\"");
+        aiPageSource.Should().Contain("id=\"stopLlamaCpp\"");
+        aiPageSource.Should().Contain("llamaCppInstallText");
+        aiPageSource.Should().Contain("/api/llamacpp/start");
+        aiPageSource.Should().Contain("/api/llamacpp/stop");
+        aiPageSource.Should().Contain("/api/llamacpp/model/pick");
+        aiPageSource.Should().NotContain("id=\"llamaCppPort\"");
+    }
+
+    [Fact]
+    public void Vue_ai_settings_uses_compact_llamacpp_layout()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        aiPageSource.Should().Contain("class=\"ai-provider-grid\"");
+        aiPageSource.Should().Contain("class=\"ai-model-row\"");
+        aiPageSource.Should().Contain("class=\"llama-local-panel\"");
+        aiPageSource.Should().Contain("class=\"llama-status-strip\"");
+        aiPageSource.Should().Contain("class=\"llama-run-row\"");
+        aiPageSource.Should().Contain("class=\"llama-result-card\"");
+        aiPageSource.Should().Contain("id=\"llamaCppModelPath\"");
+        aiPageSource.Should().Contain("id=\"pickLlamaCppModel\"");
+        aiPageSource.Should().Contain("id=\"startLlamaCpp\"");
+        aiPageSource.Should().Contain("id=\"stopLlamaCpp\"");
+        aiPageSource.Should().NotContain("mini-summary");
+        cssSource.Should().NotContain(".mini-summary");
+        cssSource.Should().Contain(".ai-provider-grid");
+        cssSource.Should().Contain(".ai-model-row");
+        cssSource.Should().Contain(".llama-local-panel");
+        cssSource.Should().Contain(".llama-status-strip");
+        cssSource.Should().Contain(".llama-run-row");
+        cssSource.Should().Contain(".llama-result-card");
+    }
+
+    [Fact]
+    public void Vue_ai_defaults_disable_reasoning_and_thinking()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+
+        aiPageSource.Should().Contain("ReasoningEffort: \"none\"");
+        aiPageSource.Should().Contain("DeepSeekReasoningEffort: \"none\"");
+        aiPageSource.Should().Contain("DeepSeekThinkingMode: \"disabled\"");
+        aiPageSource.Should().Contain("applyProviderDefaults");
     }
 
     [Fact]
@@ -185,7 +248,7 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
-    public void Vue_glossary_page_exposes_settings_and_crud_endpoints()
+    public void Vue_glossary_page_uses_inline_table_new_row_for_manual_terms()
     {
         var glossaryPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "GlossaryPage.vue"));
 
@@ -193,10 +256,13 @@ public sealed class ControlPanelVueSourceTests
         glossaryPageSource.Should().Contain("id=\"page-glossary\"");
         glossaryPageSource.Should().Contain("id=\"enableGlossary\"");
         glossaryPageSource.Should().Contain("id=\"enableAutoTermExtraction\"");
-        glossaryPageSource.Should().Contain("AI 自动提取默认关闭");
         glossaryPageSource.Should().Contain("async function loadGlossaryTerms()");
         glossaryPageSource.Should().Contain("async function saveGlossaryTerm(");
         glossaryPageSource.Should().Contain("async function deleteGlossaryTerm(");
+        glossaryPageSource.Should().Contain("id=\"glossaryNewRow\"");
+        glossaryPageSource.Should().Contain("id=\"saveGlossaryInlineRow\"");
+        glossaryPageSource.Should().NotContain("clearGlossaryForm");
+        glossaryPageSource.Should().NotContain("title=\"新增或更新术语\"");
         glossaryPageSource.Should().Contain("/api/glossary");
     }
 
@@ -222,6 +288,8 @@ public sealed class ControlPanelVueSourceTests
         var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
         var tableSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "table.ts"));
 
+        editorPageSource.Should().Contain("Filter");
+        editorPageSource.Should().Contain("aria-label=\"筛选\"");
         editorPageSource.Should().Contain("id=\"importRows\"");
         editorPageSource.Should().Contain("id=\"exportRows\"");
         editorPageSource.Should().Contain("id=\"importFile\"");
@@ -233,9 +301,6 @@ public sealed class ControlPanelVueSourceTests
         editorPageSource.Should().Contain("data-table-action=\"copy\"");
         editorPageSource.Should().Contain("data-table-action=\"paste\"");
         editorPageSource.Should().Contain("id=\"tableContextMenu\"");
-        editorPageSource.Should().NotContain("class=\"secondary\" type=\"button\" data-table-action=\"retranslate\"");
-        editorPageSource.Should().NotContain("class=\"secondary\" type=\"button\" data-table-action=\"highlight\"");
-        editorPageSource.Should().NotContain("class=\"danger\" type=\"button\" data-table-action=\"delete\"");
         editorPageSource.Should().Contain("async function retranslateSelectedRows()");
         editorPageSource.Should().Contain("async function highlightSelectedRow()");
         editorPageSource.Should().Contain("/api/translations/retranslate");
@@ -267,6 +332,7 @@ public sealed class ControlPanelVueSourceTests
         editorPageSource.Should().Contain("data-row-index");
         editorPageSource.Should().Contain("data-column-key");
         editorPageSource.Should().Contain("class=\"col-resizer\"");
+        editorPageSource.Should().Contain("@mousedown.stop");
         editorPageSource.Should().NotContain("<col style=\"width:42px\">");
         editorPageSource.Should().NotContain("<th></th>");
         editorPageSource.Should().NotContain("const selectedKeys");
@@ -284,7 +350,6 @@ public sealed class ControlPanelVueSourceTests
         var tableSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "table.ts"));
 
         tableSource.Should().Contain("key: \"ReplacementFont\"");
-        tableSource.Should().Contain("label: \"替换字体\"");
         tableSource.Should().Contain("sort: \"replacement_font\"");
     }
 

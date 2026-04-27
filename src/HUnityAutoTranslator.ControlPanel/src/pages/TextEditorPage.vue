@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { Filter } from "lucide-vue-next";
 import { api, buildQuery, deleteJson, getJson, getText, patchJson, postJson } from "../api/client";
 import SectionPanel from "../components/SectionPanel.vue";
 import { refreshState, showToast } from "../state/controlPanelStore";
@@ -642,7 +643,7 @@ onBeforeUnmount(() => {
               <th v-for="column in visibleColumns" :key="column.key" :data-column-key="column.key">
                 <div class="header-inner">
                   <button class="header-title" type="button" @click="setSort(column)">{{ column.label }}</button>
-                  <button class="header-filter" type="button" :class="{ 'filter-active': columnFilters[column.sort]?.length }" :data-filter-column="column.sort" @click.stop="openColumnFilterMenu(column)">筛</button>
+                  <button class="header-filter" type="button" aria-label="筛选" :title="`筛选 ${column.label}`" :class="{ 'filter-active': columnFilters[column.sort]?.length }" :data-filter-column="column.sort" @click.stop="openColumnFilterMenu(column)"><Filter class="table-icon" /></button>
                 </div>
                 <span class="col-resizer" :data-column-key="column.key" @pointerdown.stop.prevent="startColumnResize($event, column)"></span>
               </th>
@@ -665,6 +666,7 @@ onBeforeUnmount(() => {
                   class="cell-text"
                   :contenteditable="column.editable ? 'true' : undefined"
                   :spellcheck="false"
+                  @mousedown.stop
                   @input="updateCell(rowIndex, column, $event)"
                 >{{ displayCellValue(row, column) }}</div>
               </td>

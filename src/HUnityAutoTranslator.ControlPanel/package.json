@@ -9,6 +9,7 @@
     "verify": "npm run typecheck && npm run build"
   },
   "dependencies": {
+    "lucide-vue-next": "^1.0.0",
     "vue": "latest"
   },
   "devDependencies": {

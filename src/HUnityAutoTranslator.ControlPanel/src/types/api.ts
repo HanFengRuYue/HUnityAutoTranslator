@@ -27,6 +27,32 @@ export interface FontPickResult {
   Message: string;
 }
 
+export interface LlamaCppConfig {
+  ModelPath: string | null;
+  ContextSize: number;
+  GpuLayers: number;
+  ParallelSlots: number;
+}
+
+export interface LlamaCppServerStatus {
+  State: string;
+  Backend: string;
+  ModelPath: string | null;
+  Port: number;
+  Message: string;
+  LastOutput: string | null;
+  Installed: boolean;
+  Release: string | null;
+  Variant: string | null;
+  ServerPath: string | null;
+}
+
+export interface LlamaCppModelPickResult {
+  Status: "selected" | "cancelled" | "unsupported" | "error";
+  FilePath: string | null;
+  Message: string;
+}
+
 export interface RecentTranslationPreview {
   SourceText: string;
   TranslatedText: string;
@@ -75,8 +101,8 @@ export interface ControlPanelState {
   OutputVerbosity: string;
   DeepSeekThinkingMode: string;
   Temperature: number | null;
-  CustomInstruction: string | null;
   CustomPrompt: string | null;
+  DefaultSystemPrompt: string;
   MaxSourceTextLength: number;
   IgnoreInvisibleText: boolean;
   SkipNumericSymbolText: boolean;
@@ -107,6 +133,8 @@ export interface ControlPanelState {
   FontSizeAdjustmentMode: number | string;
   FontSizeAdjustmentValue: number;
   LastError: string | null;
+  LlamaCpp: LlamaCppConfig;
+  LlamaCppStatus: LlamaCppServerStatus;
 }
 
 export interface UpdateConfigRequest {
@@ -134,7 +162,6 @@ export interface UpdateConfigRequest {
   DeepSeekThinkingMode?: string;
   Temperature?: number | null;
   ClearTemperature?: boolean;
-  CustomInstruction?: string | null;
   CustomPrompt?: string | null;
   MaxSourceTextLength?: number;
   IgnoreInvisibleText?: boolean;
@@ -163,6 +190,7 @@ export interface UpdateConfigRequest {
   FontSamplingPointSize?: number;
   FontSizeAdjustmentMode?: number;
   FontSizeAdjustmentValue?: number;
+  LlamaCpp?: LlamaCppConfig;
 }
 
 export interface TranslationCacheEntry {

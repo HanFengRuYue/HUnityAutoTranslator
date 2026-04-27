@@ -19,11 +19,12 @@ const settings = reactive({
   GlossaryMaxCharacters: 1200
 });
 
-const termForm = reactive({
+const inlineTerm = reactive({
   SourceTerm: "",
   TargetTerm: "",
   TargetLanguage: "zh-Hans",
-  Note: ""
+  Note: "",
+  Enabled: true
 });
 
 const settingsDirty = computed(() => controlPanelStore.dirtyForms.has(formKey));
@@ -42,8 +43,8 @@ function applyState(): void {
   settings.EnableAutoTermExtraction = state.EnableAutoTermExtraction;
   settings.GlossaryMaxTerms = state.GlossaryMaxTerms;
   settings.GlossaryMaxCharacters = state.GlossaryMaxCharacters;
-  if (!termForm.TargetLanguage) {
-    termForm.TargetLanguage = state.TargetLanguage || "zh-Hans";
+  if (!inlineTerm.TargetLanguage) {
+    inlineTerm.TargetLanguage = state.TargetLanguage || "zh-Hans";
   }
 }
 
@@ -79,42 +80,45 @@ async function loadGlossaryTerms(): Promise<void> {
   }
 }
 
-function readGlossaryForm(): GlossaryTermRequest {
+function readInlineTerm(): GlossaryTermRequest {
   return {
-    SourceTerm: termForm.SourceTerm.trim(),
-    TargetTerm: termForm.TargetTerm.trim(),
-    TargetLanguage: termForm.TargetLanguage.trim() || controlPanelStore.state?.TargetLanguage || "zh-Hans",
-    Note: termForm.Note.trim() || null,
-    Enabled: true
+    SourceTerm: inlineTerm.SourceTerm.trim(),
+    TargetTerm: inlineTerm.TargetTerm.trim(),
+    TargetLanguage: inlineTerm.TargetLanguage.trim() || controlPanelStore.state?.TargetLanguage || "zh-Hans",
+    Note: inlineTerm.Note.trim() || null,
+    Enabled: inlineTerm.Enabled
   };
 }
 
-function clearGlossaryForm(): void {
-  termForm.SourceTerm = "";
-  termForm.TargetTerm = "";
-  termForm.TargetLanguage = controlPanelStore.state?.TargetLanguage || "zh-Hans";
-  termForm.Note = "";
+function resetInlineTerm(): void {
+  inlineTerm.SourceTerm = "";
+  inlineTerm.TargetTerm = "";
+  inlineTerm.TargetLanguage = controlPanelStore.state?.TargetLanguage || "zh-Hans";
+  inlineTerm.Note = "";
+  inlineTerm.Enabled = true;
 }
 
 function editGlossaryTerm(row: GlossaryTerm): void {
-  termForm.SourceTerm = row.SourceTerm;
-  termForm.TargetTerm = row.TargetTerm;
-  termForm.TargetLanguage = row.TargetLanguage;
-  termForm.Note = row.Note ?? "";
+  inlineTerm.SourceTerm = row.SourceTerm;
+  inlineTerm.TargetTerm = row.TargetTerm;
+  inlineTerm.TargetLanguage = row.TargetLanguage;
+  inlineTerm.Note = row.Note ?? "";
+  inlineTerm.Enabled = row.Enabled;
 }
 
 async function saveGlossaryTerm(term?: GlossaryTermRequest): Promise<void> {
-  const payload = term ?? readGlossaryForm();
+  const payload = term ?? readInlineTerm();
   if (!payload.SourceTerm || !payload.TargetTerm) {
     showToast("请填写原术语和指定译名。", "warn");
     return;
   }
 
-  const request = term ? patchJson<GlossaryTermPage>("/api/glossary", payload) : postJson<GlossaryTermPage>("/api/glossary", payload);
-  const page = await request;
+  const page = term
+    ? await patchJson<GlossaryTermPage>("/api/glossary", payload)
+    : await postJson<GlossaryTermPage>("/api/glossary", payload);
   rows.value = page.Items;
   totalCount.value = page.TotalCount;
-  clearGlossaryForm();
+  resetInlineTerm();
   showToast("术语已保存。", "ok");
 }
 
@@ -130,7 +134,7 @@ async function toggleGlossaryTerm(row: GlossaryTerm, enabled: boolean): Promise<
 }
 
 async function deleteGlossaryTerm(row: GlossaryTerm): Promise<void> {
-  if (!confirm(`删除术语「${row.SourceTerm}」？`)) {
+  if (!confirm(`删除术语“${row.SourceTerm}”？`)) {
     return;
   }
 
@@ -169,19 +173,6 @@ onMounted(loadGlossaryTerms);
         <p class="hint">AI 自动提取默认关闭；手动术语会优先进入提示词约束。</p>
       </SectionPanel>
 
-      <SectionPanel title="新增或更新术语">
-        <div class="form-grid four">
-          <label class="field"><span>原术语</span><input id="glossarySourceTerm" v-model="termForm.SourceTerm" autocomplete="off"></label>
-          <label class="field"><span>指定译名</span><input id="glossaryTargetTerm" v-model="termForm.TargetTerm" autocomplete="off"></label>
-          <label class="field"><span>目标语言</span><input id="glossaryTargetLanguage" v-model="termForm.TargetLanguage" autocomplete="off" placeholder="zh-Hans"></label>
-          <label class="field"><span>备注</span><input id="glossaryNote" v-model="termForm.Note" autocomplete="off"></label>
-        </div>
-        <div class="actions inline-actions">
-          <button id="addGlossaryTerm" type="button" @click="saveGlossaryTerm()">新增/更新术语</button>
-          <button id="clearGlossaryForm" class="secondary" type="button" @click="clearGlossaryForm">清空</button>
-        </div>
-      </SectionPanel>
-
       <SectionPanel title="术语条目">
         <template #actions>
           <button id="refreshGlossary" class="secondary" type="button" :disabled="loading" @click="loadGlossaryTerms">
@@ -206,6 +197,21 @@ onMounted(loadGlossaryTerms);
               </tr>
             </thead>
             <tbody id="glossaryBody">
+              <tr id="glossaryNewRow" class="inline-new-row">
+                <td><input v-model="inlineTerm.Enabled" type="checkbox"></td>
+                <td><input id="glossarySourceTerm" v-model="inlineTerm.SourceTerm" autocomplete="off" placeholder="新增原术语"></td>
+                <td><input id="glossaryTargetTerm" v-model="inlineTerm.TargetTerm" autocomplete="off" placeholder="指定译名"></td>
+                <td><input id="glossaryTargetLanguage" v-model="inlineTerm.TargetLanguage" autocomplete="off" placeholder="zh-Hans"></td>
+                <td>手动</td>
+                <td>0</td>
+                <td>-</td>
+                <td>
+                  <div class="table-actions">
+                    <button id="saveGlossaryInlineRow" type="button" @click="saveGlossaryTerm()">保存</button>
+                    <button class="secondary" type="button" @click="resetInlineTerm">清空</button>
+                  </div>
+                </td>
+              </tr>
               <tr v-for="row in rows" :key="`${row.NormalizedSourceTerm}-${row.TargetLanguage}`">
                 <td><input type="checkbox" :checked="row.Enabled" @change="toggleGlossaryTerm(row, ($event.target as HTMLInputElement).checked)"></td>
                 <td>{{ row.SourceTerm }}</td>

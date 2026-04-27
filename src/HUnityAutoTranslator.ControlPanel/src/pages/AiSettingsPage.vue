@@ -11,9 +11,10 @@ import {
 } from "../state/controlPanelStore";
 import type {
   ControlPanelState,
+  LlamaCppModelPickResult,
+  LlamaCppServerStatus,
   ProviderBalanceInfo,
   ProviderBalanceResult,
-  ProviderModelInfo,
   ProviderModelsResult,
   ProviderTestResult,
   UpdateConfigRequest
@@ -24,12 +25,14 @@ const formKey = "ai";
 const providerNames: Record<number, string> = {
   0: "OpenAI",
   1: "DeepSeek",
+  3: "llama.cpp 本地模型",
   2: "OpenAI 兼容"
 };
 
 const providerDefaults: Record<number, { baseUrl: string; endpoint: string; model: string }> = {
   0: { baseUrl: "https://api.openai.com", endpoint: "/v1/responses", model: "gpt-5.5" },
   1: { baseUrl: "https://api.deepseek.com", endpoint: "/chat/completions", model: "deepseek-v4-flash" },
+  3: { baseUrl: "http://127.0.0.1:0", endpoint: "/v1/chat/completions", model: "local-model" },
   2: { baseUrl: "http://127.0.0.1:8000", endpoint: "/v1/chat/completions", model: "local-model" }
 };
 
@@ -49,6 +52,10 @@ const modelPresets: Record<number, Array<{ value: string; label: string }>> = {
   ],
   2: [
     { value: "local-model", label: "本地/兼容模型" },
+    { value: "custom", label: "手动填写" }
+  ],
+  3: [
+    { value: "local-model", label: "llama.cpp local-model" },
     { value: "custom", label: "手动填写" }
   ]
 };
@@ -73,25 +80,45 @@ const form = reactive({
   MaxConcurrentRequests: 4,
   RequestsPerMinute: 60,
   MaxBatchCharacters: 1800,
-  ReasoningEffort: "low",
-  DeepSeekReasoningEffort: "high",
+  ReasoningEffort: "none",
+  DeepSeekReasoningEffort: "none",
   OutputVerbosity: "low",
-  DeepSeekThinkingMode: "enabled",
+  DeepSeekThinkingMode: "disabled",
   Temperature: "",
-  CustomInstruction: "",
-  CustomPrompt: ""
+  CustomPrompt: "",
+  LlamaCppModelPath: "",
+  LlamaCppContextSize: 4096,
+  LlamaCppGpuLayers: 999,
+  LlamaCppParallelSlots: 1
 });
 
-const providerModels = ref<ProviderModelInfo[]>([]);
-const balances = ref<ProviderBalanceInfo[]>([]);
 const utilityBusy = ref(false);
+const llamaCppBusy = ref(false);
+const llamaCppModelPicking = ref(false);
 const formDirty = computed(() => controlPanelStore.dirtyForms.has(formKey));
 const providerOptions = computed(() => modelPresets[form.ProviderKind] ?? modelPresets[0]);
 const activeProviderName = computed(() => providerNames[form.ProviderKind] ?? "-");
 const activeStyleHint = computed(() => styleHints[form.Style] ?? "");
 const isOpenAi = computed(() => form.ProviderKind === 0);
 const isDeepSeek = computed(() => form.ProviderKind === 1);
+const isLlamaCpp = computed(() => form.ProviderKind === 3);
 const canUseTemperature = computed(() => form.ProviderKind === 1 || form.ProviderKind === 2);
+const defaultSystemPrompt = computed(() => controlPanelStore.state?.DefaultSystemPrompt ?? "");
+const promptUsesDefault = computed(() => normalizePrompt(form.CustomPrompt) === normalizePrompt(defaultSystemPrompt.value));
+const promptModeText = computed(() => promptUsesDefault.value ? "正在使用内置提示词" : "正在使用自定义提示词");
+const restorePromptText = computed(() => promptUsesDefault.value ? "使用内置提示词" : "恢复内置提示词");
+const llamaCppStatus = computed(() => controlPanelStore.state?.LlamaCppStatus);
+const llamaCppStatusText = computed(() => llamaCppStatus.value?.Message ?? "本地模型未启动。");
+const llamaCppInstallText = computed(() => {
+  const status = llamaCppStatus.value;
+  if (!status?.Installed) {
+    return "未检测到插件内 llama.cpp";
+  }
+
+  const release = status.Release ? ` ${status.Release}` : "";
+  const variant = status.Variant || status.Backend || "unknown";
+  return `${variant}${release}`;
+});
 
 function markDirty(): void {
   setDirtyForm(formKey, true);
@@ -102,13 +129,21 @@ function numberValue(value: number | string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizePrompt(value: string | null | undefined): string {
+  return (value ?? "").replace(/\r\n/g, "\n").trim();
+}
+
 function normalizeDeepSeekEffort(value: unknown): string {
   const normalized = String(value ?? "").trim().toLowerCase();
   if (normalized === "max" || normalized === "xhigh") {
     return "max";
   }
 
-  return "high";
+  if (normalized === "high") {
+    return "high";
+  }
+
+  return "none";
 }
 
 function updateModelPresetFromInput(): void {
@@ -131,13 +166,16 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.MaxConcurrentRequests = state.MaxConcurrentRequests;
   form.RequestsPerMinute = state.RequestsPerMinute;
   form.MaxBatchCharacters = state.MaxBatchCharacters;
-  form.ReasoningEffort = state.ReasoningEffort;
+  form.ReasoningEffort = state.ReasoningEffort || "none";
   form.DeepSeekReasoningEffort = normalizeDeepSeekEffort(state.ReasoningEffort);
   form.OutputVerbosity = state.OutputVerbosity;
-  form.DeepSeekThinkingMode = state.DeepSeekThinkingMode;
+  form.DeepSeekThinkingMode = state.DeepSeekThinkingMode || "disabled";
   form.Temperature = state.Temperature === null || state.Temperature === undefined ? "" : String(state.Temperature);
-  form.CustomInstruction = state.CustomInstruction ?? "";
-  form.CustomPrompt = state.CustomPrompt ?? "";
+  form.CustomPrompt = state.CustomPrompt ?? state.DefaultSystemPrompt;
+  form.LlamaCppModelPath = state.LlamaCpp?.ModelPath ?? "";
+  form.LlamaCppContextSize = state.LlamaCpp?.ContextSize ?? 4096;
+  form.LlamaCppGpuLayers = state.LlamaCpp?.GpuLayers ?? 999;
+  form.LlamaCppParallelSlots = state.LlamaCpp?.ParallelSlots ?? 1;
   form.ApiKey = "";
   updateModelPresetFromInput();
   setDirtyForm(formKey, false);
@@ -165,8 +203,13 @@ function readConfig(): UpdateConfigRequest {
     DeepSeekThinkingMode: form.DeepSeekThinkingMode,
     Temperature: temperatureText === "" ? null : Number(temperatureText),
     ClearTemperature: canUseTemperature.value && temperatureText === "",
-    CustomInstruction: form.CustomInstruction,
-    CustomPrompt: form.CustomPrompt
+    CustomPrompt: promptUsesDefault.value ? "" : form.CustomPrompt,
+    LlamaCpp: {
+      ModelPath: form.LlamaCppModelPath.trim() || null,
+      ContextSize: numberValue(form.LlamaCppContextSize),
+      GpuLayers: numberValue(form.LlamaCppGpuLayers),
+      ParallelSlots: numberValue(form.LlamaCppParallelSlots)
+    }
   };
 }
 
@@ -194,6 +237,10 @@ async function savePendingApiKey(): Promise<boolean> {
 
 async function saveAll(): Promise<void> {
   await saveConfigOnly();
+  if (isLlamaCpp.value) {
+    return;
+  }
+
   const keySaved = await savePendingApiKey();
   if (!keySaved && !form.ApiKey.trim()) {
     showToast("未填写新密钥，已保留当前密钥。", "info");
@@ -222,15 +269,20 @@ async function runProviderUtility(label: string, action: () => Promise<void>): P
 async function testProvider(): Promise<void> {
   await runProviderUtility("测试连接", async () => {
     const result = await api<ProviderTestResult>("/api/provider/test", { method: "POST", body: {} });
-    showToast(result.Succeeded ? "连接可用。" : (result.Message || "连接失败。"), result.Succeeded ? "ok" : "error");
+    showToast(result.Message || (result.Succeeded ? "连接可用。" : "连接失败。"), result.Succeeded ? "ok" : "error");
   });
+}
+
+function formatModelsToast(result: ProviderModelsResult): string {
+  const prefix = result.Succeeded ? `已获取 ${result.Models.length} 个模型。` : (result.Message || "获取模型列表失败。");
+  const sample = result.Models.slice(0, 6).map((model) => model.Id).join("、");
+  return sample ? `${prefix}\n${sample}` : prefix;
 }
 
 async function fetchModels(): Promise<void> {
   await runProviderUtility("获取模型列表", async () => {
     const result = await api<ProviderModelsResult>("/api/provider/models");
-    providerModels.value = result.Models;
-    showToast(`已获取 ${result.Models.length} 个模型。${result.Message ? ` ${result.Message}` : ""}`, result.Succeeded ? "ok" : "warn");
+    showToast(formatModelsToast(result), result.Succeeded ? "ok" : "warn", 5600);
   });
 }
 
@@ -267,11 +319,70 @@ function formatBalanceToast(result: ProviderBalanceResult): string {
 }
 
 async function fetchBalance(): Promise<void> {
+  if (isLlamaCpp.value) {
+    showToast("本地模型不适用余额或成本查询。", "info");
+    return;
+  }
+
   await runProviderUtility("查询余额/成本", async () => {
     const result = await api<ProviderBalanceResult>("/api/provider/balance");
-    balances.value = result.Balances;
     showToast(formatBalanceToast(result), result.Succeeded ? "ok" : "warn", 5600);
   });
+}
+
+function updateLocalLlamaStatus(status: LlamaCppServerStatus): void {
+  if (controlPanelStore.state) {
+    controlPanelStore.state.LlamaCppStatus = status;
+    controlPanelStore.state.BaseUrl = status.Port > 0 ? `http://127.0.0.1:${status.Port}` : "http://127.0.0.1:0";
+  }
+}
+
+async function startLlamaCpp(): Promise<void> {
+  llamaCppBusy.value = true;
+  try {
+    await saveConfigOnly();
+    const status = await api<LlamaCppServerStatus>("/api/llamacpp/start", { method: "POST", body: {} });
+    updateLocalLlamaStatus(status);
+    showToast(status.Message, status.State === "error" ? "error" : "ok", 5200);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "启动本地模型失败。", "error");
+  } finally {
+    llamaCppBusy.value = false;
+  }
+}
+
+async function stopLlamaCpp(): Promise<void> {
+  llamaCppBusy.value = true;
+  try {
+    const status = await api<LlamaCppServerStatus>("/api/llamacpp/stop", { method: "POST", body: {} });
+    updateLocalLlamaStatus(status);
+    showToast(status.Message, "ok");
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "停止本地模型失败。", "error");
+  } finally {
+    llamaCppBusy.value = false;
+  }
+}
+
+async function pickLlamaCppModel(): Promise<void> {
+  llamaCppModelPicking.value = true;
+  try {
+    const result = await api<LlamaCppModelPickResult>("/api/llamacpp/model/pick", { method: "POST", body: {} });
+    if (result.Status === "selected" && result.FilePath) {
+      form.LlamaCppModelPath = result.FilePath;
+      markDirty();
+      showToast("已选择 GGUF 模型文件。", "ok");
+      return;
+    }
+
+    if (result.Status !== "cancelled") {
+      showToast(result.Message || "选择模型文件失败。", result.Status === "unsupported" ? "warn" : "error");
+    }
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "选择模型文件失败。", "error");
+  } finally {
+    llamaCppModelPicking.value = false;
+  }
 }
 
 function applyProviderDefaults(): void {
@@ -279,6 +390,9 @@ function applyProviderDefaults(): void {
   form.BaseUrl = defaults.baseUrl;
   form.Endpoint = defaults.endpoint;
   form.Model = defaults.model;
+  form.ReasoningEffort = "none";
+  form.DeepSeekReasoningEffort = "none";
+  form.DeepSeekThinkingMode = "disabled";
   updateModelPresetFromInput();
   markDirty();
 }
@@ -290,6 +404,11 @@ function applyModelPreset(): void {
   }
 }
 
+function restoreDefaultPrompt(): void {
+  form.CustomPrompt = defaultSystemPrompt.value;
+  markDirty();
+}
+
 watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: true });
 </script>
 
@@ -298,7 +417,7 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
     <div class="page-head">
       <div>
         <h1>AI 翻译设置</h1>
-        <p>配置服务商、模型、密钥和 Prompt，操作反馈显示在顶部提示中。</p>
+        <p>配置服务商、模型、密钥和 Prompt，检测结果显示在顶部通知中。</p>
       </div>
       <div class="actions">
         <button class="secondary" type="button" :disabled="!formDirty" @click="applyState(controlPanelStore.state, true)">还原</button>
@@ -308,11 +427,12 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
 
     <div class="form-stack" @input="markDirty" @change="markDirty">
       <SectionPanel title="服务商">
-        <div class="form-grid three">
+        <div class="ai-provider-grid">
           <label class="field"><span>服务商</span>
             <select id="providerKind" v-model.number="form.ProviderKind" @change="applyProviderDefaults">
               <option :value="0">OpenAI Responses</option>
               <option :value="1">DeepSeek</option>
+              <option :value="3">llama.cpp 本地模型</option>
               <option :value="2">OpenAI 兼容</option>
             </select>
           </label>
@@ -327,7 +447,7 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
           </label>
         </div>
         <p class="hint">{{ activeProviderName }} · {{ activeStyleHint }}</p>
-        <div class="form-grid three">
+        <div v-if="!isLlamaCpp" class="ai-endpoint-grid">
           <label class="field"><span>Base URL</span><input id="baseUrl" v-model="form.BaseUrl" autocomplete="off"></label>
           <label class="field"><span>Endpoint</span><input id="endpoint" v-model="form.Endpoint" autocomplete="off"></label>
           <label class="field"><span>模型预设</span>
@@ -336,15 +456,44 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
             </select>
           </label>
         </div>
-        <div class="form-grid two">
+        <div class="ai-model-row" :class="{ 'ai-model-row-local': isLlamaCpp }">
           <label class="field"><span>模型</span><input id="model" v-model="form.Model" autocomplete="off" @input="updateModelPresetFromInput"></label>
-          <label class="field"><span>API Key</span><input id="apiKey" v-model="form.ApiKey" type="password" autocomplete="off" placeholder="留空不会覆盖已保存密钥"></label>
+          <label v-if="!isLlamaCpp" class="field"><span>API Key</span><input id="apiKey" v-model="form.ApiKey" type="password" autocomplete="off" placeholder="留空不会覆盖已保存密钥"></label>
+          <div class="actions inline-actions ai-provider-actions">
+            <button v-if="!isLlamaCpp" id="saveKey" class="secondary" type="button" @click="saveKeyOnly">只保存密钥</button>
+            <button id="testProvider" class="secondary" type="button" :disabled="utilityBusy" @click="testProvider">测试连接</button>
+            <button id="fetchModels" class="secondary" type="button" :disabled="utilityBusy" @click="fetchModels">获取模型列表</button>
+            <button v-if="!isLlamaCpp" id="fetchBalance" class="secondary" type="button" :disabled="utilityBusy" @click="fetchBalance">查询余额/成本</button>
+          </div>
         </div>
-        <div class="actions inline-actions">
-          <button id="saveKey" class="secondary" type="button" @click="saveKeyOnly">只保存密钥</button>
-          <button id="testProvider" class="secondary" type="button" :disabled="utilityBusy" @click="testProvider">测试连接</button>
-          <button id="fetchModels" class="secondary" type="button" :disabled="utilityBusy" @click="fetchModels">获取模型列表</button>
-          <button id="fetchBalance" class="secondary" type="button" :disabled="utilityBusy" @click="fetchBalance">查询余额/成本</button>
+      </SectionPanel>
+
+      <SectionPanel v-if="isLlamaCpp" title="llama.cpp 本地模型">
+        <div class="llama-local-panel">
+          <div class="field">
+            <span>GGUF 模型文件</span>
+            <div class="input-action-row">
+              <input id="llamaCppModelPath" v-model="form.LlamaCppModelPath" autocomplete="off" placeholder="选择 .gguf 模型文件">
+              <button id="pickLlamaCppModel" class="secondary" type="button" :disabled="llamaCppModelPicking" @click="pickLlamaCppModel">
+                {{ llamaCppModelPicking ? "选择中..." : "选择模型" }}
+              </button>
+            </div>
+          </div>
+          <div class="llama-status-strip">
+            <div><span>安装</span><strong>{{ llamaCppInstallText }}</strong></div>
+            <div><span>状态</span><strong>{{ llamaCppStatus?.State ?? "stopped" }}</strong></div>
+            <div><span>端口</span><strong>{{ llamaCppStatus?.Port && llamaCppStatus.Port > 0 ? llamaCppStatus.Port : "随机" }}</strong></div>
+            <div class="llama-result-card"><span>结果</span><strong>{{ llamaCppStatusText }}</strong></div>
+          </div>
+          <div class="llama-run-row">
+            <label class="field"><span>上下文长度</span><input id="llamaCppContextSize" v-model.number="form.LlamaCppContextSize" type="number" min="512"></label>
+            <label class="field"><span>GPU 层数</span><input id="llamaCppGpuLayers" v-model.number="form.LlamaCppGpuLayers" type="number" min="0" max="999"></label>
+            <label class="field"><span>并行槽位</span><input id="llamaCppParallelSlots" v-model.number="form.LlamaCppParallelSlots" type="number" min="1" max="16"></label>
+            <div class="actions inline-actions llama-run-actions">
+              <button id="startLlamaCpp" class="primary" type="button" :disabled="llamaCppBusy" @click="startLlamaCpp">启动本地模型</button>
+              <button id="stopLlamaCpp" class="secondary" type="button" :disabled="llamaCppBusy" @click="stopLlamaCpp">停止本地模型</button>
+            </div>
+          </div>
         </div>
       </SectionPanel>
 
@@ -356,7 +505,7 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
           <label class="field"><span>请求超时 (秒)</span><input id="requestTimeoutSeconds" v-model.number="form.RequestTimeoutSeconds" type="number" min="5" max="180"></label>
           <label v-if="isOpenAi" class="field provider-option" data-providers="0"><span>OpenAI 推理强度</span>
             <select id="reasoningEffort" v-model="form.ReasoningEffort">
-              <option value="none">none</option>
+              <option value="none">关闭</option>
               <option value="low">low</option>
               <option value="medium">medium</option>
               <option value="high">high</option>
@@ -365,6 +514,7 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
           </label>
           <label v-if="isDeepSeek" class="field provider-option" data-providers="1"><span>DeepSeek 推理强度</span>
             <select id="deepSeekReasoningEffort" v-model="form.DeepSeekReasoningEffort">
+              <option value="none">关闭</option>
               <option value="high">high</option>
               <option value="max">max</option>
             </select>
@@ -378,43 +528,20 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
           </label>
           <label v-if="isDeepSeek" class="field provider-option" data-providers="1"><span>DeepSeek Thinking</span>
             <select id="deepSeekThinkingMode" v-model="form.DeepSeekThinkingMode">
-              <option value="enabled">启用</option>
               <option value="disabled">关闭</option>
+              <option value="enabled">启用</option>
             </select>
           </label>
           <label v-if="canUseTemperature" class="field provider-option" data-providers="1,2"><span>Temperature</span><input id="temperature" v-model="form.Temperature" type="number" min="0" max="2" step="0.1"></label>
         </div>
       </SectionPanel>
 
-      <SectionPanel title="Prompt">
-        <label class="field"><span>自定义指令</span><textarea id="customInstruction" v-model="form.CustomInstruction" rows="4" spellcheck="false"></textarea></label>
-        <label class="field"><span>自定义完整提示词</span><textarea id="customPrompt" v-model="form.CustomPrompt" rows="8" spellcheck="false"></textarea></label>
-      </SectionPanel>
-
-      <SectionPanel title="服务商返回">
-        <div class="utility-results">
-          <div>
-            <h3>模型列表</h3>
-            <div v-if="providerModels.length" class="utility-list">
-              <button v-for="model in providerModels" :key="model.Id" type="button" @click="form.Model = model.Id; updateModelPresetFromInput(); markDirty()">
-                <span>{{ model.Id }}</span>
-                <small>{{ model.OwnedBy ?? "未知来源" }}</small>
-              </button>
-            </div>
-            <div v-else class="empty-state compact">尚未获取模型</div>
-          </div>
-          <div>
-            <h3>余额/成本</h3>
-            <div v-if="balances.length" class="utility-list">
-              <div v-for="balance in balances" :key="`${balance.Currency}-${balance.TotalBalance}`" class="utility-row">
-                <span>{{ balance.Currency }}</span>
-                <strong>{{ balance.TotalBalance }}</strong>
-                <small v-if="balance.GrantedBalance">赠送 {{ balance.GrantedBalance }}</small>
-              </div>
-            </div>
-            <div v-else class="empty-state compact">尚未查询余额</div>
-          </div>
-        </div>
+      <SectionPanel title="提示词">
+        <template #actions>
+          <span class="prompt-mode">{{ promptModeText }}</span>
+          <button id="restoreDefaultPrompt" class="secondary" type="button" :disabled="promptUsesDefault" @click="restoreDefaultPrompt">{{ restorePromptText }}</button>
+        </template>
+        <label class="field"><span>完整提示词</span><textarea id="customPrompt" v-model="form.CustomPrompt" rows="12" spellcheck="false"></textarea></label>
       </SectionPanel>
     </div>
   </section>
