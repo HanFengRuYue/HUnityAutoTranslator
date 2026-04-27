@@ -40,9 +40,12 @@ public sealed class OpenAiResponsesProvider : ITranslationProvider
             ["model"] = _profile.Model,
             ["instructions"] = request.SystemPrompt,
             ["input"] = request.UserPrompt,
-            ["reasoning"] = new JObject { ["effort"] = _reasoningEffort },
             ["text"] = new JObject { ["verbosity"] = _outputVerbosity }
         };
+        if (!string.Equals(_reasoningEffort, "none", StringComparison.OrdinalIgnoreCase))
+        {
+            body["reasoning"] = new JObject { ["effort"] = _reasoningEffort };
+        }
 
         using var httpRequest = CreateRequest(body);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

@@ -93,7 +93,6 @@ public sealed class TranslationWorkerPool
                     PromptBuilder.BuildSystemPrompt(new PromptOptions(
                         targetLanguage,
                         _config.Style,
-                        _config.CustomInstruction,
                         _config.CustomPrompt,
                         glossaryTerms.Count > 0)),
                     PromptBuilder.BuildBatchUserPrompt(protectedTexts.Select(text => text.Text).ToArray(), contextExamples, glossaryTerms));
@@ -356,7 +355,6 @@ public sealed class TranslationWorkerPool
                 PromptBuilder.BuildSystemPrompt(new PromptOptions(
                     targetLanguage,
                     _config.Style,
-                    _config.CustomInstruction,
                     _config.CustomPrompt,
                     HasGlossaryTerms: true)),
                 "The previous translation missed required glossary terms.\n" +

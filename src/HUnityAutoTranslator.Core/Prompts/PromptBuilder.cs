@@ -19,10 +19,6 @@ public static class PromptBuilder
                 : customPrompt;
         }
 
-        var custom = string.IsNullOrWhiteSpace(options.CustomInstruction)
-            ? string.Empty
-            : "\nAdditional style requirement: " + options.CustomInstruction.Trim();
-
         var glossary = options.HasGlossaryTerms ? "\n" + BuildGlossarySystemPolicy() : string.Empty;
         return $"""
 You are a game localization translation engine.
@@ -32,13 +28,13 @@ Output only the translated text. Do not explain, greet, add quotes, add Markdown
 Do not add indexes, item numbers, source labels, list markers, or any copied batch labels to the translation.
 Preserve placeholders, control characters, line breaks, Unity rich text tags, and TextMeshPro tags exactly.
 Use natural game localization. Keep menu and button text short; keep dialogue consistent with character voice.
-{style}{custom}{glossary}
+{style}{glossary}
 """;
     }
 
-    public static string BuildDefaultSystemPrompt(string targetLanguage, TranslationStyle style, string? customInstruction = null)
+    public static string BuildDefaultSystemPrompt(string targetLanguage, TranslationStyle style)
     {
-        return BuildSystemPrompt(new PromptOptions(targetLanguage, style, customInstruction));
+        return BuildSystemPrompt(new PromptOptions(targetLanguage, style));
     }
 
     public static string BuildSingleUserPrompt(string protectedText)

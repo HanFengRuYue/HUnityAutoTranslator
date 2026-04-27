@@ -62,6 +62,27 @@ public sealed class RuntimeConfigTests
     }
 
     [Fact]
+    public void DefaultConfig_includes_manual_llamacpp_settings()
+    {
+        var config = RuntimeConfig.CreateDefault();
+
+        config.LlamaCpp.ModelPath.Should().BeNull();
+        config.LlamaCpp.ContextSize.Should().Be(4096);
+        config.LlamaCpp.GpuLayers.Should().Be(999);
+        config.LlamaCpp.ParallelSlots.Should().Be(1);
+    }
+
+    [Fact]
+    public void DefaultConfig_disables_provider_reasoning_and_thinking()
+    {
+        var config = RuntimeConfig.CreateDefault();
+
+        config.ReasoningEffort.Should().Be("none");
+        config.OutputVerbosity.Should().Be("low");
+        config.DeepSeekThinkingMode.Should().Be("disabled");
+    }
+
+    [Fact]
     public void DefaultDeepSeek_profile_uses_current_official_flash_model()
     {
         var profile = ProviderProfile.DefaultDeepSeek();

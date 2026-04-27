@@ -190,6 +190,103 @@ public sealed class ControlPanelServiceTests
     }
 
     [Fact]
+    public void UpdateConfig_changes_to_llamacpp_without_requiring_api_key()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        service.UpdateConfig(new UpdateConfigRequest(
+            ProviderKind: ProviderKind.LlamaCpp,
+            Model: "qwen-game-ui",
+            LlamaCpp: new LlamaCppConfig(
+                ModelPath: @"D:\Models\game-ui.gguf",
+                ContextSize: 8192,
+                GpuLayers: 80,
+                ParallelSlots: 2)));
+
+        var state = service.GetState();
+        var config = service.GetConfig();
+
+        state.ProviderKind.Should().Be(ProviderKind.LlamaCpp);
+        state.ApiKeyConfigured.Should().BeTrue();
+        state.BaseUrl.Should().Be("http://127.0.0.1:0");
+        state.Endpoint.Should().Be("/v1/chat/completions");
+        state.Model.Should().Be("qwen-game-ui");
+        state.LlamaCpp.ModelPath.Should().Be(@"D:\Models\game-ui.gguf");
+        state.LlamaCpp.ContextSize.Should().Be(8192);
+        state.LlamaCpp.GpuLayers.Should().Be(80);
+        state.LlamaCpp.ParallelSlots.Should().Be(2);
+        state.LlamaCppStatus.State.Should().Be("stopped");
+        state.LlamaCppStatus.Port.Should().Be(0);
+        state.LlamaCppStatus.Installed.Should().BeFalse();
+        config.Provider.ApiKeyConfigured.Should().BeTrue();
+    }
+
+    [Fact]
+    public void UpdateConfig_clamps_llamacpp_settings_to_safe_ranges()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        service.UpdateConfig(new UpdateConfigRequest(
+            ProviderKind: ProviderKind.LlamaCpp,
+            LlamaCpp: new LlamaCppConfig(
+                ModelPath: "  ",
+                ContextSize: 64,
+                GpuLayers: -4,
+                ParallelSlots: 99)));
+
+        var state = service.GetState();
+
+        state.LlamaCpp.ModelPath.Should().BeNull();
+        state.LlamaCpp.ContextSize.Should().Be(512);
+        state.LlamaCpp.GpuLayers.Should().Be(0);
+        state.LlamaCpp.ParallelSlots.Should().Be(16);
+    }
+
+    [Fact]
+    public void SetLlamaCppStatus_reports_runtime_port_without_persisting_it_to_config()
+    {
+        var service = ControlPanelService.CreateDefault();
+        service.UpdateConfig(new UpdateConfigRequest(ProviderKind: ProviderKind.LlamaCpp));
+
+        service.SetLlamaCppStatus(LlamaCppServerStatus.Running(
+            service.GetConfig().LlamaCpp,
+            backend: "Vulkan",
+            port: 51234,
+            release: "b8943",
+            variant: "Vulkan",
+            serverPath: @"D:\Game\BepInEx\plugins\HUnityAutoTranslator\llama.cpp\llama-server.exe"));
+
+        var state = service.GetState();
+
+        state.LlamaCppStatus.Port.Should().Be(51234);
+        state.LlamaCppStatus.Installed.Should().BeTrue();
+        state.LlamaCppStatus.Release.Should().Be("b8943");
+        state.LlamaCppStatus.Variant.Should().Be("Vulkan");
+        service.GetConfig().Provider.BaseUrl.Should().Be("http://127.0.0.1:51234");
+    }
+
+    [Fact]
+    public void CreateDefault_does_not_persist_llamacpp_runtime_port()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
+        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        first.UpdateConfig(new UpdateConfigRequest(ProviderKind: ProviderKind.LlamaCpp));
+        first.SetLlamaCppStatus(LlamaCppServerStatus.Running(
+            first.GetConfig().LlamaCpp,
+            backend: "Vulkan",
+            port: 51234,
+            release: "b8943",
+            variant: "Vulkan",
+            serverPath: @"D:\Game\BepInEx\plugins\HUnityAutoTranslator\llama.cpp\llama-server.exe"));
+
+        first.UpdateConfig(new UpdateConfigRequest(Model: "qwen-game-ui"));
+        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+
+        second.GetState().LlamaCppStatus.Port.Should().Be(0);
+        second.GetConfig().Provider.BaseUrl.Should().Be("http://127.0.0.1:0");
+    }
+
+    [Fact]
     public void CreateDefault_loads_saved_config_and_api_key_from_json_store()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
@@ -288,7 +385,6 @@ public sealed class ControlPanelServiceTests
             OutputVerbosity: "low",
             DeepSeekThinkingMode: "disabled",
             Temperature: 0.2,
-            CustomInstruction: "Keep terminology consistent",
             CustomPrompt: "Translate into {TargetLanguage}.",
             MaxSourceTextLength: 800,
             IgnoreInvisibleText: true,
@@ -309,8 +405,9 @@ public sealed class ControlPanelServiceTests
         state.OutputVerbosity.Should().Be("low");
         state.DeepSeekThinkingMode.Should().Be("disabled");
         state.Temperature.Should().Be(0.2);
-        state.CustomInstruction.Should().Be("Keep terminology consistent");
         state.CustomPrompt.Should().Be("Translate into {TargetLanguage}.");
+        state.DefaultSystemPrompt.Should().Contain("Target language: Traditional Chinese.");
+        state.DefaultSystemPrompt.Should().Contain("Style: Natural localization is allowed");
         state.MaxSourceTextLength.Should().Be(800);
         state.IgnoreInvisibleText.Should().BeTrue();
         state.SkipNumericSymbolText.Should().BeTrue();
@@ -335,6 +432,25 @@ public sealed class ControlPanelServiceTests
 
         service.GetState().Temperature.Should().BeNull();
         service.GetConfig().Temperature.Should().BeNull();
+    }
+
+    [Fact]
+    public void UpdateConfig_can_clear_custom_prompt_and_restore_default_prompt_preview()
+    {
+        var service = ControlPanelService.CreateDefault();
+        var defaultPrompt = service.GetState().DefaultSystemPrompt;
+
+        service.UpdateConfig(new UpdateConfigRequest(CustomPrompt: "Output {TargetLanguage}."));
+        var customized = service.GetState();
+
+        customized.CustomPrompt.Should().Be("Output {TargetLanguage}.");
+        customized.DefaultSystemPrompt.Should().Be(defaultPrompt);
+
+        service.UpdateConfig(new UpdateConfigRequest(CustomPrompt: string.Empty));
+        var restored = service.GetState();
+
+        restored.CustomPrompt.Should().BeNull();
+        restored.DefaultSystemPrompt.Should().Be(defaultPrompt);
     }
 
     [Fact]

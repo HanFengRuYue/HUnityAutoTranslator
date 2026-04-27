@@ -4,5 +4,6 @@ public enum ProviderKind
 {
     OpenAI,
     DeepSeek,
-    OpenAICompatible
+    OpenAICompatible,
+    LlamaCpp
 }

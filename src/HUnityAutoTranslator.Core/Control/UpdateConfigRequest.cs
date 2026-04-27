@@ -28,7 +28,6 @@ public sealed record UpdateConfigRequest(
     string? DeepSeekThinkingMode = null,
     double? Temperature = null,
     bool? ClearTemperature = null,
-    string? CustomInstruction = null,
     string? CustomPrompt = null,
     int? MaxSourceTextLength = null,
     bool? IgnoreInvisibleText = null,
@@ -56,4 +55,5 @@ public sealed record UpdateConfigRequest(
     string? ReplacementFontFile = null,
     int? FontSamplingPointSize = null,
     FontSizeAdjustmentMode? FontSizeAdjustmentMode = null,
-    double? FontSizeAdjustmentValue = null);
+    double? FontSizeAdjustmentValue = null,
+    LlamaCppConfig? LlamaCpp = null);

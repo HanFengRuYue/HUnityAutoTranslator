@@ -10,7 +10,7 @@ public sealed class PromptPolicyTests
     [Fact]
     public void BuildSystemPrompt_contains_hard_rules_and_style()
     {
-        var prompt = PromptBuilder.BuildSystemPrompt(new PromptOptions("zh-Hans", TranslationStyle.Localized, "Keep character voice"));
+        var prompt = PromptBuilder.BuildSystemPrompt(new PromptOptions("zh-Hans", TranslationStyle.Localized));
 
         prompt.Should().Contain("You are a game localization translation engine.");
         prompt.Should().Contain("Target language: Simplified Chinese.");
@@ -18,7 +18,6 @@ public sealed class PromptPolicyTests
         prompt.Should().Contain("Output only the translated text.");
         prompt.Should().Contain("Do not add indexes");
         prompt.Should().Contain("Style: Natural localization is allowed");
-        prompt.Should().Contain("Additional style requirement: Keep character voice");
         prompt.Should().NotContain("zh-Hans");
         prompt.Should().NotContain("目标语言");
     }
@@ -29,7 +28,6 @@ public sealed class PromptPolicyTests
         var prompt = PromptBuilder.BuildSystemPrompt(new PromptOptions(
             TargetLanguage: "ja",
             Style: TranslationStyle.UiConcise,
-            CustomInstruction: null,
             CustomPrompt: "Output {TargetLanguage}. Style={StyleInstruction}"));
 
         prompt.Should().Be("Output Japanese. Style=Style: Keep UI, menu, and button text short and clear.");
@@ -41,7 +39,6 @@ public sealed class PromptPolicyTests
         var prompt = PromptBuilder.BuildSystemPrompt(new PromptOptions(
             TargetLanguage: "ja",
             Style: TranslationStyle.UiConcise,
-            CustomInstruction: null,
             CustomPrompt: "Output {TargetLanguage}.",
             HasGlossaryTerms: true));
 

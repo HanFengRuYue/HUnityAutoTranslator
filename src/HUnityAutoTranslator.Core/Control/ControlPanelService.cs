@@ -1,4 +1,5 @@
 using HUnityAutoTranslator.Core.Configuration;
+using HUnityAutoTranslator.Core.Prompts;
 
 namespace HUnityAutoTranslator.Core.Control;
 
@@ -13,6 +14,7 @@ public sealed class ControlPanelService
     private string? _lastError;
     private string? _automaticReplacementFontName;
     private string? _automaticReplacementFontFile;
+    private LlamaCppServerStatus _llamaCppStatus;
     private ProviderStatus _providerStatus = new("unchecked", "尚未检测", null);
 
     private ControlPanelService(RuntimeConfig config, IControlPanelSettingsStore? settingsStore, ControlPanelMetrics metrics)
@@ -20,6 +22,7 @@ public sealed class ControlPanelService
         _config = config;
         _settingsStore = settingsStore;
         _metrics = metrics;
+        _llamaCppStatus = LlamaCppServerStatus.Stopped(config.LlamaCpp);
     }
 
     public static ControlPanelService CreateDefault(ControlPanelMetrics? metrics = null)
@@ -43,21 +46,22 @@ public sealed class ControlPanelService
         lock (_gate)
         {
             var metrics = _metrics.Snapshot();
+            var config = BuildEffectiveConfig(_config);
             return new ControlPanelState(
-                _config.Enabled,
-                _config.TargetLanguage,
-                _config.Style,
-                _config.Provider.Kind,
-                _config.Provider.BaseUrl,
-                _config.Provider.Endpoint,
-                _config.Provider.Model,
-                _apiKeyConfigured,
+                config.Enabled,
+                config.TargetLanguage,
+                config.Style,
+                config.Provider.Kind,
+                config.Provider.BaseUrl,
+                config.Provider.Endpoint,
+                config.Provider.Model,
+                config.Provider.ApiKeyConfigured,
                 ApiKeyPreview: null,
-                AutoOpenControlPanel: _config.AutoOpenControlPanel,
-                OpenControlPanelHotkey: _config.OpenControlPanelHotkey,
-                ToggleTranslationHotkey: _config.ToggleTranslationHotkey,
-                ForceScanHotkey: _config.ForceScanHotkey,
-                ToggleFontHotkey: _config.ToggleFontHotkey,
+                AutoOpenControlPanel: config.AutoOpenControlPanel,
+                OpenControlPanelHotkey: config.OpenControlPanelHotkey,
+                ToggleTranslationHotkey: config.ToggleTranslationHotkey,
+                ForceScanHotkey: config.ForceScanHotkey,
+                ToggleFontHotkey: config.ToggleFontHotkey,
                 QueueCount: queueCount,
                 CacheCount: cacheCount,
                 CapturedTextCount: metrics.CapturedTextCount,
@@ -70,49 +74,51 @@ public sealed class ControlPanelService
                 WritebackQueueCount: writebackQueueCount,
                 ProviderStatus: _providerStatus,
                 RecentTranslations: metrics.RecentTranslations,
-                _config.MaxConcurrentRequests,
-                _config.RequestsPerMinute,
-                _config.MaxBatchCharacters,
-                (int)_config.ScanInterval.TotalMilliseconds,
-                _config.MaxScanTargetsPerTick,
-                _config.MaxWritebacksPerFrame,
-                _config.RequestTimeoutSeconds,
-                _config.ReasoningEffort,
-                _config.OutputVerbosity,
-                _config.DeepSeekThinkingMode,
-                _config.Temperature,
-                _config.CustomInstruction,
-                _config.CustomPrompt,
-                _config.MaxSourceTextLength,
-                _config.IgnoreInvisibleText,
-                _config.SkipNumericSymbolText,
-                _config.EnableCacheLookup,
-                _config.EnableTranslationContext,
-                _config.TranslationContextMaxExamples,
-                _config.TranslationContextMaxCharacters,
-                _config.EnableGlossary,
-                _config.EnableAutoTermExtraction,
-                _config.GlossaryMaxTerms,
-                _config.GlossaryMaxCharacters,
-                _config.ManualEditsOverrideAi,
-                _config.ReapplyRememberedTranslations,
-                _config.CacheRetentionDays,
-                _config.EnableUgui,
-                _config.EnableTmp,
-                _config.EnableImgui,
-                _config.EnableFontReplacement,
-                _config.ReplaceUguiFonts,
-                _config.ReplaceTmpFonts,
-                _config.ReplaceImguiFonts,
-                _config.AutoUseCjkFallbackFonts,
-                _config.ReplacementFontName,
-                _config.ReplacementFontFile,
+                config.MaxConcurrentRequests,
+                config.RequestsPerMinute,
+                config.MaxBatchCharacters,
+                (int)config.ScanInterval.TotalMilliseconds,
+                config.MaxScanTargetsPerTick,
+                config.MaxWritebacksPerFrame,
+                config.RequestTimeoutSeconds,
+                config.ReasoningEffort,
+                config.OutputVerbosity,
+                config.DeepSeekThinkingMode,
+                config.Temperature,
+                config.CustomPrompt,
+                PromptBuilder.BuildDefaultSystemPrompt(config.TargetLanguage, config.Style),
+                config.MaxSourceTextLength,
+                config.IgnoreInvisibleText,
+                config.SkipNumericSymbolText,
+                config.EnableCacheLookup,
+                config.EnableTranslationContext,
+                config.TranslationContextMaxExamples,
+                config.TranslationContextMaxCharacters,
+                config.EnableGlossary,
+                config.EnableAutoTermExtraction,
+                config.GlossaryMaxTerms,
+                config.GlossaryMaxCharacters,
+                config.ManualEditsOverrideAi,
+                config.ReapplyRememberedTranslations,
+                config.CacheRetentionDays,
+                config.EnableUgui,
+                config.EnableTmp,
+                config.EnableImgui,
+                config.EnableFontReplacement,
+                config.ReplaceUguiFonts,
+                config.ReplaceTmpFonts,
+                config.ReplaceImguiFonts,
+                config.AutoUseCjkFallbackFonts,
+                config.ReplacementFontName,
+                config.ReplacementFontFile,
                 _automaticReplacementFontName,
                 _automaticReplacementFontFile,
-                _config.FontSamplingPointSize,
-                _config.FontSizeAdjustmentMode,
-                _config.FontSizeAdjustmentValue,
-                _lastError);
+                config.FontSamplingPointSize,
+                config.FontSizeAdjustmentMode,
+                config.FontSizeAdjustmentValue,
+                _lastError,
+                config.LlamaCpp,
+                NormalizeLlamaCppStatusForConfig());
         }
     }
 
@@ -120,7 +126,7 @@ public sealed class ControlPanelService
     {
         lock (_gate)
         {
-            return _config;
+            return BuildEffectiveConfig(_config);
         }
     }
 
@@ -163,6 +169,14 @@ public sealed class ControlPanelService
         lock (_gate)
         {
             _providerStatus = providerStatus;
+        }
+    }
+
+    public void SetLlamaCppStatus(LlamaCppServerStatus status)
+    {
+        lock (_gate)
+        {
+            _llamaCppStatus = status;
         }
     }
 
@@ -344,7 +358,8 @@ public sealed class ControlPanelService
 
     private void ApplyConfig(UpdateConfigRequest request)
     {
-        var provider = BuildProviderProfile(request);
+        var llamaCpp = BuildLlamaCppConfig(request.LlamaCpp);
+        var provider = BuildProviderProfile(request, llamaCpp);
         var targetLanguage = string.IsNullOrWhiteSpace(request.TargetLanguage)
             ? _config.TargetLanguage
             : request.TargetLanguage.Trim();
@@ -398,9 +413,6 @@ public sealed class ControlPanelService
             : request.Temperature.HasValue
                 ? Clamp(request.Temperature.Value, 0.0, 2.0)
                 : _config.Temperature;
-        var customInstruction = request.CustomInstruction == null
-            ? _config.CustomInstruction
-            : (string.IsNullOrWhiteSpace(request.CustomInstruction) ? null : request.CustomInstruction.Trim());
         var customPrompt = request.CustomPrompt == null
             ? _config.CustomPrompt
             : (string.IsNullOrWhiteSpace(request.CustomPrompt) ? null : request.CustomPrompt.Trim());
@@ -427,7 +439,6 @@ public sealed class ControlPanelService
             OutputVerbosity = SelectKnown(request.OutputVerbosity, _config.OutputVerbosity, "low", "medium", "high"),
             DeepSeekThinkingMode = SelectKnown(request.DeepSeekThinkingMode, _config.DeepSeekThinkingMode, "enabled", "disabled"),
             Temperature = temperature,
-            CustomInstruction = customInstruction,
             CustomPrompt = customPrompt,
             MaxSourceTextLength = maxSourceTextLength,
             IgnoreInvisibleText = request.IgnoreInvisibleText ?? _config.IgnoreInvisibleText,
@@ -455,7 +466,8 @@ public sealed class ControlPanelService
             ReplacementFontFile = SelectOptionalText(request.ReplacementFontFile, _config.ReplacementFontFile),
             FontSamplingPointSize = fontSamplingPointSize,
             FontSizeAdjustmentMode = request.FontSizeAdjustmentMode ?? _config.FontSizeAdjustmentMode,
-            FontSizeAdjustmentValue = fontSizeAdjustmentValue
+            FontSizeAdjustmentValue = fontSizeAdjustmentValue,
+            LlamaCpp = llamaCpp
         };
     }
 
@@ -465,8 +477,13 @@ public sealed class ControlPanelService
         _apiKeyConfigured = !string.IsNullOrWhiteSpace(_apiKey);
         _config = _config with
         {
-            Provider = _config.Provider with { ApiKeyConfigured = _apiKeyConfigured }
+            Provider = _config.Provider with { ApiKeyConfigured = IsApiKeyConfiguredForProvider(_config.Provider.Kind) }
         };
+    }
+
+    private bool IsApiKeyConfiguredForProvider(ProviderKind providerKind)
+    {
+        return providerKind == ProviderKind.LlamaCpp || _apiKeyConfigured;
     }
 
     private void SaveSettings()
@@ -497,7 +514,6 @@ public sealed class ControlPanelService
                 OutputVerbosity: _config.OutputVerbosity,
                 DeepSeekThinkingMode: _config.DeepSeekThinkingMode,
                 Temperature: _config.Temperature,
-                CustomInstruction: _config.CustomInstruction,
                 CustomPrompt: _config.CustomPrompt,
                 MaxSourceTextLength: _config.MaxSourceTextLength,
                 IgnoreInvisibleText: _config.IgnoreInvisibleText,
@@ -525,13 +541,14 @@ public sealed class ControlPanelService
                 ReplacementFontFile: _config.ReplacementFontFile,
                 FontSamplingPointSize: _config.FontSamplingPointSize,
                 FontSizeAdjustmentMode: _config.FontSizeAdjustmentMode,
-                FontSizeAdjustmentValue: _config.FontSizeAdjustmentValue),
+                FontSizeAdjustmentValue: _config.FontSizeAdjustmentValue,
+                LlamaCpp: _config.LlamaCpp),
             ApiKey = null,
             EncryptedApiKey = string.IsNullOrWhiteSpace(_apiKey) ? null : ApiKeyProtector.Protect(_apiKey)
         });
     }
 
-    private ProviderProfile BuildProviderProfile(UpdateConfigRequest request)
+    private ProviderProfile BuildProviderProfile(UpdateConfigRequest request, LlamaCppConfig llamaCpp)
     {
         var provider = _config.Provider;
         if (request.ProviderKind.HasValue && request.ProviderKind.Value != provider.Kind)
@@ -546,7 +563,19 @@ public sealed class ControlPanelService
                     "/v1/chat/completions",
                     "local-model",
                     _apiKeyConfigured),
+                ProviderKind.LlamaCpp => ProviderProfile.DefaultLlamaCpp(),
                 _ => provider
+            };
+        }
+
+        if (provider.Kind == ProviderKind.LlamaCpp)
+        {
+            return provider with
+            {
+                BaseUrl = "http://127.0.0.1:0",
+                Endpoint = "/v1/chat/completions",
+                Model = string.IsNullOrWhiteSpace(request.Model) ? provider.Model : request.Model.Trim(),
+                ApiKeyConfigured = true
             };
         }
 
@@ -555,7 +584,48 @@ public sealed class ControlPanelService
             BaseUrl = string.IsNullOrWhiteSpace(request.BaseUrl) ? provider.BaseUrl : request.BaseUrl.Trim(),
             Endpoint = string.IsNullOrWhiteSpace(request.Endpoint) ? provider.Endpoint : request.Endpoint.Trim(),
             Model = string.IsNullOrWhiteSpace(request.Model) ? provider.Model : request.Model.Trim(),
-            ApiKeyConfigured = _apiKeyConfigured
+            ApiKeyConfigured = IsApiKeyConfiguredForProvider(provider.Kind)
+        };
+    }
+
+    private LlamaCppConfig BuildLlamaCppConfig(LlamaCppConfig? request)
+    {
+        if (request == null)
+        {
+            return _config.LlamaCpp;
+        }
+
+        return new LlamaCppConfig(
+            SelectOptionalText(request.ModelPath, fallback: null),
+            Clamp(request.ContextSize, 512, 131072),
+            Clamp(request.GpuLayers, 0, 999),
+            Clamp(request.ParallelSlots, 1, 16));
+    }
+
+    private RuntimeConfig BuildEffectiveConfig(RuntimeConfig config)
+    {
+        if (config.Provider.Kind != ProviderKind.LlamaCpp)
+        {
+            return config;
+        }
+
+        var port = _llamaCppStatus.Port;
+        return config with
+        {
+            Provider = config.Provider with
+            {
+                BaseUrl = $"http://127.0.0.1:{port}",
+                Endpoint = "/v1/chat/completions",
+                ApiKeyConfigured = true
+            }
+        };
+    }
+
+    private LlamaCppServerStatus NormalizeLlamaCppStatusForConfig()
+    {
+        return _llamaCppStatus with
+        {
+            ModelPath = _config.LlamaCpp.ModelPath
         };
     }
 }

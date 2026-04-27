@@ -20,8 +20,8 @@ public sealed class ChatCompletionsProvider : ITranslationProvider
         HttpClient httpClient,
         ProviderProfile profile,
         Func<string?> apiKeyProvider,
-        string reasoningEffort = "high",
-        string deepSeekThinkingMode = "enabled",
+        string reasoningEffort = "none",
+        string deepSeekThinkingMode = "disabled",
         double? temperature = null,
         TimeSpan? timeout = null)
     {

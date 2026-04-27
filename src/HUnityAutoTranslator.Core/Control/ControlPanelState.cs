@@ -41,8 +41,8 @@ public sealed record ControlPanelState(
     string OutputVerbosity,
     string DeepSeekThinkingMode,
     double? Temperature,
-    string? CustomInstruction,
     string? CustomPrompt,
+    string DefaultSystemPrompt,
     int MaxSourceTextLength,
     bool IgnoreInvisibleText,
     bool SkipNumericSymbolText,
@@ -72,4 +72,6 @@ public sealed record ControlPanelState(
     int FontSamplingPointSize,
     FontSizeAdjustmentMode FontSizeAdjustmentMode,
     double FontSizeAdjustmentValue,
-    string? LastError);
+    string? LastError,
+    LlamaCppConfig LlamaCpp,
+    LlamaCppServerStatus LlamaCppStatus);

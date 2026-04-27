@@ -30,6 +30,25 @@ public sealed class ProviderRequestOptionsTests
     }
 
     [Fact]
+    public async Task OpenAiResponsesProvider_omits_reasoning_when_effort_is_none()
+    {
+        var handler = new CaptureHandler("""{"output":[{"content":[{"text":"[\"Start translated\"]"}]}]}""");
+        var client = new HttpClient(handler);
+        var profile = ProviderProfile.DefaultOpenAi() with { ApiKeyConfigured = true };
+        var provider = new OpenAiResponsesProvider(client, profile, () => "key", "none", "low", TimeSpan.FromSeconds(30));
+
+        await provider.TranslateAsync(new TranslationRequest(
+            new[] { "Start" },
+            "zh-Hans",
+            "system",
+            "user"), CancellationToken.None);
+
+        var body = JObject.Parse(handler.Body);
+        body.ContainsKey("reasoning").Should().BeFalse();
+        body["text"]!["verbosity"]!.Value<string>().Should().Be("low");
+    }
+
+    [Fact]
     public async Task ChatCompletionsProvider_sends_deepseek_thinking_options()
     {
         var handler = new CaptureHandler("""{"choices":[{"message":{"content":"[\"Start translated\"]"}}],"usage":{"total_tokens":21}}""");
@@ -87,6 +106,30 @@ public sealed class ProviderRequestOptionsTests
         body.ContainsKey("reasoning_effort").Should().BeFalse();
     }
 
+    [Fact]
+    public async Task ChatCompletionsProvider_sends_llamacpp_request_without_api_key_or_deepseek_options()
+    {
+        var handler = new CaptureHandler("""{"choices":[{"message":{"content":"[\"Start translated\"]"}}],"usage":{"total_tokens":9}}""");
+        var client = new HttpClient(handler);
+        var profile = ProviderProfile.DefaultLlamaCpp() with { BaseUrl = "http://127.0.0.1:51234", Model = "qwen-game-ui", ApiKeyConfigured = true };
+        var provider = new ChatCompletionsProvider(client, profile, () => null, "high", "enabled", 0.1, TimeSpan.FromSeconds(30));
+
+        var response = await provider.TranslateAsync(new TranslationRequest(
+            new[] { "Start" },
+            "zh-Hans",
+            "system",
+            "user"), CancellationToken.None);
+
+        var body = JObject.Parse(handler.Body);
+        handler.RequestPath.Should().Be("/v1/chat/completions");
+        handler.AuthorizationHeader.Should().BeNull();
+        body["model"]!.Value<string>().Should().Be("qwen-game-ui");
+        body.ContainsKey("thinking").Should().BeFalse();
+        body.ContainsKey("reasoning_effort").Should().BeFalse();
+        body["temperature"]!.Value<double>().Should().Be(0.1);
+        response.TotalTokens.Should().Be(9);
+    }
+
     private sealed class CaptureHandler : HttpMessageHandler
     {
         private readonly string _json;
@@ -98,8 +141,14 @@ public sealed class ProviderRequestOptionsTests
 
         public string Body { get; private set; } = string.Empty;
 
+        public string RequestPath { get; private set; } = string.Empty;
+
+        public string? AuthorizationHeader { get; private set; }
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            RequestPath = request.RequestUri?.AbsolutePath ?? string.Empty;
+            AuthorizationHeader = request.Headers.Authorization?.ToString();
             Body = request.Content == null ? string.Empty : await request.Content.ReadAsStringAsync();
             return new HttpResponseMessage(HttpStatusCode.OK)
             {

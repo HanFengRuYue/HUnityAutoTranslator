@@ -42,6 +42,11 @@ public sealed class ProviderUtilityClient
 
     public async Task<ProviderBalanceResult> FetchBalanceAsync(ProviderProfile profile, CancellationToken cancellationToken)
     {
+        if (profile.Kind == ProviderKind.LlamaCpp)
+        {
+            return new ProviderBalanceResult(true, "本地模型不适用余额或成本查询。", Array.Empty<ProviderBalanceInfo>());
+        }
+
         var path = profile.Kind == ProviderKind.DeepSeek
             ? "/user/balance"
             : $"/v1/organization/costs?start_time={DateTimeOffset.UtcNow.AddDays(-7).ToUnixTimeSeconds()}&limit=7";

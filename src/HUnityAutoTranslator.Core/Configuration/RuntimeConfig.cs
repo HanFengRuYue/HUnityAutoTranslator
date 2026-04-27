@@ -25,7 +25,6 @@ public sealed record RuntimeConfig(
     string OutputVerbosity,
     string DeepSeekThinkingMode,
     double? Temperature,
-    string? CustomInstruction,
     string? CustomPrompt,
     int MaxSourceTextLength,
     bool IgnoreInvisibleText,
@@ -53,7 +52,8 @@ public sealed record RuntimeConfig(
     string? ReplacementFontFile,
     int FontSamplingPointSize,
     FontSizeAdjustmentMode FontSizeAdjustmentMode,
-    double FontSizeAdjustmentValue)
+    double FontSizeAdjustmentValue,
+    LlamaCppConfig LlamaCpp)
 {
     public static RuntimeConfig CreateDefault()
     {
@@ -76,11 +76,10 @@ public sealed record RuntimeConfig(
             MaxScanTargetsPerTick: 256,
             MaxWritebacksPerFrame: 32,
             RequestTimeoutSeconds: 30,
-            ReasoningEffort: "low",
+            ReasoningEffort: "none",
             OutputVerbosity: "low",
-            DeepSeekThinkingMode: "enabled",
+            DeepSeekThinkingMode: "disabled",
             Temperature: null,
-            CustomInstruction: null,
             CustomPrompt: null,
             MaxSourceTextLength: 2000,
             IgnoreInvisibleText: true,
@@ -108,6 +107,7 @@ public sealed record RuntimeConfig(
             ReplacementFontFile: null,
             FontSamplingPointSize: 90,
             FontSizeAdjustmentMode: FontSizeAdjustmentMode.Disabled,
-            FontSizeAdjustmentValue: 0);
+            FontSizeAdjustmentValue: 0,
+            LlamaCpp: LlamaCppConfig.Default());
     }
 }

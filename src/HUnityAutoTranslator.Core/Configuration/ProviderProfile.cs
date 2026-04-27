@@ -16,4 +16,9 @@ public sealed record ProviderProfile(
     {
         return new ProviderProfile(ProviderKind.DeepSeek, "https://api.deepseek.com", "/chat/completions", "deepseek-v4-flash", false);
     }
+
+    public static ProviderProfile DefaultLlamaCpp()
+    {
+        return new ProviderProfile(ProviderKind.LlamaCpp, "http://127.0.0.1:0", "/v1/chat/completions", "local-model", true);
+    }
 }
