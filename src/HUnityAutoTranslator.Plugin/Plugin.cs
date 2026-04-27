@@ -29,6 +29,7 @@ public sealed class Plugin : BaseUnityPlugin
     private UnityTextFontReplacementService? _fontReplacement;
     private UnityTextHighlighter? _highlighter;
     private RuntimeHotkeyController? _hotkeys;
+    private LlamaCppServerManager? _llamaCppServer;
     private float _nextScanTime;
     private float _nextSkippedWritebackLogTime;
     private bool _openedControlPanel;
@@ -50,6 +51,8 @@ public sealed class Plugin : BaseUnityPlugin
             _dispatcher = new ResultDispatcher();
             _resultApplier = new UnityMainThreadResultApplier(_controlPanel.GetConfig, message => Logger.LogInfo(message));
             _highlighter = new UnityTextHighlighter(_resultApplier, Logger);
+            var pluginDirectory = Path.GetDirectoryName(typeof(Plugin).Assembly.Location) ?? Paths.PluginPath;
+            _llamaCppServer = new LlamaCppServerManager(pluginDirectory, Logger);
             _fontReplacement = new UnityTextFontReplacementService(_cache, Logger, _controlPanel.GetConfig, _controlPanel.SetAutomaticFontFallbacks);
             _fontReplacement.InstallStartupFallbacks();
             var pipeline = new TextPipeline(_cache, _queue, _controlPanel.GetConfig, _metrics, _glossary);
@@ -60,7 +63,7 @@ public sealed class Plugin : BaseUnityPlugin
                 new ImguiHookInstaller(pipeline, _cache, Logger, _controlPanel.GetConfig, _fontReplacement)
             });
             _captureCoordinator.Start();
-            _workerHost = new TranslationWorkerHost(_controlPanel, _queue, _dispatcher, _cache, _glossary, _metrics, Logger);
+            _workerHost = new TranslationWorkerHost(_controlPanel, _queue, _dispatcher, _cache, _glossary, _metrics, Logger, _llamaCppServer);
             _workerHost.Start();
             _httpServer = new LocalHttpServer(
                 _controlPanel,
@@ -69,6 +72,7 @@ public sealed class Plugin : BaseUnityPlugin
                 _queue,
                 _dispatcher,
                 _highlighter,
+                _llamaCppServer,
                 Logger);
             _httpServer.Start(config.HttpHost, config.HttpPort);
             _hotkeys = new RuntimeHotkeyController(_httpServer, _captureCoordinator, _resultApplier, _fontReplacement, Logger);
@@ -105,6 +109,7 @@ public sealed class Plugin : BaseUnityPlugin
     {
         _captureCoordinator?.Dispose();
         _workerHost?.Dispose();
+        _llamaCppServer?.Dispose();
         _httpServer?.Dispose();
         (_cache as IDisposable)?.Dispose();
         (_glossary as IDisposable)?.Dispose();

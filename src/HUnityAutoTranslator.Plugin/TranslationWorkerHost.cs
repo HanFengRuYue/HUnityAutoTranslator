@@ -23,6 +23,7 @@ internal sealed class TranslationWorkerHost : IDisposable
     private readonly IGlossaryStore _glossary;
     private readonly ControlPanelMetrics _metrics;
     private readonly ManualLogSource _logger;
+    private readonly LlamaCppServerManager? _llamaCppServer;
     private readonly HttpClient _httpClient = new();
     private CancellationTokenSource? _cts;
     private Task? _task;
@@ -36,7 +37,8 @@ internal sealed class TranslationWorkerHost : IDisposable
         ITranslationCache cache,
         IGlossaryStore glossary,
         ControlPanelMetrics metrics,
-        ManualLogSource logger)
+        ManualLogSource logger,
+        LlamaCppServerManager? llamaCppServer = null)
     {
         _controlPanel = controlPanel;
         _queue = queue;
@@ -45,6 +47,7 @@ internal sealed class TranslationWorkerHost : IDisposable
         _glossary = glossary;
         _metrics = metrics;
         _logger = logger;
+        _llamaCppServer = llamaCppServer;
     }
 
     public void Start()
@@ -60,9 +63,15 @@ internal sealed class TranslationWorkerHost : IDisposable
             try
             {
                 var config = _controlPanel.GetConfig();
-                if (!config.Enabled || !config.Provider.ApiKeyConfigured)
+                if (!config.Enabled)
                 {
                     await Task.Delay(250, cancellationToken).ConfigureAwait(false);
+                    continue;
+                }
+
+                if (!await ProviderReadyAsync(config, cancellationToken).ConfigureAwait(false))
+                {
+                    await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 
@@ -130,6 +139,35 @@ internal sealed class TranslationWorkerHost : IDisposable
                 config.DeepSeekThinkingMode,
                 config.Temperature,
                 TimeSpan.FromSeconds(config.RequestTimeoutSeconds));
+    }
+
+    private async Task<bool> ProviderReadyAsync(RuntimeConfig config, CancellationToken cancellationToken)
+    {
+        if (config.Provider.Kind != ProviderKind.LlamaCpp)
+        {
+            return config.Provider.ApiKeyConfigured;
+        }
+
+        if (_llamaCppServer == null)
+        {
+            const string message = "llama.cpp 本地模型管理器不可用。";
+            _controlPanel.SetLastError(message);
+            _controlPanel.SetProviderStatus(new ProviderStatus("error", message, DateTimeOffset.UtcNow));
+            return false;
+        }
+
+        if (await _llamaCppServer.IsReadyAsync(config, cancellationToken).ConfigureAwait(false))
+        {
+            _controlPanel.SetProviderStatus(new ProviderStatus("ok", "llama.cpp 本地模型运行中。", DateTimeOffset.UtcNow));
+            _controlPanel.SetLlamaCppStatus(_llamaCppServer.GetStatus(config));
+            return true;
+        }
+
+        const string notStarted = "llama.cpp 本地模型未启动。请在控制面板手动启动。";
+        _controlPanel.SetLastError(notStarted);
+        _controlPanel.SetProviderStatus(new ProviderStatus("warning", notStarted, DateTimeOffset.UtcNow));
+        _controlPanel.SetLlamaCppStatus(_llamaCppServer.GetStatus(config));
+        return false;
     }
 
     private int ResumePendingTranslations(RuntimeConfig config)

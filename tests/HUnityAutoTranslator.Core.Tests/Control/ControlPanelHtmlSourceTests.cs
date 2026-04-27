@@ -62,6 +62,28 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Local_http_server_exposes_llamacpp_manual_control_endpoints()
+    {
+        var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+        var managerSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "LlamaCppServerManager.cs"));
+        var commandBuilderSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Core", "Providers", "LlamaCppServerCommandBuilder.cs"));
+
+        serverSource.Should().Contain("path == \"/api/llamacpp/start\"");
+        serverSource.Should().Contain("path == \"/api/llamacpp/stop\"");
+        serverSource.Should().Contain("path == \"/api/llamacpp/model/pick\"");
+        serverSource.Should().Contain("WindowsLlamaCppModelFilePicker.PickModelFile()");
+        commandBuilderSource.Should().Contain("\"--host\"");
+        commandBuilderSource.Should().Contain("\"127.0.0.1\"");
+        commandBuilderSource.Should().Contain("int port");
+        managerSource.Should().Contain("GetFreeLoopbackPort");
+        managerSource.Should().Contain("Release");
+        managerSource.Should().Contain("Variant");
+        managerSource.Should().Contain("backend.json");
+        managerSource.Should().Contain("llama-server.exe");
+        managerSource.Should().Contain("StopOwnedProcess");
+    }
+
+    [Fact]
     public void Translation_editor_save_publishes_manual_writeback_for_known_targets()
     {
         var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));

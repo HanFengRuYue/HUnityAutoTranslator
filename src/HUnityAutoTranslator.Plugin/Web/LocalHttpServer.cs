@@ -25,6 +25,7 @@ internal sealed class LocalHttpServer : IDisposable
     private readonly TranslationJobQueue _queue;
     private readonly ResultDispatcher _dispatcher;
     private readonly UnityTextHighlighter? _highlighter;
+    private readonly LlamaCppServerManager? _llamaCppServer;
     private readonly HttpClient _httpClient = new();
     private readonly ProviderUtilityClient _providerUtilityClient;
     private readonly ManualLogSource _logger;
@@ -40,6 +41,7 @@ internal sealed class LocalHttpServer : IDisposable
         TranslationJobQueue queue,
         ResultDispatcher dispatcher,
         UnityTextHighlighter? highlighter,
+        LlamaCppServerManager? llamaCppServer,
         ManualLogSource logger)
     {
         _controlPanel = controlPanel;
@@ -48,6 +50,7 @@ internal sealed class LocalHttpServer : IDisposable
         _queue = queue;
         _dispatcher = dispatcher;
         _highlighter = highlighter;
+        _llamaCppServer = llamaCppServer;
         _providerUtilityClient = new ProviderUtilityClient(_httpClient, _controlPanel.GetApiKey);
         _logger = logger;
     }
@@ -138,6 +141,26 @@ internal sealed class LocalHttpServer : IDisposable
             else if (context.Request.HttpMethod == "POST" && path == "/api/fonts/pick")
             {
                 await WriteJsonAsync(context.Response, WindowsFontFilePicker.PickFontFile()).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/llamacpp/model/pick")
+            {
+                await WriteJsonAsync(context.Response, WindowsLlamaCppModelFilePicker.PickModelFile()).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/llamacpp/start")
+            {
+                var status = _llamaCppServer == null
+                    ? LlamaCppServerStatus.Error(_controlPanel.GetConfig().LlamaCpp, string.Empty, "llama.cpp 本地模型管理器不可用。")
+                    : await _llamaCppServer.StartAsync(_controlPanel.GetConfig(), CancellationToken.None).ConfigureAwait(false);
+                _controlPanel.SetLlamaCppStatus(status);
+                await WriteJsonAsync(context.Response, status).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/llamacpp/stop")
+            {
+                var status = _llamaCppServer == null
+                    ? LlamaCppServerStatus.Stopped(_controlPanel.GetConfig().LlamaCpp)
+                    : _llamaCppServer.Stop(_controlPanel.GetConfig());
+                _controlPanel.SetLlamaCppStatus(status);
+                await WriteJsonAsync(context.Response, status).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "GET" && path == "/api/translations")
             {
@@ -320,7 +343,24 @@ internal sealed class LocalHttpServer : IDisposable
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/provider/test")
             {
-                var result = await _providerUtilityClient.FetchModelsAsync(_controlPanel.GetConfig().Provider, CancellationToken.None).ConfigureAwait(false);
+                var config = _controlPanel.GetConfig();
+                ProviderModelsResult result;
+                if (config.Provider.Kind == ProviderKind.LlamaCpp)
+                {
+                    var ready = _llamaCppServer != null && await _llamaCppServer.IsReadyAsync(config, CancellationToken.None).ConfigureAwait(false);
+                    var status = _llamaCppServer?.GetStatus(config)
+                        ?? LlamaCppServerStatus.Error(config.LlamaCpp, string.Empty, "llama.cpp 本地模型管理器不可用。");
+                    _controlPanel.SetLlamaCppStatus(status);
+                    result = new ProviderModelsResult(
+                        ready,
+                        ready ? "llama.cpp 本地模型连接可用。" : status.Message,
+                        Array.Empty<ProviderModelInfo>());
+                }
+                else
+                {
+                    result = await _providerUtilityClient.FetchModelsAsync(config.Provider, CancellationToken.None).ConfigureAwait(false);
+                }
+
                 _controlPanel.SetProviderStatus(new ProviderStatus(result.Succeeded ? "ok" : "error", result.Message, DateTimeOffset.UtcNow));
                 await WriteJsonAsync(context.Response, result).ConfigureAwait(false);
             }
@@ -344,6 +384,11 @@ internal sealed class LocalHttpServer : IDisposable
 
     private async Task WriteStateAsync(HttpListenerResponse response)
     {
+        if (_llamaCppServer != null)
+        {
+            _controlPanel.SetLlamaCppStatus(_llamaCppServer.GetStatus(_controlPanel.GetConfig()));
+        }
+
         await WriteJsonAsync(response, _controlPanel.GetState(_queue.PendingCount, _cache.Count, _dispatcher.PendingCount)).ConfigureAwait(false);
     }
 
