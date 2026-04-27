@@ -1,10 +1,12 @@
 <script setup lang="ts">
-import { computed, reactive, watch } from "vue";
+import { computed, reactive, ref, watch } from "vue";
 import SectionPanel from "../components/SectionPanel.vue";
-import { controlPanelStore, saveConfig, setDirtyForm } from "../state/controlPanelStore";
+import { controlPanelStore, pickFontFile, saveConfig, setDirtyForm, showToast } from "../state/controlPanelStore";
 import type { ControlPanelState, UpdateConfigRequest } from "../types/api";
 
 const formKey = "plugin";
+type HotkeyField = "OpenControlPanelHotkey" | "ToggleTranslationHotkey" | "ForceScanHotkey" | "ToggleFontHotkey";
+const hotkeyListeningText = "请按组合键...";
 
 const form = reactive({
   Enabled: true,
@@ -44,6 +46,8 @@ const form = reactive({
 const formDirty = computed(() => controlPanelStore.dirtyForms.has(formKey));
 const automaticFontName = computed(() => controlPanelStore.state?.AutomaticReplacementFontName ?? "自动选择");
 const automaticFontFile = computed(() => controlPanelStore.state?.AutomaticReplacementFontFile ?? "自动选择");
+const listeningHotkeyField = ref<HotkeyField | null>(null);
+const isPickingFontFile = ref(false);
 
 function markDirty(): void {
   setDirtyForm(formKey, true);
@@ -52,6 +56,125 @@ function markDirty(): void {
 function numberValue(value: number | string): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function beginHotkeyCapture(field: HotkeyField): void {
+  listeningHotkeyField.value = field;
+}
+
+function cancelHotkeyCapture(field: HotkeyField): void {
+  if (listeningHotkeyField.value === field) {
+    listeningHotkeyField.value = null;
+  }
+}
+
+function hotkeyValue(field: HotkeyField): string {
+  return listeningHotkeyField.value === field ? hotkeyListeningText : form[field];
+}
+
+function isModifierKey(key: string): boolean {
+  return key === "Control" || key === "Shift" || key === "Alt" || key === "Meta";
+}
+
+function normalizeCapturedKey(key: string): string | null {
+  if (/^[a-z]$/i.test(key)) {
+    return key.toUpperCase();
+  }
+
+  if (/^[0-9]$/.test(key)) {
+    return key;
+  }
+
+  if (/^F([1-9]|1[0-2])$/i.test(key)) {
+    return key.toUpperCase();
+  }
+
+  const knownKeys: Record<string, string> = {
+    " ": "Space",
+    Spacebar: "Space",
+    Space: "Space",
+    Enter: "Enter",
+    Tab: "Tab",
+    Backspace: "Backspace",
+    Escape: "Escape",
+    Esc: "Escape",
+    Insert: "Insert",
+    Delete: "Delete",
+    Home: "Home",
+    End: "End",
+    PageUp: "PageUp",
+    PageDown: "PageDown",
+    ArrowUp: "UpArrow",
+    ArrowDown: "DownArrow",
+    ArrowLeft: "LeftArrow",
+    ArrowRight: "RightArrow"
+  };
+
+  return knownKeys[key] ?? null;
+}
+
+function normalizeCapturedHotkey(event: KeyboardEvent): string | null {
+  const key = normalizeCapturedKey(event.key);
+  if (!key) {
+    return null;
+  }
+
+  const parts: string[] = [];
+  if (event.ctrlKey) {
+    parts.push("Ctrl");
+  }
+  if (event.shiftKey) {
+    parts.push("Shift");
+  }
+  if (event.altKey) {
+    parts.push("Alt");
+  }
+  if (!parts.length) {
+    return null;
+  }
+
+  parts.push(key);
+  return parts.join("+");
+}
+
+function handleHotkeyKeydown(event: KeyboardEvent, field: HotkeyField): void {
+  if (listeningHotkeyField.value !== field) {
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  if (event.key === "Escape") {
+    cancelHotkeyCapture(field);
+    return;
+  }
+
+  if (isModifierKey(event.key)) {
+    return;
+  }
+
+  if ((event.key === "Backspace" || event.key === "Delete") && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+    form[field] = "None";
+    listeningHotkeyField.value = null;
+    markDirty();
+    return;
+  }
+
+  if (!normalizeCapturedKey(event.key)) {
+    showToast("不支持这个按键，请换一个主键。", "warn");
+    return;
+  }
+
+  const hotkey = normalizeCapturedHotkey(event);
+  if (!hotkey) {
+    showToast("需要使用 Ctrl、Shift 或 Alt 组合键。", "warn");
+    return;
+  }
+
+  form[field] = hotkey;
+  listeningHotkeyField.value = null;
+  markDirty();
 }
 
 function applyState(state: ControlPanelState | null, force = false): void {
@@ -136,6 +259,32 @@ async function save(): Promise<void> {
   applyState(state, true);
 }
 
+async function pickReplacementFontFile(): Promise<void> {
+  if (isPickingFontFile.value) {
+    return;
+  }
+
+  isPickingFontFile.value = true;
+  try {
+    const result = await pickFontFile();
+    if (result.Status === "selected" && result.FilePath) {
+      form.ReplacementFontFile = result.FilePath;
+      form.ReplacementFontName = result.FontName ?? "";
+      markDirty();
+      showToast(result.FontName ? `已选择字体：${result.FontName}` : "已选择字体文件", "ok");
+      return;
+    }
+
+    if (result.Status !== "cancelled") {
+      showToast(result.Message || "选择字体文件失败。", result.Status === "unsupported" ? "warn" : "error");
+    }
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "选择字体文件失败。", "error");
+  } finally {
+    isPickingFontFile.value = false;
+  }
+}
+
 function reset(): void {
   applyState(controlPanelStore.state, true);
 }
@@ -191,10 +340,10 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
 
       <SectionPanel title="快捷键">
         <div class="form-grid four">
-          <label class="field"><span>打开控制面板</span><input id="openControlPanelHotkey" v-model="form.OpenControlPanelHotkey" autocomplete="off" placeholder="Alt+H"></label>
-          <label class="field"><span>原文/译文切换</span><input id="toggleTranslationHotkey" v-model="form.ToggleTranslationHotkey" autocomplete="off" placeholder="Alt+F"></label>
-          <label class="field"><span>全局扫描更新</span><input id="forceScanHotkey" v-model="form.ForceScanHotkey" autocomplete="off" placeholder="Alt+G"></label>
-          <label class="field"><span>字体状态切换</span><input id="toggleFontHotkey" v-model="form.ToggleFontHotkey" autocomplete="off" placeholder="Alt+D"></label>
+          <label class="field"><span>打开控制面板</span><input id="openControlPanelHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'OpenControlPanelHotkey' }" :value="hotkeyValue('OpenControlPanelHotkey')" readonly autocomplete="off" placeholder="Alt+H" @focus="beginHotkeyCapture('OpenControlPanelHotkey')" @click="beginHotkeyCapture('OpenControlPanelHotkey')" @blur="cancelHotkeyCapture('OpenControlPanelHotkey')" @keydown="handleHotkeyKeydown($event, 'OpenControlPanelHotkey')"></label>
+          <label class="field"><span>原文/译文切换</span><input id="toggleTranslationHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'ToggleTranslationHotkey' }" :value="hotkeyValue('ToggleTranslationHotkey')" readonly autocomplete="off" placeholder="Alt+F" @focus="beginHotkeyCapture('ToggleTranslationHotkey')" @click="beginHotkeyCapture('ToggleTranslationHotkey')" @blur="cancelHotkeyCapture('ToggleTranslationHotkey')" @keydown="handleHotkeyKeydown($event, 'ToggleTranslationHotkey')"></label>
+          <label class="field"><span>全局扫描更新</span><input id="forceScanHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'ForceScanHotkey' }" :value="hotkeyValue('ForceScanHotkey')" readonly autocomplete="off" placeholder="Alt+G" @focus="beginHotkeyCapture('ForceScanHotkey')" @click="beginHotkeyCapture('ForceScanHotkey')" @blur="cancelHotkeyCapture('ForceScanHotkey')" @keydown="handleHotkeyKeydown($event, 'ForceScanHotkey')"></label>
+          <label class="field"><span>字体状态切换</span><input id="toggleFontHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'ToggleFontHotkey' }" :value="hotkeyValue('ToggleFontHotkey')" readonly autocomplete="off" placeholder="Alt+D" @focus="beginHotkeyCapture('ToggleFontHotkey')" @click="beginHotkeyCapture('ToggleFontHotkey')" @blur="cancelHotkeyCapture('ToggleFontHotkey')" @keydown="handleHotkeyKeydown($event, 'ToggleFontHotkey')"></label>
         </div>
       </SectionPanel>
 
@@ -211,10 +360,15 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
             <span>手动字体名</span>
             <input id="replacementFontName" v-model="form.ReplacementFontName" autocomplete="off" :placeholder="`留空自动选择：${automaticFontName}`">
           </label>
-          <label class="field">
+          <div class="field">
             <span>手动字体文件</span>
-            <input id="replacementFontFile" v-model="form.ReplacementFontFile" autocomplete="off" :placeholder="`留空自动选择 TTF：${automaticFontFile}`">
-          </label>
+            <div class="input-action-row">
+              <input id="replacementFontFile" v-model="form.ReplacementFontFile" autocomplete="off" :placeholder="`留空自动选择 TTF：${automaticFontFile}`">
+              <button id="pickReplacementFontFile" class="secondary" type="button" :disabled="isPickingFontFile" @click="pickReplacementFontFile">
+                {{ isPickingFontFile ? "选择中..." : "选择字体文件" }}
+              </button>
+            </div>
+          </div>
         </div>
         <div class="form-grid three">
           <label class="field"><span>字体采样字号</span><input id="fontSamplingPointSize" v-model.number="form.FontSamplingPointSize" type="number" min="16"></label>

@@ -12,7 +12,7 @@ withDefaults(defineProps<{
 
 <template>
   <article class="metric" :class="`metric-${tone}`" tabindex="0" :data-help="help">
-    <span>{{ label }}</span>
+    <span class="metric-label">{{ label }}</span>
     <strong :id="valueId">{{ value }}</strong>
   </article>
 </template>

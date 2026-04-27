@@ -69,6 +69,15 @@ public sealed class ControlPanelVueSourceTests
         pluginPageSource.Should().Contain("id=\"toggleTranslationHotkey\"");
         pluginPageSource.Should().Contain("id=\"forceScanHotkey\"");
         pluginPageSource.Should().Contain("id=\"toggleFontHotkey\"");
+        pluginPageSource.Should().Contain("readonly");
+        pluginPageSource.Should().Contain("function beginHotkeyCapture");
+        pluginPageSource.Should().Contain("function handleHotkeyKeydown(event: KeyboardEvent, field: HotkeyField)");
+        pluginPageSource.Should().Contain("function normalizeCapturedHotkey");
+        pluginPageSource.Should().Contain("listeningHotkeyField.value = field;");
+        pluginPageSource.Should().Contain("event.key === \"Escape\"");
+        pluginPageSource.Should().Contain("form[field] = \"None\";");
+        pluginPageSource.Should().Contain("showToast(\"需要使用 Ctrl、Shift 或 Alt 组合键。\", \"warn\")");
+        pluginPageSource.Should().Contain("markDirty();");
         pluginPageSource.Should().Contain("OpenControlPanelHotkey: form.OpenControlPanelHotkey");
         pluginPageSource.Should().Contain("ToggleTranslationHotkey: form.ToggleTranslationHotkey");
         pluginPageSource.Should().Contain("ForceScanHotkey: form.ForceScanHotkey");
@@ -82,6 +91,26 @@ public sealed class ControlPanelVueSourceTests
         pluginPageSource.Should().Contain("id=\"replacementFontFile\"");
         pluginPageSource.Should().Contain("ReplacementFontName: form.ReplacementFontName");
         pluginPageSource.Should().Contain("ReplacementFontFile: form.ReplacementFontFile");
+    }
+
+    [Fact]
+    public void Vue_plugin_settings_can_pick_font_file_and_fill_name_before_save()
+    {
+        var storeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "state", "controlPanelStore.ts"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+        var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
+
+        apiTypesSource.Should().Contain("export type FontPickStatus = \"selected\" | \"cancelled\" | \"unsupported\" | \"error\";");
+        apiTypesSource.Should().Contain("export interface FontPickResult");
+        storeSource.Should().Contain("export async function pickFontFile()");
+        storeSource.Should().Contain("api<FontPickResult>(\"/api/fonts/pick\", { method: \"POST\" })");
+        pluginPageSource.Should().Contain("async function pickReplacementFontFile()");
+        pluginPageSource.Should().Contain("form.ReplacementFontFile = result.FilePath;");
+        pluginPageSource.Should().Contain("form.ReplacementFontName = result.FontName ?? \"\";");
+        pluginPageSource.Should().Contain("markDirty();");
+        pluginPageSource.Should().Contain("id=\"pickReplacementFontFile\"");
+        pluginPageSource.Should().Contain(":disabled=\"isPickingFontFile\"");
+        pluginPageSource.Should().Contain("选择字体文件");
     }
 
     [Fact]
@@ -112,6 +141,22 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().NotContain("providerStatusText");
         aiPageSource.Should().NotContain("providerUtilityMessage");
         aiPageSource.Should().NotContain("providerUtilityOutput");
+    }
+
+    [Fact]
+    public void Vue_ai_balance_toast_includes_returned_balance_details()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+
+        aiPageSource.Should().Contain("function formatBalanceToast(result: ProviderBalanceResult): string");
+        aiPageSource.Should().Contain("formatBalanceToast(result)");
+        aiPageSource.Should().Contain("balance.TotalBalance");
+        aiPageSource.Should().Contain("balance.GrantedBalance");
+        aiPageSource.Should().Contain("balance.ToppedUpBalance");
+        aiPageSource.Should().Contain("余额：");
+        aiPageSource.Should().Contain("最近 7 天成本：");
+        aiPageSource.Should().Contain("未返回余额/成本记录。");
+        aiPageSource.Should().NotContain("showToast(result.Message || `已获取 ${result.Balances.length} 条余额记录。`");
     }
 
     [Fact]
@@ -185,6 +230,12 @@ public sealed class ControlPanelVueSourceTests
         editorPageSource.Should().NotContain("id=\"exportCsv\"");
         editorPageSource.Should().Contain("data-table-action=\"retranslate\"");
         editorPageSource.Should().Contain("data-table-action=\"highlight\"");
+        editorPageSource.Should().Contain("data-table-action=\"copy\"");
+        editorPageSource.Should().Contain("data-table-action=\"paste\"");
+        editorPageSource.Should().Contain("id=\"tableContextMenu\"");
+        editorPageSource.Should().NotContain("class=\"secondary\" type=\"button\" data-table-action=\"retranslate\"");
+        editorPageSource.Should().NotContain("class=\"secondary\" type=\"button\" data-table-action=\"highlight\"");
+        editorPageSource.Should().NotContain("class=\"danger\" type=\"button\" data-table-action=\"delete\"");
         editorPageSource.Should().Contain("async function retranslateSelectedRows()");
         editorPageSource.Should().Contain("async function highlightSelectedRow()");
         editorPageSource.Should().Contain("/api/translations/retranslate");
@@ -195,6 +246,36 @@ public sealed class ControlPanelVueSourceTests
         editorPageSource.Should().Contain("/api/translations/filter-options");
         editorPageSource.Should().Contain("data-filter-column");
         tableSource.Should().Contain("hunity.editor.columnFilters");
+    }
+
+    [Fact]
+    public void Vue_editor_restores_spreadsheet_cell_selection_context_menu_and_column_resize()
+    {
+        var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        editorPageSource.Should().Contain("const selectedCells = ref(new Set<string>());");
+        editorPageSource.Should().Contain("const selectionAnchor = ref<CellAddress | null>(null);");
+        editorPageSource.Should().Contain("function selectCell(");
+        editorPageSource.Should().Contain("function selectRange(");
+        editorPageSource.Should().Contain("function selectAllCells()");
+        editorPageSource.Should().Contain("async function copyCells()");
+        editorPageSource.Should().Contain("async function pasteCells()");
+        editorPageSource.Should().Contain("function startColumnResize(");
+        editorPageSource.Should().Contain("@contextmenu=\"showContextMenu\"");
+        editorPageSource.Should().Contain("data-cell");
+        editorPageSource.Should().Contain("data-row-index");
+        editorPageSource.Should().Contain("data-column-key");
+        editorPageSource.Should().Contain("class=\"col-resizer\"");
+        editorPageSource.Should().NotContain("<col style=\"width:42px\">");
+        editorPageSource.Should().NotContain("<th></th>");
+        editorPageSource.Should().NotContain("const selectedKeys");
+        editorPageSource.Should().NotContain("function toggleRow(");
+        editorPageSource.Should().NotContain("selectedKeys.has(rowKey(row))");
+        cssSource.Should().Contain(".context-menu");
+        cssSource.Should().Contain(".context-menu.open");
+        cssSource.Should().Contain("td.selected");
+        cssSource.Should().Contain(".col-resizer");
     }
 
     [Fact]

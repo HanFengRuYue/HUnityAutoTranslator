@@ -71,6 +71,28 @@ const recentTranslations = computed(() => state.value?.RecentTranslations ?? [])
     </div>
 
     <div class="status-layout">
+      <div class="status-command" aria-label="当前运行概览">
+        <div class="status-command-main">
+          <span class="eyebrow">实时运行</span>
+          <strong :class="`status-${enabledTone}`">{{ enabledText }}</strong>
+          <p>{{ providerStatusText }}</p>
+        </div>
+        <div class="status-command-grid">
+          <div>
+            <span>等待翻译</span>
+            <strong>{{ formatNumber(queueCount) }}</strong>
+          </div>
+          <div>
+            <span>写回等待</span>
+            <strong>{{ formatNumber(state?.WritebackQueueCount) }}</strong>
+          </div>
+          <div>
+            <span>本地译文</span>
+            <strong>{{ formatNumber(state?.CacheCount) }}</strong>
+          </div>
+        </div>
+      </div>
+
       <div class="metric-grid" aria-label="运行指标">
         <MetricCard
           label="插件状态"

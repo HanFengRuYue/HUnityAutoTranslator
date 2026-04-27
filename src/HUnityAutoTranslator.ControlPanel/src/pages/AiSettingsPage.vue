@@ -234,11 +234,43 @@ async function fetchModels(): Promise<void> {
   });
 }
 
+function formatBalanceEntry(balance: ProviderBalanceInfo): string {
+  const total = balance.TotalBalance.trim() || "-";
+  const parts = [`${balance.Currency.trim()} ${total}`.trim()];
+  const details = [
+    balance.GrantedBalance ? `赠送 ${balance.GrantedBalance}` : "",
+    balance.ToppedUpBalance ? `充值 ${balance.ToppedUpBalance}` : ""
+  ].filter(Boolean);
+
+  if (details.length) {
+    parts.push(`（${details.join("，")}）`);
+  }
+
+  return parts.join("");
+}
+
+function formatBalanceToast(result: ProviderBalanceResult): string {
+  if (!result.Succeeded) {
+    return result.Message || "查询余额/成本失败。";
+  }
+
+  if (!result.Balances.length) {
+    return "未返回余额/成本记录。";
+  }
+
+  const values = result.Balances.map(formatBalanceEntry).join("；");
+  if (form.ProviderKind === 1) {
+    return `余额：${values}`;
+  }
+
+  return `最近 7 天成本：${values}。OpenAI 成本接口通常需要管理员密钥。`;
+}
+
 async function fetchBalance(): Promise<void> {
   await runProviderUtility("查询余额/成本", async () => {
     const result = await api<ProviderBalanceResult>("/api/provider/balance");
     balances.value = result.Balances;
-    showToast(result.Message || `已获取 ${result.Balances.length} 条余额记录。`, result.Succeeded ? "ok" : "warn");
+    showToast(formatBalanceToast(result), result.Succeeded ? "ok" : "warn", 5600);
   });
 }
 

@@ -135,6 +135,10 @@ internal sealed class LocalHttpServer : IDisposable
                 _logger.LogInfo(string.IsNullOrWhiteSpace(apiKey) ? "Control panel API key cleared." : "Control panel API key configured.");
                 await WriteStateAsync(context.Response).ConfigureAwait(false);
             }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/fonts/pick")
+            {
+                await WriteJsonAsync(context.Response, WindowsFontFilePicker.PickFontFile()).ConfigureAwait(false);
+            }
             else if (context.Request.HttpMethod == "GET" && path == "/api/translations")
             {
                 await WriteJsonAsync(context.Response, _cache.Query(ParseTranslationQuery(context.Request))).ConfigureAwait(false);

@@ -12,11 +12,19 @@ export type PageKey =
 export type ThemeMode = "system" | "light" | "dark";
 export type ConnectionState = "connecting" | "online" | "offline";
 export type ToastKind = "ok" | "warn" | "error" | "info";
+export type FontPickStatus = "selected" | "cancelled" | "unsupported" | "error";
 
 export interface ProviderStatus {
   State: string;
   Message: string;
   CheckedUtc: string | null;
+}
+
+export interface FontPickResult {
+  Status: FontPickStatus;
+  FilePath: string | null;
+  FontName: string | null;
+  Message: string;
 }
 
 export interface RecentTranslationPreview {

@@ -15,6 +15,19 @@ public sealed class PackageScriptTests
         script.Should().NotContain("Join-Path $root \"artifacts\"");
     }
 
+    [Fact]
+    public void Package_script_owns_control_panel_generation()
+    {
+        var root = FindRepositoryRoot();
+        var script = File.ReadAllText(Path.Combine(root, "build", "package.ps1"));
+
+        script.Should().Contain("[switch]$GeneratePanelOnly");
+        script.Should().Contain("function Write-ControlPanelHtml");
+        script.Should().Contain("if ($GeneratePanelOnly)");
+        script.Should().NotContain("generate-control-panel.ps1");
+        File.Exists(Path.Combine(root, "build", "generate-control-panel.ps1")).Should().BeFalse();
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

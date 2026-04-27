@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, reactive, ref } from "vue";
+import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import { api, buildQuery, deleteJson, getJson, getText, patchJson, postJson } from "../api/client";
 import SectionPanel from "../components/SectionPanel.vue";
 import { refreshState, showToast } from "../state/controlPanelStore";
@@ -16,7 +16,6 @@ import type {
 import { formatDateTime } from "../utils/format";
 import {
   cellValue,
-  columnFilterStorageKey,
   defaultColumns,
   emptyFilterValue,
   loadColumnFilters,
@@ -26,9 +25,15 @@ import {
   rowKey,
   saveColumnOrder,
   saveVisibleColumns,
-  toTsv,
   type TableColumn
 } from "../utils/table";
+
+interface CellAddress {
+  row: number;
+  columnKey: TableColumn["key"];
+}
+
+type TableAction = "refresh" | "copy" | "paste" | "retranslate" | "highlight" | "delete" | "save";
 
 const rows = ref<TranslationCacheEntry[]>([]);
 const totalCount = ref(0);
@@ -38,13 +43,20 @@ const sortColumn = ref("updated_utc");
 const sortDirection = ref<"asc" | "desc">("desc");
 const visibleKeys = ref(loadVisibleColumns());
 const orderKeys = ref(loadColumnOrder());
-const selectedKeys = ref(new Set<string>());
+const selectedCells = ref(new Set<string>());
+const selectionAnchor = ref<CellAddress | null>(null);
 const dirtyRows = reactive(new Map<string, TranslationCacheEntry>());
 const columnMenuOpen = ref(false);
 const exportMenuOpen = ref(false);
 const importFile = ref<HTMLInputElement | null>(null);
 const tableMessage = ref("");
 const columnFilters = reactive<Record<string, string[]>>(loadColumnFilters());
+const columnWidths = reactive<Record<string, number>>(Object.fromEntries(defaultColumns.map((column) => [column.key, column.width])));
+const contextMenu = reactive({
+  open: false,
+  x: 0,
+  y: 0
+});
 const filterMenu = reactive({
   open: false,
   column: "",
@@ -65,7 +77,7 @@ const orderedColumns = computed(() => {
 });
 
 const visibleColumns = computed(() => orderedColumns.value.filter((column) => visibleKeys.value.includes(column.key)));
-const selectedRows = computed(() => rows.value.filter((row) => selectedKeys.value.has(rowKey(row))));
+const selectedRows = computed(() => selectedRowIndexes().map((index) => rows.value[index]).filter((row): row is TranslationCacheEntry => Boolean(row)));
 const hasColumnFilters = computed(() => Object.values(columnFilters).some((values) => values.length > 0));
 
 function appendColumnFilters(params: URLSearchParams, excludedColumn = ""): void {
@@ -78,6 +90,11 @@ function appendColumnFilters(params: URLSearchParams, excludedColumn = ""): void
       params.append(`filter.${column}`, value || emptyFilterValue);
     }
   }
+}
+
+function clearSelection(): void {
+  selectedCells.value = new Set();
+  selectionAnchor.value = null;
 }
 
 async function loadTranslations(): Promise<void> {
@@ -94,7 +111,7 @@ async function loadTranslations(): Promise<void> {
     const page = await getJson<TranslationCachePage>(`/api/translations?${params.toString()}`);
     rows.value = page.Items;
     totalCount.value = page.TotalCount;
-    selectedKeys.value = new Set([...selectedKeys.value].filter((key) => rows.value.some((row) => rowKey(row) === key)));
+    clearSelection();
   } catch (error) {
     showToast(error instanceof Error ? error.message : "翻译表加载失败", "error");
   } finally {
@@ -105,6 +122,7 @@ async function loadTranslations(): Promise<void> {
 function toggleColumn(key: string, checked: boolean): void {
   visibleKeys.value = checked ? Array.from(new Set([...visibleKeys.value, key])) : visibleKeys.value.filter((item) => item !== key);
   saveVisibleColumns(visibleKeys.value);
+  clearSelection();
 }
 
 function showAllColumns(): void {
@@ -123,6 +141,7 @@ function moveColumn(key: string, direction: -1 | 1): void {
   [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
   orderKeys.value = next;
   saveColumnOrder(next);
+  clearSelection();
 }
 
 function setSort(column: TableColumn): void {
@@ -135,26 +154,210 @@ function setSort(column: TableColumn): void {
   void loadTranslations();
 }
 
-function toggleRow(row: TranslationCacheEntry, checked: boolean): void {
-  const next = new Set(selectedKeys.value);
-  const key = rowKey(row);
-  if (checked) {
-    next.add(key);
-  } else {
-    next.delete(key);
+function columnWidth(column: TableColumn): number {
+  return columnWidths[column.key] ?? column.width;
+}
+
+function startColumnResize(event: PointerEvent, column: TableColumn): void {
+  event.preventDefault();
+  event.stopPropagation();
+  const startX = event.clientX;
+  const startWidth = columnWidth(column);
+  const move = (moveEvent: PointerEvent): void => {
+    columnWidths[column.key] = Math.max(72, Math.min(640, startWidth + moveEvent.clientX - startX));
+  };
+  const up = (): void => {
+    document.removeEventListener("pointermove", move);
+    document.removeEventListener("pointerup", up);
+  };
+  document.addEventListener("pointermove", move);
+  document.addEventListener("pointerup", up);
+}
+
+function cellKey(rowIndex: number, columnKey: TableColumn["key"]): string {
+  return `${rowIndex}:${columnKey}`;
+}
+
+function parseCellKey(key: string): CellAddress | null {
+  const separator = key.indexOf(":");
+  if (separator < 1) {
+    return null;
   }
-  selectedKeys.value = next;
+
+  const row = Number(key.slice(0, separator));
+  if (!Number.isInteger(row)) {
+    return null;
+  }
+
+  return { row, columnKey: key.slice(separator + 1) as TableColumn["key"] };
 }
 
-function updateCell(row: TranslationCacheEntry, column: TableColumn, value: string): void {
+function isCellSelected(rowIndex: number, column: TableColumn): boolean {
+  return selectedCells.value.has(cellKey(rowIndex, column.key));
+}
+
+function replaceSelection(rowIndex: number, column: TableColumn): void {
+  selectedCells.value = new Set([cellKey(rowIndex, column.key)]);
+  selectionAnchor.value = { row: rowIndex, columnKey: column.key };
+}
+
+function selectCell(rowIndex: number, column: TableColumn, event: MouseEvent): void {
+  const target = event.target as HTMLElement | null;
+  if (!target?.closest("[contenteditable='true']")) {
+    document.getElementById("tableWrap")?.focus({ preventScroll: true });
+  }
+
+  if (event.shiftKey && selectionAnchor.value) {
+    selectRange(selectionAnchor.value, { row: rowIndex, columnKey: column.key }, event.ctrlKey || event.metaKey);
+    return;
+  }
+
+  const key = cellKey(rowIndex, column.key);
+  const next = new Set(selectedCells.value);
+  if (event.ctrlKey || event.metaKey) {
+    if (next.has(key)) {
+      next.delete(key);
+    } else {
+      next.add(key);
+    }
+  } else {
+    next.clear();
+    next.add(key);
+  }
+
+  selectedCells.value = next;
+  selectionAnchor.value = { row: rowIndex, columnKey: column.key };
+}
+
+function selectRange(start: CellAddress, end: CellAddress, additive: boolean): void {
+  const startColumnIndex = visibleColumns.value.findIndex((column) => column.key === start.columnKey);
+  const endColumnIndex = visibleColumns.value.findIndex((column) => column.key === end.columnKey);
+  if (startColumnIndex < 0 || endColumnIndex < 0) {
+    return;
+  }
+
+  const next = additive ? new Set(selectedCells.value) : new Set<string>();
+  const minRow = Math.min(start.row, end.row);
+  const maxRow = Math.max(start.row, end.row);
+  const minColumn = Math.min(startColumnIndex, endColumnIndex);
+  const maxColumn = Math.max(startColumnIndex, endColumnIndex);
+  for (let row = minRow; row <= maxRow; row++) {
+    for (let columnIndex = minColumn; columnIndex <= maxColumn; columnIndex++) {
+      const column = visibleColumns.value[columnIndex];
+      if (column && rows.value[row]) {
+        next.add(cellKey(row, column.key));
+      }
+    }
+  }
+
+  selectedCells.value = next;
+}
+
+function selectAllCells(): void {
+  const next = new Set<string>();
+  rows.value.forEach((_, rowIndex) => {
+    visibleColumns.value.forEach((column) => {
+      next.add(cellKey(rowIndex, column.key));
+    });
+  });
+  selectedCells.value = next;
+  const firstColumn = visibleColumns.value[0];
+  selectionAnchor.value = firstColumn ? { row: 0, columnKey: firstColumn.key } : null;
+}
+
+function selectedCellAddresses(): CellAddress[] {
+  const visibleOrder = new Map(visibleColumns.value.map((column, index) => [column.key, index]));
+  return [...selectedCells.value]
+    .map(parseCellKey)
+    .filter((cell): cell is CellAddress => Boolean(cell))
+    .filter((cell) => cell.row >= 0 && cell.row < rows.value.length && visibleOrder.has(cell.columnKey))
+    .sort((a, b) => a.row - b.row || (visibleOrder.get(a.columnKey) ?? 0) - (visibleOrder.get(b.columnKey) ?? 0));
+}
+
+function selectedRowIndexes(): number[] {
+  return [...new Set(selectedCellAddresses().map((cell) => cell.row))].sort((a, b) => a - b);
+}
+
+function firstSelectedCell(): CellAddress | null {
+  return selectedCellAddresses()[0] ?? null;
+}
+
+function displayCellValue(row: TranslationCacheEntry, column: TableColumn): string {
+  const value = cellValue(row, column.key);
+  return column.key.endsWith("Utc") ? formatDateTime(value) : value;
+}
+
+function updateCellValue(rowIndex: number, column: TableColumn, value: string): void {
+  const existing = rows.value[rowIndex];
+  if (!existing || !column.editable) {
+    return;
+  }
+
+  const row = { ...existing };
   (row as unknown as Record<string, string | null>)[column.key] = value;
-  dirtyRows.set(rowKey(row), { ...row });
+  rows.value[rowIndex] = row;
+  dirtyRows.set(rowKey(row), row);
 }
 
-async function copySelected(): Promise<void> {
-  const rowsToCopy = selectedRows.value.length ? selectedRows.value : rows.value;
-  await navigator.clipboard.writeText(toTsv(rowsToCopy, visibleColumns.value));
-  showToast("已复制表格内容。", "ok");
+function updateCell(rowIndex: number, column: TableColumn, event: Event): void {
+  updateCellValue(rowIndex, column, (event.target as HTMLElement).innerText);
+}
+
+async function copyCells(): Promise<void> {
+  const cells = selectedCellAddresses();
+  if (!cells.length) {
+    tableMessage.value = "没有选中的单元格。";
+    showToast("没有选中的单元格。", "warn");
+    return;
+  }
+
+  const visibleOrder = new Map(visibleColumns.value.map((column, index) => [column.key, index]));
+  const rowIndexes = [...new Set(cells.map((cell) => cell.row))].sort((a, b) => a - b);
+  const columnKeys = [...new Set(cells.map((cell) => cell.columnKey))]
+    .sort((a, b) => (visibleOrder.get(a) ?? 0) - (visibleOrder.get(b) ?? 0));
+  const lines = rowIndexes.map((rowIndex) =>
+    columnKeys.map((columnKey) => selectedCells.value.has(cellKey(rowIndex, columnKey)) ? cellValue(rows.value[rowIndex], columnKey) : "").join("\t")
+  );
+  await navigator.clipboard.writeText(lines.join("\n"));
+  tableMessage.value = "已复制选区。";
+  showToast("已复制选区。", "ok");
+}
+
+function clipboardLines(text: string): string[] {
+  const lines = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n");
+  if (lines.length > 1 && lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+  return lines;
+}
+
+async function pasteCells(): Promise<void> {
+  const start = firstSelectedCell();
+  if (!start) {
+    tableMessage.value = "请先选择粘贴起点。";
+    showToast("请先选择粘贴起点。", "warn");
+    return;
+  }
+
+  const startColumnIndex = visibleColumns.value.findIndex((column) => column.key === start.columnKey);
+  if (startColumnIndex < 0) {
+    tableMessage.value = "请先选择可见列中的粘贴起点。";
+    showToast("请先选择可见列中的粘贴起点。", "warn");
+    return;
+  }
+
+  const text = await navigator.clipboard.readText();
+  clipboardLines(text).forEach((line, rowOffset) => {
+    line.split("\t").forEach((value, columnOffset) => {
+      const rowIndex = start.row + rowOffset;
+      const column = visibleColumns.value[startColumnIndex + columnOffset];
+      if (rows.value[rowIndex] && column?.editable) {
+        updateCellValue(rowIndex, column, value);
+      }
+    });
+  });
+  tableMessage.value = "已粘贴，等待保存。";
+  showToast("已粘贴，等待保存。", "ok");
 }
 
 async function saveRows(): Promise<void> {
@@ -171,6 +374,7 @@ async function saveRows(): Promise<void> {
 
 async function retranslateSelectedRows(): Promise<void> {
   if (!selectedRows.value.length) {
+    tableMessage.value = "没有选中的已翻译文本。";
     showToast("请先选择要重翻的行。", "warn");
     return;
   }
@@ -183,6 +387,7 @@ async function retranslateSelectedRows(): Promise<void> {
 async function highlightSelectedRow(): Promise<void> {
   const row = selectedRows.value[0];
   if (!row) {
+    tableMessage.value = "没有选中的已翻译文本。";
     showToast("请先选择一行。", "warn");
     return;
   }
@@ -194,6 +399,7 @@ async function highlightSelectedRow(): Promise<void> {
 
 async function deleteSelectedRows(): Promise<void> {
   if (!selectedRows.value.length) {
+    tableMessage.value = "没有选中的已翻译文本。";
     showToast("请先选择要删除的行。", "warn");
     return;
   }
@@ -203,13 +409,17 @@ async function deleteSelectedRows(): Promise<void> {
   }
 
   const result = await deleteJson<DeleteResult>("/api/translations", selectedRows.value);
-  selectedKeys.value = new Set();
+  dirtyRows.clear();
+  clearSelection();
   await loadTranslations();
   tableMessage.value = `已删除 ${result.DeletedCount} 行。`;
   showToast("选中行已删除。", "ok");
 }
 
 function openImportPicker(): void {
+  if (importFile.value) {
+    importFile.value.value = "";
+  }
   importFile.value?.click();
 }
 
@@ -301,7 +511,74 @@ function filterValueLabel(value: string | null): string {
   return value && value.length ? value : "(空)";
 }
 
-onMounted(loadTranslations);
+function showContextMenu(event: MouseEvent): void {
+  event.preventDefault();
+  contextMenu.x = Math.min(event.clientX, window.innerWidth - 220);
+  contextMenu.y = Math.min(event.clientY, window.innerHeight - 260);
+  contextMenu.open = true;
+}
+
+function openCellContextMenu(event: MouseEvent, rowIndex: number, column: TableColumn): void {
+  if (!isCellSelected(rowIndex, column)) {
+    replaceSelection(rowIndex, column);
+  }
+  showContextMenu(event);
+}
+
+function hideContextMenu(): void {
+  contextMenu.open = false;
+}
+
+async function handleTableAction(action: TableAction): Promise<void> {
+  hideContextMenu();
+  if (action === "refresh") {
+    await loadTranslations();
+  } else if (action === "copy") {
+    await copyCells();
+  } else if (action === "paste") {
+    await pasteCells();
+  } else if (action === "retranslate") {
+    await retranslateSelectedRows();
+  } else if (action === "highlight") {
+    await highlightSelectedRow();
+  } else if (action === "delete") {
+    await deleteSelectedRows();
+  } else if (action === "save") {
+    await saveRows();
+  }
+}
+
+function handleTableKeydown(event: KeyboardEvent): void {
+  const key = event.key.toLowerCase();
+  if ((event.ctrlKey || event.metaKey) && key === "a") {
+    event.preventDefault();
+    selectAllCells();
+  } else if ((event.ctrlKey || event.metaKey) && key === "c") {
+    event.preventDefault();
+    void copyCells();
+  } else if ((event.ctrlKey || event.metaKey) && key === "v") {
+    event.preventDefault();
+    void pasteCells();
+  } else if (event.key === "Delete" && selectedCells.value.size) {
+    event.preventDefault();
+    void deleteSelectedRows();
+  }
+}
+
+function handleDocumentClick(event: MouseEvent): void {
+  if (!(event.target as HTMLElement | null)?.closest("#tableContextMenu")) {
+    hideContextMenu();
+  }
+}
+
+onMounted(() => {
+  void loadTranslations();
+  document.addEventListener("click", handleDocumentClick);
+});
+
+onBeforeUnmount(() => {
+  document.removeEventListener("click", handleDocumentClick);
+});
 </script>
 
 <template>
@@ -343,10 +620,6 @@ onMounted(loadTranslations);
             </div>
           </div>
           <button id="clearTableFilters" class="secondary" type="button" :class="{ 'filter-active': hasColumnFilters }" @click="clearAllColumnFilters">清空筛选</button>
-          <button class="secondary" type="button" @click="copySelected">复制</button>
-          <button class="secondary" type="button" data-table-action="retranslate" @click="retranslateSelectedRows">重翻选中行</button>
-          <button class="secondary" type="button" data-table-action="highlight" @click="highlightSelectedRow">高亮显示</button>
-          <button class="danger" type="button" data-table-action="delete" @click="deleteSelectedRows">删除</button>
           <input id="importFile" ref="importFile" class="hidden-file-input" type="file" accept=".json,.csv,text/csv,application/json" @change="importRows">
           <button id="importRows" class="secondary file-action-button" type="button" @click="openImportPicker">导入</button>
           <div class="export-control">
@@ -359,34 +632,41 @@ onMounted(loadTranslations);
         </div>
       </div>
 
-      <div class="table-wrap" id="tableWrap" tabindex="0">
+      <div class="table-wrap" id="tableWrap" tabindex="0" @contextmenu="showContextMenu" @keydown="handleTableKeydown">
         <table>
           <colgroup id="translationColgroup">
-            <col style="width:42px">
-            <col v-for="column in visibleColumns" :key="column.key" :style="{ width: `${column.width}px` }">
+            <col v-for="column in visibleColumns" :key="column.key" :style="{ width: `${columnWidth(column)}px` }">
           </colgroup>
           <thead>
             <tr id="translationHead">
-              <th></th>
-              <th v-for="column in visibleColumns" :key="column.key">
+              <th v-for="column in visibleColumns" :key="column.key" :data-column-key="column.key">
                 <div class="header-inner">
                   <button class="header-title" type="button" @click="setSort(column)">{{ column.label }}</button>
                   <button class="header-filter" type="button" :class="{ 'filter-active': columnFilters[column.sort]?.length }" :data-filter-column="column.sort" @click.stop="openColumnFilterMenu(column)">筛</button>
                 </div>
+                <span class="col-resizer" :data-column-key="column.key" @pointerdown.stop.prevent="startColumnResize($event, column)"></span>
               </th>
             </tr>
           </thead>
           <tbody id="translationBody">
-            <tr v-for="row in rows" :key="rowKey(row)" :class="{ selected: selectedKeys.has(rowKey(row)), dirty: dirtyRows.has(rowKey(row)) }">
-              <td><input type="checkbox" :checked="selectedKeys.has(rowKey(row))" @change="toggleRow(row, ($event.target as HTMLInputElement).checked)"></td>
-              <td v-for="column in visibleColumns" :key="column.key">
-                <textarea
-                  v-if="column.editable"
-                  class="cell-editor"
-                  :value="cellValue(row, column.key)"
-                  @input="updateCell(row, column, ($event.target as HTMLTextAreaElement).value)"
-                />
-                <span v-else class="cell-text">{{ column.key.endsWith("Utc") ? formatDateTime(cellValue(row, column.key)) : cellValue(row, column.key) }}</span>
+            <tr v-for="(row, rowIndex) in rows" :key="rowKey(row)">
+              <td
+                v-for="column in visibleColumns"
+                :key="column.key"
+                :data-cell="cellKey(rowIndex, column.key)"
+                :data-row-index="rowIndex"
+                :data-column-key="column.key"
+                :class="{ selected: isCellSelected(rowIndex, column), dirty: dirtyRows.has(rowKey(row)) && column.editable }"
+                :title="cellValue(row, column.key)"
+                @click="selectCell(rowIndex, column, $event)"
+                @contextmenu.stop.prevent="openCellContextMenu($event, rowIndex, column)"
+              >
+                <div
+                  class="cell-text"
+                  :contenteditable="column.editable ? 'true' : undefined"
+                  :spellcheck="false"
+                  @input="updateCell(rowIndex, column, $event)"
+                >{{ displayCellValue(row, column) }}</div>
               </td>
             </tr>
           </tbody>
@@ -396,6 +676,22 @@ onMounted(loadTranslations);
         共 {{ totalCount }} 行，当前显示 {{ rows.length }} 行。<span v-if="dirtyRows.size"> 待保存 {{ dirtyRows.size }} 行。</span> {{ tableMessage }}
       </div>
     </SectionPanel>
+
+    <div
+      class="context-menu"
+      id="tableContextMenu"
+      :class="{ open: contextMenu.open }"
+      :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+      @click.stop
+    >
+      <button data-table-action="refresh" type="button" @click="handleTableAction('refresh')">刷新表格</button>
+      <button data-table-action="copy" type="button" @click="handleTableAction('copy')">复制选区</button>
+      <button data-table-action="paste" type="button" @click="handleTableAction('paste')">粘贴到选区</button>
+      <button data-table-action="retranslate" type="button" @click="handleTableAction('retranslate')">重翻选中行</button>
+      <button data-table-action="highlight" type="button" @click="handleTableAction('highlight')">高亮显示</button>
+      <button data-table-action="delete" class="danger" type="button" @click="handleTableAction('delete')">删除选中已翻译文本</button>
+      <button data-table-action="save" type="button" @click="handleTableAction('save')">保存修改</button>
+    </div>
 
     <div class="column-filter-menu" id="columnFilterMenu" :class="{ open: filterMenu.open }" role="dialog" aria-label="列筛选">
       <input id="columnFilterSearch" v-model="filterMenu.optionSearch" placeholder="搜索筛选值" @input="loadColumnFilterOptions(filterMenu.column, filterMenu.optionSearch)">

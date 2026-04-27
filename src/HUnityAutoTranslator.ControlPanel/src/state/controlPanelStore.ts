@@ -1,8 +1,9 @@
 import { reactive } from "vue";
-import { getJson, postJson } from "../api/client";
+import { api, getJson, postJson } from "../api/client";
 import type {
   ConnectionState,
   ControlPanelState,
+  FontPickResult,
   PageKey,
   ThemeMode,
   ToastKind,
@@ -164,4 +165,8 @@ export async function saveApiKey(apiKey: string): Promise<ControlPanelState | nu
     showToast(controlPanelStore.lastError ?? "API Key 保存失败", "error");
     return null;
   }
+}
+
+export async function pickFontFile(): Promise<FontPickResult> {
+  return api<FontPickResult>("/api/fonts/pick", { method: "POST" });
 }

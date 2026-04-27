@@ -3,13 +3,13 @@ import { computed } from "vue";
 import { controlPanelStore, cycleTheme, setActivePage } from "../state/controlPanelStore";
 import type { PageKey } from "../types/api";
 
-const pages: Array<{ key: PageKey; label: string }> = [
-  { key: "status", label: "运行状态" },
-  { key: "plugin", label: "插件设置" },
-  { key: "ai", label: "AI 翻译设置" },
-  { key: "glossary", label: "术语库" },
-  { key: "editor", label: "文本编辑" },
-  { key: "about", label: "版本信息" }
+const pages: Array<{ key: PageKey; label: string; caption: string }> = [
+  { key: "status", label: "运行状态", caption: "队列 / 写回 / 服务" },
+  { key: "plugin", label: "插件设置", caption: "采集 / 热键 / 字体" },
+  { key: "ai", label: "AI 翻译设置", caption: "模型 / 密钥 / Prompt" },
+  { key: "glossary", label: "术语库", caption: "固定译名 / 提取" },
+  { key: "editor", label: "文本编辑", caption: "缓存 / 批量处理" },
+  { key: "about", label: "版本信息", caption: "构建 / 访问范围" }
 ];
 
 const connectionText = computed(() => {
@@ -52,7 +52,10 @@ const themeText = computed(() => {
         type="button"
         @click="setActivePage(page.key)"
       >
-        {{ page.label }}
+        <span class="nav-copy">
+          <strong>{{ page.label }}</strong>
+          <small>{{ page.caption }}</small>
+        </span>
       </button>
     </nav>
     <div class="sidebar-footer">
