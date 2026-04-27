@@ -265,7 +265,7 @@ function replaceSelection(rowIndex: number, column: TableColumn): void {
 
 function selectCell(rowIndex: number, column: TableColumn, event: MouseEvent): void {
   const target = event.target as HTMLElement | null;
-  if (!target?.closest("[contenteditable='true']")) {
+  if (!target?.closest(".cell-editor")) {
     document.getElementById("tableWrap")?.focus({ preventScroll: true });
   }
 
@@ -362,7 +362,7 @@ function updateCellValue(rowIndex: number, column: TableColumn, value: string): 
 }
 
 function updateCell(rowIndex: number, column: TableColumn, event: Event): void {
-  updateCellValue(rowIndex, column, (event.target as HTMLElement).innerText);
+  updateCellValue(rowIndex, column, (event.target as HTMLTextAreaElement).value);
 }
 
 async function copyCells(): Promise<void> {
@@ -761,13 +761,18 @@ onBeforeUnmount(() => {
                 @click="selectCell(rowIndex, column, $event)"
                 @contextmenu.stop.prevent="openCellContextMenu($event, rowIndex, column)"
               >
-                <div
-                  class="cell-text"
-                  :contenteditable="column.editable ? 'true' : undefined"
+                <textarea
+                  v-if="column.editable"
+                  class="cell-editor"
+                  :value="displayCellValue(row, column)"
                   :spellcheck="false"
                   @mousedown.stop
+                  @click.stop="replaceSelection(rowIndex, column)"
+                  @focus="replaceSelection(rowIndex, column)"
+                  @keydown.stop
                   @input="updateCell(rowIndex, column, $event)"
-                >{{ displayCellValue(row, column) }}</div>
+                ></textarea>
+                <div v-else class="cell-text">{{ displayCellValue(row, column) }}</div>
               </td>
             </tr>
           </tbody>

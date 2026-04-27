@@ -529,6 +529,25 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_editor_uses_textarea_cell_editor_to_preserve_text_input_order()
+    {
+        var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        editorPageSource.Should().Contain("<textarea");
+        editorPageSource.Should().Contain("class=\"cell-editor\"");
+        editorPageSource.Should().Contain(":value=\"displayCellValue(row, column)\"");
+        editorPageSource.Should().Contain("@input=\"updateCell(rowIndex, column, $event)\"");
+        editorPageSource.Should().Contain("@keydown.stop");
+        editorPageSource.Should().Contain("@click.stop");
+        editorPageSource.Should().Contain("@mousedown.stop");
+        editorPageSource.Should().NotContain(":contenteditable=\"column.editable ? 'true' : undefined\"");
+        editorPageSource.Should().NotContain("closest(\"[contenteditable='true']\")");
+        cssSource.Should().Contain(".cell-editor");
+        cssSource.Should().Contain("resize: vertical;");
+    }
+
+    [Fact]
     public void Vue_editor_exposes_component_font_override_column()
     {
         var tableSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "table.ts"));
