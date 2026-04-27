@@ -143,6 +143,7 @@ export interface UpdateConfigRequest {
   RequestsPerMinute?: number;
   Enabled?: boolean;
   AutoOpenControlPanel?: boolean;
+  HttpPort?: number;
   OpenControlPanelHotkey?: string;
   ToggleTranslationHotkey?: string;
   ForceScanHotkey?: string;

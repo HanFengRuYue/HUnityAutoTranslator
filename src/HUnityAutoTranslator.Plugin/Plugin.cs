@@ -39,11 +39,11 @@ public sealed class Plugin : BaseUnityPlugin
         try
         {
             var dataDirectory = Path.Combine(Paths.ConfigPath, MyPluginInfo.PLUGIN_NAME);
-            var settingsPath = Path.Combine(dataDirectory, "settings.json");
+            var settingsPath = Path.Combine(Paths.ConfigPath, $"{MyPluginInfo.PLUGIN_GUID}.cfg");
             var cachePath = Path.Combine(dataDirectory, "translation-cache.sqlite");
             var glossaryPath = Path.Combine(dataDirectory, "translation-glossary.sqlite");
             _metrics = new ControlPanelMetrics();
-            _controlPanel = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(settingsPath), _metrics);
+            _controlPanel = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(settingsPath), _metrics);
             var config = _controlPanel.GetConfig();
             _cache = new SqliteTranslationCache(cachePath);
             _glossary = new SqliteGlossaryStore(glossaryPath);

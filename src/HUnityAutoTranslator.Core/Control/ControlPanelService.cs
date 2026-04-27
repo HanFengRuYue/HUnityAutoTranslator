@@ -384,6 +384,9 @@ public sealed class ControlPanelService
         var requestTimeoutSeconds = request.RequestTimeoutSeconds.HasValue
             ? Clamp(request.RequestTimeoutSeconds.Value, 5, 180)
             : _config.RequestTimeoutSeconds;
+        var httpPort = request.HttpPort.HasValue
+            ? Clamp(request.HttpPort.Value, 1, 65535)
+            : _config.HttpPort;
         var maxSourceTextLength = request.MaxSourceTextLength.HasValue
             ? Clamp(request.MaxSourceTextLength.Value, 20, 10000)
             : _config.MaxSourceTextLength;
@@ -421,6 +424,7 @@ public sealed class ControlPanelService
         {
             Enabled = request.Enabled ?? _config.Enabled,
             AutoOpenControlPanel = request.AutoOpenControlPanel ?? _config.AutoOpenControlPanel,
+            HttpPort = httpPort,
             OpenControlPanelHotkey = SelectHotkey(request.OpenControlPanelHotkey, _config.OpenControlPanelHotkey),
             ToggleTranslationHotkey = SelectHotkey(request.ToggleTranslationHotkey, _config.ToggleTranslationHotkey),
             ForceScanHotkey = SelectHotkey(request.ForceScanHotkey, _config.ForceScanHotkey),
@@ -496,6 +500,7 @@ public sealed class ControlPanelService
                 RequestsPerMinute: _config.RequestsPerMinute,
                 Enabled: _config.Enabled,
                 AutoOpenControlPanel: _config.AutoOpenControlPanel,
+                HttpPort: _config.HttpPort,
                 OpenControlPanelHotkey: _config.OpenControlPanelHotkey,
                 ToggleTranslationHotkey: _config.ToggleTranslationHotkey,
                 ForceScanHotkey: _config.ForceScanHotkey,

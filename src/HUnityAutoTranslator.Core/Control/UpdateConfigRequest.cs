@@ -9,6 +9,7 @@ public sealed record UpdateConfigRequest(
     int? RequestsPerMinute = null,
     bool? Enabled = null,
     bool? AutoOpenControlPanel = null,
+    int? HttpPort = null,
     string? OpenControlPanelHotkey = null,
     string? ToggleTranslationHotkey = null,
     string? ForceScanHotkey = null,

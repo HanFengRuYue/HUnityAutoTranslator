@@ -81,12 +81,12 @@ public sealed class ControlPanelServiceTests
     [Fact]
     public void CreateDefault_loads_saved_auto_open_control_panel_setting()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
-        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
 
         first.UpdateConfig(new UpdateConfigRequest(AutoOpenControlPanel: false));
 
-        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
 
         second.GetState().AutoOpenControlPanel.Should().BeFalse();
         second.GetConfig().AutoOpenControlPanel.Should().BeFalse();
@@ -108,8 +108,8 @@ public sealed class ControlPanelServiceTests
     [Fact]
     public void CreateDefault_loads_saved_runtime_hotkeys()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
-        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
 
         first.UpdateConfig(new UpdateConfigRequest(
             OpenControlPanelHotkey: "Ctrl+Shift+P",
@@ -117,7 +117,7 @@ public sealed class ControlPanelServiceTests
             ForceScanHotkey: "Ctrl+G",
             ToggleFontHotkey: "Shift+F8"));
 
-        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
         var state = second.GetState();
 
         state.OpenControlPanelHotkey.Should().Be("Ctrl+Shift+P");
@@ -268,8 +268,8 @@ public sealed class ControlPanelServiceTests
     [Fact]
     public void CreateDefault_does_not_persist_llamacpp_runtime_port()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
-        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
         first.UpdateConfig(new UpdateConfigRequest(ProviderKind: ProviderKind.LlamaCpp));
         first.SetLlamaCppStatus(LlamaCppServerStatus.Running(
             first.GetConfig().LlamaCpp,
@@ -280,17 +280,17 @@ public sealed class ControlPanelServiceTests
             serverPath: @"D:\Game\BepInEx\plugins\HUnityAutoTranslator\llama.cpp\llama-server.exe"));
 
         first.UpdateConfig(new UpdateConfigRequest(Model: "qwen-game-ui"));
-        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
 
         second.GetState().LlamaCppStatus.Port.Should().Be(0);
         second.GetConfig().Provider.BaseUrl.Should().Be("http://127.0.0.1:0");
     }
 
     [Fact]
-    public void CreateDefault_loads_saved_config_and_api_key_from_json_store()
+    public void CreateDefault_loads_saved_config_and_api_key_from_cfg_store()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
-        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
 
         first.UpdateConfig(new UpdateConfigRequest(
             TargetLanguage: "ja",
@@ -308,7 +308,7 @@ public sealed class ControlPanelServiceTests
             MaxWritebacksPerFrame: 44));
         first.SetApiKey("secret-value");
 
-        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
 
         var state = second.GetState();
         state.Enabled.Should().BeFalse();
@@ -329,45 +329,45 @@ public sealed class ControlPanelServiceTests
     }
 
     [Fact]
-    public void Json_store_persists_api_key_encrypted()
+    public void Cfg_store_persists_api_key_encrypted()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
-        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
 
         first.SetApiKey("secret-value");
 
-        var json = File.ReadAllText(path);
-        json.Should().Contain("EncryptedApiKey");
-        json.Should().NotContain("secret-value");
+        var cfg = File.ReadAllText(path);
+        cfg.Should().Contain("EncryptedApiKey");
+        cfg.Should().NotContain("secret-value");
 
-        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
         second.GetApiKey().Should().Be("secret-value");
         second.GetState().ApiKeyConfigured.Should().BeTrue();
     }
 
     [Fact]
-    public void Json_store_migrates_legacy_plaintext_api_key_on_load()
+    public void Cfg_store_encrypts_plaintext_api_key_on_load()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllText(path, """
-            {
-              "Config": {
-                "TargetLanguage": "ja"
-              },
-              "ApiKey": "legacy-secret"
-            }
+            [基础]
+            TargetLanguage = ja
+
+            [翻译服务]
+            ApiKey = legacy-secret
+            EncryptedApiKey =
             """);
 
-        var service = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var service = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
         service.GetApiKey().Should().Be("legacy-secret");
         service.GetState().TargetLanguage.Should().Be("ja");
 
-        var json = File.ReadAllText(path);
-        json.Should().Contain("EncryptedApiKey");
-        json.Should().NotContain("legacy-secret");
+        var cfg = File.ReadAllText(path);
+        cfg.Should().Contain("EncryptedApiKey");
+        cfg.Should().NotContain("legacy-secret");
 
-        var reloaded = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var reloaded = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
         reloaded.GetApiKey().Should().Be("legacy-secret");
         reloaded.GetState().TargetLanguage.Should().Be("ja");
     }
@@ -375,8 +375,8 @@ public sealed class ControlPanelServiceTests
     [Fact]
     public void CreateDefault_loads_expanded_plugin_and_ai_settings()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
-        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
 
         first.UpdateConfig(new UpdateConfigRequest(
             TargetLanguage: "zh-Hant",
@@ -397,7 +397,7 @@ public sealed class ControlPanelServiceTests
             ReapplyRememberedTranslations: true,
             CacheRetentionDays: 180));
 
-        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
         var state = second.GetState();
 
         state.RequestTimeoutSeconds.Should().Be(45);
@@ -462,15 +462,15 @@ public sealed class ControlPanelServiceTests
         defaults.GlossaryMaxTerms.Should().BeGreaterThan(0);
         defaults.GlossaryMaxCharacters.Should().BeGreaterThan(0);
 
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
-        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
         first.UpdateConfig(new UpdateConfigRequest(
             EnableGlossary: false,
             EnableAutoTermExtraction: true,
             GlossaryMaxTerms: 7,
             GlossaryMaxCharacters: 500));
 
-        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
         var state = second.GetState();
 
         state.EnableGlossary.Should().BeFalse();
@@ -482,8 +482,8 @@ public sealed class ControlPanelServiceTests
     [Fact]
     public void CreateDefault_loads_font_replacement_settings()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
-        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
 
         first.UpdateConfig(new UpdateConfigRequest(
             EnableFontReplacement: true,
@@ -495,7 +495,7 @@ public sealed class ControlPanelServiceTests
             ReplacementFontFile: @"C:\Fonts\NotoSansSC-Regular.otf",
             FontSamplingPointSize: 220));
 
-        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
         var state = second.GetState();
 
         state.EnableFontReplacement.Should().BeTrue();
@@ -512,14 +512,14 @@ public sealed class ControlPanelServiceTests
     [Fact]
     public void CreateDefault_loads_font_size_adjustment_settings()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
-        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
 
         first.UpdateConfig(new UpdateConfigRequest(
             FontSizeAdjustmentMode: FontSizeAdjustmentMode.Percent,
             FontSizeAdjustmentValue: -10));
 
-        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
         var state = second.GetState();
 
         state.FontSizeAdjustmentMode.Should().Be(FontSizeAdjustmentMode.Percent);
@@ -545,8 +545,8 @@ public sealed class ControlPanelServiceTests
     [Fact]
     public void Automatic_font_fallbacks_are_reported_in_state_without_persisting_settings()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "settings.json");
-        var first = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
 
         first.SetAutomaticFontFallbacks(null, @" C:\Windows\Fonts\NotoSansSC-VF.ttf ");
         first.UpdateConfig(new UpdateConfigRequest(MaxConcurrentRequests: 6));
@@ -557,7 +557,7 @@ public sealed class ControlPanelServiceTests
         state.ReplacementFontName.Should().BeNull();
         state.ReplacementFontFile.Should().BeNull();
 
-        var second = ControlPanelService.CreateDefault(new JsonControlPanelSettingsStore(path));
+        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
         var reloaded = second.GetState();
         reloaded.AutomaticReplacementFontName.Should().BeNull();
         reloaded.AutomaticReplacementFontFile.Should().BeNull();

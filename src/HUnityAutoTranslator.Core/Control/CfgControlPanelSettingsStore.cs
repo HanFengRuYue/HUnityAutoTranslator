@@ -1,0 +1,426 @@
+using System.Globalization;
+using System.Text;
+using HUnityAutoTranslator.Core.Configuration;
+using HUnityAutoTranslator.Core.Prompts;
+
+namespace HUnityAutoTranslator.Core.Control;
+
+public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
+{
+    private const string BasicSection = "基础";
+    private const string HotkeySection = "快捷键";
+    private const string ProviderSection = "翻译服务";
+    private const string ScanSection = "扫描与写回";
+    private const string CacheSection = "缓存与上下文";
+    private const string GlossarySection = "术语库";
+    private const string FontSection = "字体";
+    private const string LlamaCppSection = "llama.cpp";
+
+    private readonly string _filePath;
+
+    public CfgControlPanelSettingsStore(string filePath)
+    {
+        _filePath = filePath;
+    }
+
+    public ControlPanelSettings Load()
+    {
+        if (!File.Exists(_filePath))
+        {
+            var settings = new ControlPanelSettings();
+            Save(settings);
+            return settings;
+        }
+
+        try
+        {
+            var values = Parse(File.ReadAllLines(_filePath));
+            return new ControlPanelSettings
+            {
+                Config = BuildConfig(values),
+                ApiKey = NullIfWhiteSpace(ReadString(values, ProviderSection, "ApiKey")),
+                EncryptedApiKey = NullIfWhiteSpace(ReadString(values, ProviderSection, "EncryptedApiKey"))
+            };
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return new ControlPanelSettings();
+        }
+    }
+
+    public void Save(ControlPanelSettings settings)
+    {
+        var directory = Path.GetDirectoryName(_filePath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        File.WriteAllText(_filePath, BuildFile(settings), Encoding.UTF8);
+    }
+
+    private static UpdateConfigRequest BuildConfig(Dictionary<string, Dictionary<string, string>> values)
+    {
+        var temperatureText = ReadString(values, ProviderSection, "Temperature");
+        return new UpdateConfigRequest(
+            TargetLanguage: ReadString(values, BasicSection, "TargetLanguage"),
+            MaxConcurrentRequests: ReadInt(values, ScanSection, "MaxConcurrentRequests"),
+            RequestsPerMinute: ReadInt(values, ScanSection, "RequestsPerMinute"),
+            Enabled: ReadBool(values, BasicSection, "Enabled"),
+            AutoOpenControlPanel: ReadBool(values, BasicSection, "AutoOpenControlPanel"),
+            HttpPort: ReadInt(values, BasicSection, "HttpPort"),
+            OpenControlPanelHotkey: ReadString(values, HotkeySection, "OpenControlPanelHotkey"),
+            ToggleTranslationHotkey: ReadString(values, HotkeySection, "ToggleTranslationHotkey"),
+            ForceScanHotkey: ReadString(values, HotkeySection, "ForceScanHotkey"),
+            ToggleFontHotkey: ReadString(values, HotkeySection, "ToggleFontHotkey"),
+            ProviderKind: ReadEnum<ProviderKind>(values, ProviderSection, "ProviderKind"),
+            BaseUrl: ReadString(values, ProviderSection, "BaseUrl"),
+            Endpoint: ReadString(values, ProviderSection, "Endpoint"),
+            Model: ReadString(values, ProviderSection, "Model"),
+            Style: ReadEnum<TranslationStyle>(values, ProviderSection, "Style"),
+            MaxBatchCharacters: ReadInt(values, ScanSection, "MaxBatchCharacters"),
+            ScanIntervalMilliseconds: ReadInt(values, ScanSection, "ScanIntervalMilliseconds"),
+            MaxScanTargetsPerTick: ReadInt(values, ScanSection, "MaxScanTargetsPerTick"),
+            MaxWritebacksPerFrame: ReadInt(values, ScanSection, "MaxWritebacksPerFrame"),
+            RequestTimeoutSeconds: ReadInt(values, ProviderSection, "RequestTimeoutSeconds"),
+            ReasoningEffort: ReadString(values, ProviderSection, "ReasoningEffort"),
+            OutputVerbosity: ReadString(values, ProviderSection, "OutputVerbosity"),
+            DeepSeekThinkingMode: ReadString(values, ProviderSection, "DeepSeekThinkingMode"),
+            Temperature: ReadDouble(values, ProviderSection, "Temperature"),
+            ClearTemperature: temperatureText != null && string.IsNullOrWhiteSpace(temperatureText),
+            CustomPrompt: ReadPrompt(values, ProviderSection, "CustomPrompt"),
+            MaxSourceTextLength: ReadInt(values, ScanSection, "MaxSourceTextLength"),
+            IgnoreInvisibleText: ReadBool(values, ScanSection, "IgnoreInvisibleText"),
+            SkipNumericSymbolText: ReadBool(values, ScanSection, "SkipNumericSymbolText"),
+            EnableCacheLookup: ReadBool(values, CacheSection, "EnableCacheLookup"),
+            EnableTranslationContext: ReadBool(values, CacheSection, "EnableTranslationContext"),
+            TranslationContextMaxExamples: ReadInt(values, CacheSection, "TranslationContextMaxExamples"),
+            TranslationContextMaxCharacters: ReadInt(values, CacheSection, "TranslationContextMaxCharacters"),
+            EnableGlossary: ReadBool(values, GlossarySection, "EnableGlossary"),
+            EnableAutoTermExtraction: ReadBool(values, GlossarySection, "EnableAutoTermExtraction"),
+            GlossaryMaxTerms: ReadInt(values, GlossarySection, "GlossaryMaxTerms"),
+            GlossaryMaxCharacters: ReadInt(values, GlossarySection, "GlossaryMaxCharacters"),
+            ManualEditsOverrideAi: ReadBool(values, CacheSection, "ManualEditsOverrideAi"),
+            ReapplyRememberedTranslations: ReadBool(values, CacheSection, "ReapplyRememberedTranslations"),
+            CacheRetentionDays: ReadInt(values, CacheSection, "CacheRetentionDays"),
+            EnableUgui: ReadBool(values, ScanSection, "EnableUgui"),
+            EnableTmp: ReadBool(values, ScanSection, "EnableTmp"),
+            EnableImgui: ReadBool(values, ScanSection, "EnableImgui"),
+            EnableFontReplacement: ReadBool(values, FontSection, "EnableFontReplacement"),
+            ReplaceUguiFonts: ReadBool(values, FontSection, "ReplaceUguiFonts"),
+            ReplaceTmpFonts: ReadBool(values, FontSection, "ReplaceTmpFonts"),
+            ReplaceImguiFonts: ReadBool(values, FontSection, "ReplaceImguiFonts"),
+            AutoUseCjkFallbackFonts: ReadBool(values, FontSection, "AutoUseCjkFallbackFonts"),
+            ReplacementFontName: ReadString(values, FontSection, "ReplacementFontName"),
+            ReplacementFontFile: ReadString(values, FontSection, "ReplacementFontFile"),
+            FontSamplingPointSize: ReadInt(values, FontSection, "FontSamplingPointSize"),
+            FontSizeAdjustmentMode: ReadEnum<FontSizeAdjustmentMode>(values, FontSection, "FontSizeAdjustmentMode"),
+            FontSizeAdjustmentValue: ReadDouble(values, FontSection, "FontSizeAdjustmentValue"),
+            LlamaCpp: BuildLlamaCppConfig(values));
+    }
+
+    private static LlamaCppConfig? BuildLlamaCppConfig(Dictionary<string, Dictionary<string, string>> values)
+    {
+        var keys = new[] { "ModelPath", "ContextSize", "GpuLayers", "ParallelSlots" };
+        if (!keys.Any(key => HasValue(values, LlamaCppSection, key)))
+        {
+            return null;
+        }
+
+        var defaults = LlamaCppConfig.Default();
+        return new LlamaCppConfig(
+            ReadString(values, LlamaCppSection, "ModelPath"),
+            ReadInt(values, LlamaCppSection, "ContextSize") ?? defaults.ContextSize,
+            ReadInt(values, LlamaCppSection, "GpuLayers") ?? defaults.GpuLayers,
+            ReadInt(values, LlamaCppSection, "ParallelSlots") ?? defaults.ParallelSlots);
+    }
+
+    private static string BuildFile(ControlPanelSettings settings)
+    {
+        var defaults = RuntimeConfig.CreateDefault();
+        var config = settings.Config ?? new UpdateConfigRequest();
+        var providerKind = config.ProviderKind ?? defaults.Provider.Kind;
+        var llamaCpp = config.LlamaCpp ?? defaults.LlamaCpp;
+        var builder = new StringBuilder();
+
+        builder.AppendLine("# HUnityAutoTranslator 配置文件");
+        builder.AppendLine("# 可以在游戏关闭时手工编辑。保存后下次启动插件会读取这里的设置。");
+        builder.AppendLine("# 控制面板只监听 127.0.0.1，本文件只允许修改端口，避免误暴露到局域网。");
+        builder.AppendLine();
+
+        Section(builder, BasicSection);
+        Option(builder, "是否启用自动翻译。", "true", "true 或 false。", "Enabled", Bool(config.Enabled ?? defaults.Enabled));
+        Option(builder, "目标语言。常用：zh-Hans 简体中文，zh-Hant 繁体中文，ja 日文，ko 韩文，en 英文。", "zh-Hans", null, "TargetLanguage", Text(config.TargetLanguage ?? defaults.TargetLanguage));
+        Option(builder, "启动游戏后是否自动打开控制面板。", "true", "true 或 false。", "AutoOpenControlPanel", Bool(config.AutoOpenControlPanel ?? defaults.AutoOpenControlPanel));
+        Option(builder, "控制面板端口。监听地址固定为 127.0.0.1。", "48110", "范围：1 到 65535。", "HttpPort", Int(config.HttpPort ?? defaults.HttpPort));
+
+        Section(builder, HotkeySection);
+        Option(builder, "打开控制面板的快捷键。写 None 可禁用。", "Alt+H", "格式示例：Alt+H、Ctrl+Shift+P、None。", "OpenControlPanelHotkey", Text(config.OpenControlPanelHotkey ?? defaults.OpenControlPanelHotkey));
+        Option(builder, "临时启用或暂停翻译的快捷键。写 None 可禁用。", "Alt+F", "格式示例：Alt+F、Ctrl+T、None。", "ToggleTranslationHotkey", Text(config.ToggleTranslationHotkey ?? defaults.ToggleTranslationHotkey));
+        Option(builder, "强制重新扫描当前画面文字的快捷键。写 None 可禁用。", "Alt+G", "格式示例：Alt+G、Ctrl+G、None。", "ForceScanHotkey", Text(config.ForceScanHotkey ?? defaults.ForceScanHotkey));
+        Option(builder, "临时启用或暂停字体替换的快捷键。写 None 可禁用。", "Alt+D", "格式示例：Alt+D、Shift+F8、None。", "ToggleFontHotkey", Text(config.ToggleFontHotkey ?? defaults.ToggleFontHotkey));
+
+        Section(builder, ProviderSection);
+        Option(builder, "翻译服务商。", "OpenAI", "可选：OpenAI、DeepSeek、OpenAICompatible、LlamaCpp。", "ProviderKind", EnumText(providerKind));
+        Option(builder, "服务根地址。OpenAI 默认 https://api.openai.com；DeepSeek 默认 https://api.deepseek.com；兼容服务填本地或第三方地址。", defaults.Provider.BaseUrl, null, "BaseUrl", Text(config.BaseUrl ?? defaults.Provider.BaseUrl));
+        Option(builder, "请求接口路径。OpenAI Responses 使用 /v1/responses；Chat Completions 通常使用 /v1/chat/completions。", defaults.Provider.Endpoint, null, "Endpoint", Text(config.Endpoint ?? defaults.Provider.Endpoint));
+        Option(builder, "模型名称。", defaults.Provider.Model, "示例：gpt-5.5、deepseek-v4-flash、local-model。", "Model", Text(config.Model ?? defaults.Provider.Model));
+        Option(builder, "翻译风格。", "Localized", "可选：Faithful 忠实、Natural 自然、Localized 本地化、UiConcise UI短句。", "Style", EnumText(config.Style ?? defaults.Style));
+        Option(builder, "单次请求超时时间，单位秒。", "30", "范围：5 到 180。", "RequestTimeoutSeconds", Int(config.RequestTimeoutSeconds ?? defaults.RequestTimeoutSeconds));
+        Option(builder, "OpenAI 推理强度。普通翻译建议 none。", "none", "可选：none、low、medium、high、xhigh、max。", "ReasoningEffort", Text(config.ReasoningEffort ?? defaults.ReasoningEffort));
+        Option(builder, "OpenAI 输出详细程度。普通翻译建议 low。", "low", "可选：low、medium、high。", "OutputVerbosity", Text(config.OutputVerbosity ?? defaults.OutputVerbosity));
+        Option(builder, "DeepSeek 思考模式。普通 UI 翻译建议 disabled。", "disabled", "可选：enabled、disabled。", "DeepSeekThinkingMode", Text(config.DeepSeekThinkingMode ?? defaults.DeepSeekThinkingMode));
+        Option(builder, "采样温度。留空表示使用服务默认值。", "留空", "范围：0 到 2。", "Temperature", NullableDouble(config.Temperature));
+        Option(builder, "自定义系统提示词。留空使用内置提示词；需要换行时写 \\n。", "留空", "可使用 {TargetLanguage} 和 {StyleInstruction} 占位符。", "CustomPrompt", Prompt(config.CustomPrompt));
+        Option(builder, "API Key 临时填写处。", "留空", "如果你不想打开控制面板，可以把密钥填在这里；插件下次启动会自动加密保存，并清空这一项。", "ApiKey", Text(settings.ApiKey));
+        Option(builder, "已加密的 API Key，插件自动维护。除非你要清空密钥，否则不要手动修改。", "留空", null, "EncryptedApiKey", Text(settings.EncryptedApiKey));
+
+        Section(builder, ScanSection);
+        Option(builder, "同时进行的翻译请求数量。", "4", "范围：1 到 16。", "MaxConcurrentRequests", Int(config.MaxConcurrentRequests ?? defaults.MaxConcurrentRequests));
+        Option(builder, "每分钟最多发送多少次请求。", "60", "范围：1 到 600。", "RequestsPerMinute", Int(config.RequestsPerMinute ?? defaults.RequestsPerMinute));
+        Option(builder, "单批次最多包含多少字符。", "1800", "范围：256 到 8000。", "MaxBatchCharacters", Int(config.MaxBatchCharacters ?? defaults.MaxBatchCharacters));
+        Option(builder, "扫描画面文字的间隔，单位毫秒。", "750", "范围：100 到 5000。", "ScanIntervalMilliseconds", Int(config.ScanIntervalMilliseconds ?? (int)defaults.ScanInterval.TotalMilliseconds));
+        Option(builder, "每次扫描最多处理多少个文字目标。", "256", "范围：1 到 4096。", "MaxScanTargetsPerTick", Int(config.MaxScanTargetsPerTick ?? defaults.MaxScanTargetsPerTick));
+        Option(builder, "每帧最多写回多少条翻译。", "32", "范围：1 到 512。", "MaxWritebacksPerFrame", Int(config.MaxWritebacksPerFrame ?? defaults.MaxWritebacksPerFrame));
+        Option(builder, "单条源文本最大长度，超过会跳过。", "2000", "范围：20 到 10000。", "MaxSourceTextLength", Int(config.MaxSourceTextLength ?? defaults.MaxSourceTextLength));
+        Option(builder, "是否忽略不可见文字。", "true", "true 或 false。", "IgnoreInvisibleText", Bool(config.IgnoreInvisibleText ?? defaults.IgnoreInvisibleText));
+        Option(builder, "是否跳过纯数字或符号文本。", "true", "true 或 false。", "SkipNumericSymbolText", Bool(config.SkipNumericSymbolText ?? defaults.SkipNumericSymbolText));
+        Option(builder, "是否扫描 Unity UGUI 文本。", "true", "true 或 false。", "EnableUgui", Bool(config.EnableUgui ?? defaults.EnableUgui));
+        Option(builder, "是否扫描 TextMeshPro 文本。", "true", "true 或 false。", "EnableTmp", Bool(config.EnableTmp ?? defaults.EnableTmp));
+        Option(builder, "是否处理 IMGUI 文本。", "true", "true 或 false。", "EnableImgui", Bool(config.EnableImgui ?? defaults.EnableImgui));
+
+        Section(builder, CacheSection);
+        Option(builder, "是否启用翻译缓存命中。", "true", "true 或 false。", "EnableCacheLookup", Bool(config.EnableCacheLookup ?? defaults.EnableCacheLookup));
+        Option(builder, "是否把同组件或同场景附近文本作为翻译上下文。", "true", "true 或 false。", "EnableTranslationContext", Bool(config.EnableTranslationContext ?? defaults.EnableTranslationContext));
+        Option(builder, "最多附带多少条上下文示例。", "4", "范围：0 到 20。", "TranslationContextMaxExamples", Int(config.TranslationContextMaxExamples ?? defaults.TranslationContextMaxExamples));
+        Option(builder, "上下文示例最多占用多少字符。", "1200", "范围：0 到 8000。", "TranslationContextMaxCharacters", Int(config.TranslationContextMaxCharacters ?? defaults.TranslationContextMaxCharacters));
+        Option(builder, "人工编辑过的翻译是否优先于 AI 结果。", "true", "true 或 false。", "ManualEditsOverrideAi", Bool(config.ManualEditsOverrideAi ?? defaults.ManualEditsOverrideAi));
+        Option(builder, "切换场景或刷新时是否重新套用已记住的翻译。", "true", "true 或 false。", "ReapplyRememberedTranslations", Bool(config.ReapplyRememberedTranslations ?? defaults.ReapplyRememberedTranslations));
+        Option(builder, "缓存保留天数。", "365", "范围：1 到 3650。", "CacheRetentionDays", Int(config.CacheRetentionDays ?? defaults.CacheRetentionDays));
+
+        Section(builder, GlossarySection);
+        Option(builder, "是否启用术语库约束。", "true", "true 或 false。", "EnableGlossary", Bool(config.EnableGlossary ?? defaults.EnableGlossary));
+        Option(builder, "是否允许 AI 自动抽取术语。默认关闭，避免误写术语库。", "false", "true 或 false。", "EnableAutoTermExtraction", Bool(config.EnableAutoTermExtraction ?? defaults.EnableAutoTermExtraction));
+        Option(builder, "每次翻译最多使用多少条术语。", "16", "范围：0 到 100。", "GlossaryMaxTerms", Int(config.GlossaryMaxTerms ?? defaults.GlossaryMaxTerms));
+        Option(builder, "术语提示最多占用多少字符。", "1200", "范围：0 到 8000。", "GlossaryMaxCharacters", Int(config.GlossaryMaxCharacters ?? defaults.GlossaryMaxCharacters));
+
+        Section(builder, FontSection);
+        Option(builder, "是否启用字体替换。", "true", "true 或 false。", "EnableFontReplacement", Bool(config.EnableFontReplacement ?? defaults.EnableFontReplacement));
+        Option(builder, "是否替换 UGUI 字体。", "true", "true 或 false。", "ReplaceUguiFonts", Bool(config.ReplaceUguiFonts ?? defaults.ReplaceUguiFonts));
+        Option(builder, "是否替换 TextMeshPro 字体。", "true", "true 或 false。", "ReplaceTmpFonts", Bool(config.ReplaceTmpFonts ?? defaults.ReplaceTmpFonts));
+        Option(builder, "是否替换 IMGUI 字体。", "true", "true 或 false。", "ReplaceImguiFonts", Bool(config.ReplaceImguiFonts ?? defaults.ReplaceImguiFonts));
+        Option(builder, "未填写自定义字体时，是否自动使用系统中的中日韩字体。", "true", "true 或 false。", "AutoUseCjkFallbackFonts", Bool(config.AutoUseCjkFallbackFonts ?? defaults.AutoUseCjkFallbackFonts));
+        Option(builder, "自定义字体名称。留空表示自动选择。", "留空", "示例：Noto Sans SC、Microsoft YaHei。", "ReplacementFontName", Text(config.ReplacementFontName));
+        Option(builder, "自定义字体文件完整路径。留空表示自动选择。", "留空", "示例：C:\\Windows\\Fonts\\msyh.ttc。", "ReplacementFontFile", Text(config.ReplacementFontFile));
+        Option(builder, "构建 TMP 字体资产时使用的采样字号。", "90", "范围：16 到 180。", "FontSamplingPointSize", Int(config.FontSamplingPointSize ?? defaults.FontSamplingPointSize));
+        Option(builder, "译文字号调整方式。", "Disabled", "可选：Disabled 不调整、Points 加减点数、Percent 按百分比。", "FontSizeAdjustmentMode", EnumText(config.FontSizeAdjustmentMode ?? defaults.FontSizeAdjustmentMode));
+        Option(builder, "译文字号调整值。Points 表示点数，Percent 表示百分比。", "0", "范围：-99 到 300。", "FontSizeAdjustmentValue", Double(config.FontSizeAdjustmentValue ?? defaults.FontSizeAdjustmentValue));
+
+        Section(builder, LlamaCppSection);
+        Option(builder, "llama.cpp 模型文件完整路径。ProviderKind 为 LlamaCpp 时使用。", "留空", "示例：D:\\Models\\qwen.gguf。", "ModelPath", Text(llamaCpp.ModelPath));
+        Option(builder, "llama.cpp 上下文长度。", "4096", "范围：512 到 131072。", "ContextSize", Int(llamaCpp.ContextSize));
+        Option(builder, "llama.cpp GPU 层数。999 表示尽量全部放入 GPU。", "999", "范围：0 到 999。", "GpuLayers", Int(llamaCpp.GpuLayers));
+        Option(builder, "llama.cpp 并行槽位数量。", "1", "范围：1 到 16。", "ParallelSlots", Int(llamaCpp.ParallelSlots));
+
+        return builder.ToString();
+    }
+
+    private static Dictionary<string, Dictionary<string, string>> Parse(IEnumerable<string> lines)
+    {
+        var values = new Dictionary<string, Dictionary<string, string>>(StringComparer.OrdinalIgnoreCase);
+        var section = string.Empty;
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.Trim();
+            if (line.Length == 0 || line.StartsWith("#", StringComparison.Ordinal) || line.StartsWith(";", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (line.StartsWith("[", StringComparison.Ordinal) && line.EndsWith("]", StringComparison.Ordinal))
+            {
+                section = line.Substring(1, line.Length - 2).Trim();
+                if (!values.ContainsKey(section))
+                {
+                    values[section] = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                }
+
+                continue;
+            }
+
+            var separator = line.IndexOf('=');
+            if (separator < 0)
+            {
+                continue;
+            }
+
+            var key = line.Substring(0, separator).Trim();
+            var value = line.Substring(separator + 1).Trim();
+            if (key.Length == 0)
+            {
+                continue;
+            }
+
+            if (!values.TryGetValue(section, out var sectionValues))
+            {
+                sectionValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                values[section] = sectionValues;
+            }
+
+            sectionValues[key] = value;
+        }
+
+        return values;
+    }
+
+    private static void Section(StringBuilder builder, string section)
+    {
+        builder.Append('[').Append(section).AppendLine("]");
+        builder.AppendLine();
+    }
+
+    private static void Option(
+        StringBuilder builder,
+        string description,
+        string defaultValue,
+        string? note,
+        string key,
+        string value)
+    {
+        builder.Append("# ").AppendLine(description);
+        builder.Append("# 默认值：").AppendLine(defaultValue);
+        if (!string.IsNullOrWhiteSpace(note))
+        {
+            builder.Append("# ").AppendLine(note);
+        }
+
+        builder.Append(key).Append(" = ").AppendLine(value);
+        builder.AppendLine();
+    }
+
+    private static string? ReadString(Dictionary<string, Dictionary<string, string>> values, string section, string key)
+    {
+        return values.TryGetValue(section, out var sectionValues) && sectionValues.TryGetValue(key, out var value)
+            ? value
+            : null;
+    }
+
+    private static bool HasValue(Dictionary<string, Dictionary<string, string>> values, string section, string key)
+    {
+        return values.TryGetValue(section, out var sectionValues) && sectionValues.ContainsKey(key);
+    }
+
+    private static bool? ReadBool(Dictionary<string, Dictionary<string, string>> values, string section, string key)
+    {
+        var value = ReadString(values, section, key);
+        if (bool.TryParse(value, out var parsed))
+        {
+            return parsed;
+        }
+
+        if (string.Equals(value, "yes", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "on", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "1", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        if (string.Equals(value, "no", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "off", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(value, "0", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        return null;
+    }
+
+    private static int? ReadInt(Dictionary<string, Dictionary<string, string>> values, string section, string key)
+    {
+        return int.TryParse(ReadString(values, section, key), NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+    }
+
+    private static double? ReadDouble(Dictionary<string, Dictionary<string, string>> values, string section, string key)
+    {
+        return double.TryParse(ReadString(values, section, key), NumberStyles.Float, CultureInfo.InvariantCulture, out var parsed)
+            ? parsed
+            : null;
+    }
+
+    private static T? ReadEnum<T>(Dictionary<string, Dictionary<string, string>> values, string section, string key)
+        where T : struct, Enum
+    {
+        var value = ReadString(values, section, key);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        if (Enum.TryParse<T>(value, ignoreCase: true, out var parsed) && Enum.IsDefined(typeof(T), parsed))
+        {
+            return parsed;
+        }
+
+        return null;
+    }
+
+    private static string? ReadPrompt(Dictionary<string, Dictionary<string, string>> values, string section, string key)
+    {
+        var value = ReadString(values, section, key);
+        return value == null ? null : DecodePrompt(value);
+    }
+
+    private static string DecodePrompt(string value)
+    {
+        return value.Replace("\\r\\n", "\n", StringComparison.Ordinal)
+            .Replace("\\n", "\n", StringComparison.Ordinal)
+            .Replace("\\r", "\n", StringComparison.Ordinal);
+    }
+
+    private static string? NullIfWhiteSpace(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string Text(string? value)
+    {
+        return value ?? string.Empty;
+    }
+
+    private static string Prompt(string? value)
+    {
+        return string.IsNullOrEmpty(value)
+            ? string.Empty
+            : value.Replace("\r\n", "\n", StringComparison.Ordinal)
+                .Replace("\r", "\n", StringComparison.Ordinal)
+                .Replace("\n", "\\n", StringComparison.Ordinal);
+    }
+
+    private static string Bool(bool value)
+    {
+        return value ? "true" : "false";
+    }
+
+    private static string Int(int value)
+    {
+        return value.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string Double(double value)
+    {
+        return value.ToString("0.########", CultureInfo.InvariantCulture);
+    }
+
+    private static string NullableDouble(double? value)
+    {
+        return value.HasValue ? Double(value.Value) : string.Empty;
+    }
+
+    private static string EnumText<T>(T value)
+        where T : struct, Enum
+    {
+        return value.ToString();
+    }
+}
