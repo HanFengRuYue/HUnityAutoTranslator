@@ -28,7 +28,9 @@ const activePageComponent = computed(() => pages[controlPanelStore.activePage]);
     <AppSidebar @update:collapsed="sidebarCollapsed = $event" />
     <main class="workspace">
       <div class="workspace-main">
-        <component :is="activePageComponent" />
+        <Transition name="page-fade" mode="out-in">
+          <component :is="activePageComponent" :key="controlPanelStore.activePage" />
+        </Transition>
       </div>
     </main>
     <ToastHost />

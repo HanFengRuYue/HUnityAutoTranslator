@@ -1,6 +1,23 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
-import { Filter } from "lucide-vue-next";
+import type { Component } from "vue";
+import {
+  ChevronsUpDown,
+  ClipboardPaste,
+  Columns3,
+  Copy,
+  Download,
+  Filter,
+  FilterX,
+  MapPin,
+  RefreshCw,
+  Save,
+  Search,
+  SortAsc,
+  SortDesc,
+  Trash2,
+  Upload
+} from "lucide-vue-next";
 import { api, buildQuery, deleteJson, getJson, getText, patchJson, postJson } from "../api/client";
 import SectionPanel from "../components/SectionPanel.vue";
 import { refreshState, showToast } from "../state/controlPanelStore";
@@ -98,6 +115,15 @@ function clearSelection(): void {
   selectionAnchor.value = null;
 }
 
+function isTranslationCachePage(value: unknown): value is TranslationCachePage {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const page = value as Partial<TranslationCachePage>;
+  return Array.isArray(page.Items) && typeof page.TotalCount === "number";
+}
+
 async function loadTranslations(): Promise<void> {
   loading.value = true;
   try {
@@ -109,7 +135,11 @@ async function loadTranslations(): Promise<void> {
       limit: "100"
     });
     appendColumnFilters(params);
-    const page = await getJson<TranslationCachePage>(`/api/translations?${params.toString()}`);
+    const page = await getJson<unknown>(`/api/translations?${params.toString()}`);
+    if (!isTranslationCachePage(page)) {
+      throw new Error("翻译表返回格式无效");
+    }
+
     rows.value = page.Items;
     totalCount.value = page.TotalCount;
     clearSelection();
@@ -153,6 +183,26 @@ function setSort(column: TableColumn): void {
     sortDirection.value = "asc";
   }
   void loadTranslations();
+}
+
+function sortState(column: TableColumn): "none" | "ascending" | "descending" {
+  if (sortColumn.value !== column.sort) {
+    return "none";
+  }
+
+  return sortDirection.value === "asc" ? "ascending" : "descending";
+}
+
+function ariaSort(column: TableColumn): "none" | "ascending" | "descending" {
+  return sortState(column);
+}
+
+function sortIcon(column: TableColumn): Component {
+  if (sortColumn.value !== column.sort) {
+    return ChevronsUpDown;
+  }
+
+  return sortDirection.value === "asc" ? SortAsc : SortDesc;
 }
 
 function columnWidth(column: TableColumn): number {
@@ -495,6 +545,10 @@ function applyColumnFilter(column = filterMenu.column, values = filterMenu.draft
   void loadTranslations();
 }
 
+function hasColumnFilter(column: TableColumn): boolean {
+  return (columnFilters[column.sort] ?? []).length > 0;
+}
+
 function clearAllColumnFilters(): void {
   for (const key of Object.keys(columnFilters)) {
     delete columnFilters[key];
@@ -590,17 +644,20 @@ onBeforeUnmount(() => {
         <p>查看、编辑和批量处理本地 SQLite 翻译缓存。</p>
       </div>
       <div class="actions">
-        <button class="secondary" type="button" :disabled="loading" @click="loadTranslations">{{ loading ? "刷新中" : "刷新" }}</button>
-        <button class="primary" id="saveRows" type="button" :disabled="dirtyRows.size === 0" @click="saveRows">保存修改</button>
+        <button class="secondary" type="button" :disabled="loading" @click="loadTranslations"><RefreshCw class="button-icon" />{{ loading ? "刷新中" : "刷新" }}</button>
+        <button class="primary" id="saveRows" type="button" :disabled="dirtyRows.size === 0" @click="saveRows"><Save class="button-icon" />保存修改</button>
       </div>
     </div>
 
-    <SectionPanel title="翻译表">
+    <SectionPanel title="翻译表" :icon="Columns3">
       <div class="editor-tools">
-        <input id="tableSearch" v-model="search" placeholder="搜索原文、译文、场景或组件" @input="loadTranslations">
+        <label class="field search-field">
+          <span class="field-label"><Search class="field-label-icon" />搜索</span>
+          <input id="tableSearch" v-model="search" placeholder="搜索原文、译文、场景或组件" @input="loadTranslations">
+        </label>
         <div class="editor-actions">
           <div class="column-control">
-            <button id="columnMenuButton" class="secondary" type="button" aria-controls="columnChooser" :aria-expanded="columnMenuOpen" @click="columnMenuOpen = !columnMenuOpen">列显示</button>
+            <button id="columnMenuButton" class="secondary" type="button" aria-controls="columnChooser" :aria-expanded="columnMenuOpen" @click="columnMenuOpen = !columnMenuOpen"><Columns3 class="button-icon" />列显示</button>
             <div class="column-chooser" id="columnChooser" :class="{ open: columnMenuOpen }">
               <div class="column-chooser-head">
                 <span>列显示</span>
@@ -620,11 +677,11 @@ onBeforeUnmount(() => {
               </div>
             </div>
           </div>
-          <button id="clearTableFilters" class="secondary" type="button" :class="{ 'filter-active': hasColumnFilters }" @click="clearAllColumnFilters">清空筛选</button>
+          <button id="clearTableFilters" class="secondary" type="button" :class="{ 'filter-active': hasColumnFilters }" @click="clearAllColumnFilters"><FilterX class="button-icon" />清空筛选</button>
           <input id="importFile" ref="importFile" class="hidden-file-input" type="file" accept=".json,.csv,text/csv,application/json" @change="importRows">
-          <button id="importRows" class="secondary file-action-button" type="button" @click="openImportPicker">导入</button>
+          <button id="importRows" class="secondary file-action-button" type="button" @click="openImportPicker"><Upload class="button-icon" />导入</button>
           <div class="export-control">
-            <button id="exportRows" class="secondary file-action-button" type="button" aria-controls="exportMenu" :aria-expanded="exportMenuOpen" @click="exportMenuOpen = !exportMenuOpen">导出</button>
+            <button id="exportRows" class="secondary file-action-button" type="button" aria-controls="exportMenu" :aria-expanded="exportMenuOpen" @click="exportMenuOpen = !exportMenuOpen"><Download class="button-icon" />导出</button>
             <div class="export-menu" id="exportMenu" :class="{ open: exportMenuOpen }" role="menu" aria-label="导出格式">
               <button type="button" role="menuitem" data-export-format="json" @click="exportRows('json')">JSON 文件</button>
               <button type="button" role="menuitem" data-export-format="csv" @click="exportRows('csv')">CSV 文件</button>
@@ -640,10 +697,13 @@ onBeforeUnmount(() => {
           </colgroup>
           <thead>
             <tr id="translationHead">
-              <th v-for="column in visibleColumns" :key="column.key" :data-column-key="column.key">
+              <th v-for="column in visibleColumns" :key="column.key" :data-column-key="column.key" :aria-sort="ariaSort(column)" :data-sort-state="sortState(column)">
                 <div class="header-inner">
-                  <button class="header-title" type="button" @click="setSort(column)">{{ column.label }}</button>
-                  <button class="header-filter" type="button" aria-label="筛选" :title="`筛选 ${column.label}`" :class="{ 'filter-active': columnFilters[column.sort]?.length }" :data-filter-column="column.sort" @click.stop="openColumnFilterMenu(column)"><Filter class="table-icon" /></button>
+                  <button class="header-title" type="button" :title="`按 ${column.label} 排序`" @click="setSort(column)">
+                    <span>{{ column.label }}</span>
+                    <component :is="sortIcon(column)" class="sort-icon" aria-hidden="true" />
+                  </button>
+                  <button class="header-filter" type="button" aria-label="筛选" :title="`筛选 ${column.label}`" :class="{ 'filter-active': hasColumnFilter(column) }" :data-filter-column="column.sort" @click.stop="openColumnFilterMenu(column)"><Filter class="table-icon" /></button>
                 </div>
                 <span class="col-resizer" :data-column-key="column.key" @pointerdown.stop.prevent="startColumnResize($event, column)"></span>
               </th>
@@ -686,13 +746,13 @@ onBeforeUnmount(() => {
       :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
       @click.stop
     >
-      <button data-table-action="refresh" type="button" @click="handleTableAction('refresh')">刷新表格</button>
-      <button data-table-action="copy" type="button" @click="handleTableAction('copy')">复制选区</button>
-      <button data-table-action="paste" type="button" @click="handleTableAction('paste')">粘贴到选区</button>
-      <button data-table-action="retranslate" type="button" @click="handleTableAction('retranslate')">重翻选中行</button>
-      <button data-table-action="highlight" type="button" @click="handleTableAction('highlight')">高亮显示</button>
-      <button data-table-action="delete" class="danger" type="button" @click="handleTableAction('delete')">删除选中已翻译文本</button>
-      <button data-table-action="save" type="button" @click="handleTableAction('save')">保存修改</button>
+      <button data-table-action="refresh" type="button" @click="handleTableAction('refresh')"><RefreshCw class="button-icon" />刷新表格</button>
+      <button data-table-action="copy" type="button" @click="handleTableAction('copy')"><Copy class="button-icon" />复制选区</button>
+      <button data-table-action="paste" type="button" @click="handleTableAction('paste')"><ClipboardPaste class="button-icon" />粘贴到选区</button>
+      <button data-table-action="retranslate" type="button" @click="handleTableAction('retranslate')"><RefreshCw class="button-icon" />重翻选中行</button>
+      <button data-table-action="highlight" type="button" @click="handleTableAction('highlight')"><MapPin class="button-icon" />高亮显示</button>
+      <button data-table-action="delete" class="danger" type="button" @click="handleTableAction('delete')"><Trash2 class="button-icon" />删除选中已翻译文本</button>
+      <button data-table-action="save" type="button" @click="handleTableAction('save')"><Save class="button-icon" />保存修改</button>
     </div>
 
     <div class="column-filter-menu" id="columnFilterMenu" :class="{ open: filterMenu.open }" role="dialog" aria-label="列筛选">

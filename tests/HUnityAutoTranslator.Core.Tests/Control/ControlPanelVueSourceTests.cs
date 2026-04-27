@@ -46,6 +46,46 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_status_page_shows_in_flight_capacity_without_completed_count_card()
+    {
+        var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
+
+        statusPageSource.Should().Contain("const activeTranslationCapacity");
+        statusPageSource.Should().Contain("function formatInFlightCapacity");
+        statusPageSource.Should().Contain("state.value.InFlightTranslationCount");
+        statusPageSource.Should().Contain("state.value.MaxConcurrentRequests");
+        statusPageSource.Should().Contain("value-id=\"inFlightTranslationCount\"");
+        statusPageSource.Should().NotContain("value-id=\"completedTranslationCount\"");
+        statusPageSource.Should().NotContain("state?.CompletedTranslationCount");
+    }
+
+    [Fact]
+    public void Vue_status_and_settings_surfaces_use_lucide_option_icons()
+    {
+        var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
+        var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var glossaryPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "GlossaryPage.vue"));
+        var sectionPanelSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "components", "SectionPanel.vue"));
+        var metricCardSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "components", "MetricCard.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        sectionPanelSource.Should().Contain("icon?: Component");
+        sectionPanelSource.Should().Contain("class=\"section-icon\"");
+        metricCardSource.Should().Contain("icon?: Component");
+        metricCardSource.Should().Contain("class=\"metric-icon\"");
+        statusPageSource.Should().Contain(":icon=\"Activity\"");
+        statusPageSource.Should().Contain(":icon=\"Gauge\"");
+        pluginPageSource.Should().Contain("from \"lucide-vue-next\"");
+        pluginPageSource.Should().Contain("class=\"option-icon\"");
+        aiPageSource.Should().Contain("from \"lucide-vue-next\"");
+        aiPageSource.Should().Contain("class=\"option-icon\"");
+        glossaryPageSource.Should().Contain("class=\"option-icon\"");
+        cssSource.Should().Contain(".option-icon");
+        cssSource.Should().Contain(".field-label-icon");
+    }
+
+    [Fact]
     public void Vue_sidebar_uses_icons_titles_and_collapsed_mode_without_captions()
     {
         var sidebarSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "components", "AppSidebar.vue"));
@@ -61,6 +101,24 @@ public sealed class ControlPanelVueSourceTests
         cssSource.Should().Contain(".app-shell.sidebar-collapsed");
         cssSource.Should().Contain(".sidebar-collapse");
         cssSource.Should().Contain(".nav-icon");
+    }
+
+    [Fact]
+    public void Vue_sidebar_aligns_collapsed_controls_and_switches_theme_icon_by_state()
+    {
+        var sidebarSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "components", "AppSidebar.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        sidebarSource.Should().Contain("const collapsedControlSize");
+        sidebarSource.Should().Contain("const themeIcon");
+        sidebarSource.Should().Contain("MonitorCog");
+        sidebarSource.Should().Contain("Sun");
+        sidebarSource.Should().Contain("Moon");
+        sidebarSource.Should().Contain("<component v-if=\"collapsed\" :is=\"themeIcon\" class=\"nav-icon\" />");
+        cssSource.Should().Contain("--collapsed-control-size");
+        cssSource.Should().Contain(".sidebar.collapsed .connection");
+        cssSource.Should().Contain(".sidebar.collapsed .sidebar-collapse");
+        cssSource.Should().Contain(".sidebar.collapsed .theme-cycle");
     }
 
     [Fact]
@@ -311,6 +369,52 @@ public sealed class ControlPanelVueSourceTests
         editorPageSource.Should().Contain("/api/translations/filter-options");
         editorPageSource.Should().Contain("data-filter-column");
         tableSource.Should().Contain("hunity.editor.columnFilters");
+    }
+
+    [Fact]
+    public void Vue_editor_restores_sort_icons_and_polishes_table_focus_and_scrollbars()
+    {
+        var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        editorPageSource.Should().Contain("SortAsc");
+        editorPageSource.Should().Contain("SortDesc");
+        editorPageSource.Should().Contain("ChevronsUpDown");
+        editorPageSource.Should().Contain("function sortIcon(");
+        editorPageSource.Should().Contain("function ariaSort(");
+        editorPageSource.Should().Contain(":aria-sort=\"ariaSort(column)\"");
+        editorPageSource.Should().Contain(":data-sort-state=\"sortState(column)\"");
+        editorPageSource.Should().Contain("class=\"sort-icon\"");
+        cssSource.Should().Contain(".header-title:focus-visible");
+        cssSource.Should().Contain(".sort-icon");
+        cssSource.Should().Contain(".table-wrap::-webkit-scrollbar");
+        cssSource.Should().Contain(".cell-text::-webkit-scrollbar");
+        cssSource.Should().Contain("scrollbar-width: thin");
+    }
+
+    [Fact]
+    public void Vue_editor_rejects_non_page_translation_responses_before_assigning_rows()
+    {
+        var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
+
+        editorPageSource.Should().Contain("function isTranslationCachePage(value: unknown): value is TranslationCachePage");
+        editorPageSource.Should().Contain("const page = await getJson<unknown>");
+        editorPageSource.Should().Contain("if (!isTranslationCachePage(page))");
+        editorPageSource.Should().Contain("throw new Error(\"翻译表返回格式无效\");");
+        editorPageSource.Should().Contain("rows.value = page.Items;");
+    }
+
+    [Fact]
+    public void Vue_styles_include_restrained_motion_with_reduced_motion_fallback()
+    {
+        var appSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "App.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        appSource.Should().Contain("<Transition name=\"page-fade\" mode=\"out-in\">");
+        cssSource.Should().Contain(".page-fade-enter-active");
+        cssSource.Should().Contain(".page-fade-leave-active");
+        cssSource.Should().Contain("@media (prefers-reduced-motion: reduce)");
+        cssSource.Should().Contain("animation: none !important");
     }
 
     [Fact]

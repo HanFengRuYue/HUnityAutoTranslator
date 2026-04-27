@@ -1,5 +1,28 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
+import {
+  Bot,
+  Brain,
+  Clock3,
+  FileKey,
+  FolderOpen,
+  Gauge,
+  Globe2,
+  KeyRound,
+  Layers,
+  ListChecks,
+  ListRestart,
+  MessageSquareText,
+  Play,
+  RotateCcw,
+  Save,
+  Server,
+  Settings2,
+  Square,
+  Thermometer,
+  WalletCards,
+  Zap
+} from "lucide-vue-next";
 import { api } from "../api/client";
 import SectionPanel from "../components/SectionPanel.vue";
 import {
@@ -420,15 +443,15 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
         <p>配置服务商、模型、密钥和 Prompt，检测结果显示在顶部通知中。</p>
       </div>
       <div class="actions">
-        <button class="secondary" type="button" :disabled="!formDirty" @click="applyState(controlPanelStore.state, true)">还原</button>
-        <button class="primary" type="button" @click="saveAll">保存 AI 设置</button>
+        <button class="secondary" type="button" :disabled="!formDirty" @click="applyState(controlPanelStore.state, true)"><RotateCcw class="button-icon" />还原</button>
+        <button class="primary" type="button" @click="saveAll"><Save class="button-icon" />保存 AI 设置</button>
       </div>
     </div>
 
     <div class="form-stack" @input="markDirty" @change="markDirty">
-      <SectionPanel title="服务商">
+      <SectionPanel title="服务商" :icon="Bot">
         <div class="ai-provider-grid">
-          <label class="field"><span>服务商</span>
+          <label class="field"><span class="field-label"><Server class="field-label-icon" />服务商</span>
             <select id="providerKind" v-model.number="form.ProviderKind" @change="applyProviderDefaults">
               <option :value="0">OpenAI Responses</option>
               <option :value="1">DeepSeek</option>
@@ -436,8 +459,8 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
               <option :value="2">OpenAI 兼容</option>
             </select>
           </label>
-          <label class="field"><span>目标语言</span><input id="targetLanguage" v-model="form.TargetLanguage" autocomplete="off"></label>
-          <label class="field"><span>翻译风格</span>
+          <label class="field"><span class="field-label"><Globe2 class="field-label-icon" />目标语言</span><input id="targetLanguage" v-model="form.TargetLanguage" autocomplete="off"></label>
+          <label class="field"><span class="field-label"><MessageSquareText class="field-label-icon" />翻译风格</span>
             <select id="style" v-model.number="form.Style">
               <option :value="0">忠实</option>
               <option :value="1">自然</option>
@@ -448,33 +471,34 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
         </div>
         <p class="hint">{{ activeProviderName }} · {{ activeStyleHint }}</p>
         <div v-if="!isLlamaCpp" class="ai-endpoint-grid">
-          <label class="field"><span>Base URL</span><input id="baseUrl" v-model="form.BaseUrl" autocomplete="off"></label>
-          <label class="field"><span>Endpoint</span><input id="endpoint" v-model="form.Endpoint" autocomplete="off"></label>
-          <label class="field"><span>模型预设</span>
+          <label class="field"><span class="field-label"><Globe2 class="field-label-icon" />Base URL</span><input id="baseUrl" v-model="form.BaseUrl" autocomplete="off"></label>
+          <label class="field"><span class="field-label"><Settings2 class="field-label-icon" />Endpoint</span><input id="endpoint" v-model="form.Endpoint" autocomplete="off"></label>
+          <label class="field"><span class="field-label"><ListChecks class="field-label-icon" />模型预设</span>
             <select id="modelPreset" v-model="form.ModelPreset" @change="applyModelPreset">
               <option v-for="option in providerOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
           </label>
         </div>
         <div class="ai-model-row" :class="{ 'ai-model-row-local': isLlamaCpp }">
-          <label class="field"><span>模型</span><input id="model" v-model="form.Model" autocomplete="off" @input="updateModelPresetFromInput"></label>
-          <label v-if="!isLlamaCpp" class="field"><span>API Key</span><input id="apiKey" v-model="form.ApiKey" type="password" autocomplete="off" placeholder="留空不会覆盖已保存密钥"></label>
+          <label class="field"><span class="field-label"><Bot class="field-label-icon" />模型</span><input id="model" v-model="form.Model" autocomplete="off" @input="updateModelPresetFromInput"></label>
+          <label v-if="!isLlamaCpp" class="field"><span class="field-label"><KeyRound class="field-label-icon" />API Key</span><input id="apiKey" v-model="form.ApiKey" type="password" autocomplete="off" placeholder="留空不会覆盖已保存密钥"></label>
           <div class="actions inline-actions ai-provider-actions">
-            <button v-if="!isLlamaCpp" id="saveKey" class="secondary" type="button" @click="saveKeyOnly">只保存密钥</button>
-            <button id="testProvider" class="secondary" type="button" :disabled="utilityBusy" @click="testProvider">测试连接</button>
-            <button id="fetchModels" class="secondary" type="button" :disabled="utilityBusy" @click="fetchModels">获取模型列表</button>
-            <button v-if="!isLlamaCpp" id="fetchBalance" class="secondary" type="button" :disabled="utilityBusy" @click="fetchBalance">查询余额/成本</button>
+            <button v-if="!isLlamaCpp" id="saveKey" class="secondary" type="button" @click="saveKeyOnly"><FileKey class="option-icon" />只保存密钥</button>
+            <button id="testProvider" class="secondary" type="button" :disabled="utilityBusy" @click="testProvider"><Zap class="button-icon" />测试连接</button>
+            <button id="fetchModels" class="secondary" type="button" :disabled="utilityBusy" @click="fetchModels"><ListRestart class="button-icon" />获取模型列表</button>
+            <button v-if="!isLlamaCpp" id="fetchBalance" class="secondary" type="button" :disabled="utilityBusy" @click="fetchBalance"><WalletCards class="button-icon" />查询余额/成本</button>
           </div>
         </div>
       </SectionPanel>
 
-      <SectionPanel v-if="isLlamaCpp" title="llama.cpp 本地模型">
+      <SectionPanel v-if="isLlamaCpp" title="llama.cpp 本地模型" :icon="Server">
         <div class="llama-local-panel">
           <div class="field">
-            <span>GGUF 模型文件</span>
+            <span class="field-label"><FolderOpen class="field-label-icon" />GGUF 模型文件</span>
             <div class="input-action-row">
               <input id="llamaCppModelPath" v-model="form.LlamaCppModelPath" autocomplete="off" placeholder="选择 .gguf 模型文件">
               <button id="pickLlamaCppModel" class="secondary" type="button" :disabled="llamaCppModelPicking" @click="pickLlamaCppModel">
+                <FolderOpen class="button-icon" />
                 {{ llamaCppModelPicking ? "选择中..." : "选择模型" }}
               </button>
             </div>
@@ -486,24 +510,24 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
             <div class="llama-result-card"><span>结果</span><strong>{{ llamaCppStatusText }}</strong></div>
           </div>
           <div class="llama-run-row">
-            <label class="field"><span>上下文长度</span><input id="llamaCppContextSize" v-model.number="form.LlamaCppContextSize" type="number" min="512"></label>
-            <label class="field"><span>GPU 层数</span><input id="llamaCppGpuLayers" v-model.number="form.LlamaCppGpuLayers" type="number" min="0" max="999"></label>
-            <label class="field"><span>并行槽位</span><input id="llamaCppParallelSlots" v-model.number="form.LlamaCppParallelSlots" type="number" min="1" max="16"></label>
+            <label class="field"><span class="field-label"><MessageSquareText class="field-label-icon" />上下文长度</span><input id="llamaCppContextSize" v-model.number="form.LlamaCppContextSize" type="number" min="512"></label>
+            <label class="field"><span class="field-label"><Layers class="field-label-icon" />GPU 层数</span><input id="llamaCppGpuLayers" v-model.number="form.LlamaCppGpuLayers" type="number" min="0" max="999"></label>
+            <label class="field"><span class="field-label"><Gauge class="field-label-icon" />并行槽位</span><input id="llamaCppParallelSlots" v-model.number="form.LlamaCppParallelSlots" type="number" min="1" max="16"></label>
             <div class="actions inline-actions llama-run-actions">
-              <button id="startLlamaCpp" class="primary" type="button" :disabled="llamaCppBusy" @click="startLlamaCpp">启动本地模型</button>
-              <button id="stopLlamaCpp" class="secondary" type="button" :disabled="llamaCppBusy" @click="stopLlamaCpp">停止本地模型</button>
+              <button id="startLlamaCpp" class="primary" type="button" :disabled="llamaCppBusy" @click="startLlamaCpp"><Play class="button-icon" />启动本地模型</button>
+              <button id="stopLlamaCpp" class="secondary" type="button" :disabled="llamaCppBusy" @click="stopLlamaCpp"><Square class="button-icon" />停止本地模型</button>
             </div>
           </div>
         </div>
       </SectionPanel>
 
-      <SectionPanel title="请求与输出">
+      <SectionPanel title="请求与输出" :icon="Gauge">
         <div class="form-grid four">
-          <label class="field"><span>并发请求</span><input id="maxConcurrentRequests" v-model.number="form.MaxConcurrentRequests" type="number" min="1"></label>
-          <label class="field"><span>每分钟请求</span><input id="requestsPerMinute" v-model.number="form.RequestsPerMinute" type="number" min="1"></label>
-          <label class="field"><span>批次字符上限</span><input id="maxBatchCharacters" v-model.number="form.MaxBatchCharacters" type="number" min="1"></label>
-          <label class="field"><span>请求超时 (秒)</span><input id="requestTimeoutSeconds" v-model.number="form.RequestTimeoutSeconds" type="number" min="5" max="180"></label>
-          <label v-if="isOpenAi" class="field provider-option" data-providers="0"><span>OpenAI 推理强度</span>
+          <label class="field"><span class="field-label"><Gauge class="field-label-icon" />并发请求</span><input id="maxConcurrentRequests" v-model.number="form.MaxConcurrentRequests" type="number" min="1"></label>
+          <label class="field"><span class="field-label"><Clock3 class="field-label-icon" />每分钟请求</span><input id="requestsPerMinute" v-model.number="form.RequestsPerMinute" type="number" min="1"></label>
+          <label class="field"><span class="field-label"><MessageSquareText class="field-label-icon" />批次字符上限</span><input id="maxBatchCharacters" v-model.number="form.MaxBatchCharacters" type="number" min="1"></label>
+          <label class="field"><span class="field-label"><Clock3 class="field-label-icon" />请求超时 (秒)</span><input id="requestTimeoutSeconds" v-model.number="form.RequestTimeoutSeconds" type="number" min="5" max="180"></label>
+          <label v-if="isOpenAi" class="field provider-option" data-providers="0"><span class="field-label"><Brain class="field-label-icon" />OpenAI 推理强度</span>
             <select id="reasoningEffort" v-model="form.ReasoningEffort">
               <option value="none">关闭</option>
               <option value="low">low</option>
@@ -512,36 +536,36 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
               <option value="xhigh">xhigh</option>
             </select>
           </label>
-          <label v-if="isDeepSeek" class="field provider-option" data-providers="1"><span>DeepSeek 推理强度</span>
+          <label v-if="isDeepSeek" class="field provider-option" data-providers="1"><span class="field-label"><Brain class="field-label-icon" />DeepSeek 推理强度</span>
             <select id="deepSeekReasoningEffort" v-model="form.DeepSeekReasoningEffort">
               <option value="none">关闭</option>
               <option value="high">high</option>
               <option value="max">max</option>
             </select>
           </label>
-          <label v-if="isOpenAi" class="field provider-option" data-providers="0"><span>OpenAI 输出详细度</span>
+          <label v-if="isOpenAi" class="field provider-option" data-providers="0"><span class="field-label"><Settings2 class="field-label-icon" />OpenAI 输出详细度</span>
             <select id="outputVerbosity" v-model="form.OutputVerbosity">
               <option value="low">low</option>
               <option value="medium">medium</option>
               <option value="high">high</option>
             </select>
           </label>
-          <label v-if="isDeepSeek" class="field provider-option" data-providers="1"><span>DeepSeek Thinking</span>
+          <label v-if="isDeepSeek" class="field provider-option" data-providers="1"><span class="field-label"><Brain class="field-label-icon" />DeepSeek Thinking</span>
             <select id="deepSeekThinkingMode" v-model="form.DeepSeekThinkingMode">
               <option value="disabled">关闭</option>
               <option value="enabled">启用</option>
             </select>
           </label>
-          <label v-if="canUseTemperature" class="field provider-option" data-providers="1,2"><span>Temperature</span><input id="temperature" v-model="form.Temperature" type="number" min="0" max="2" step="0.1"></label>
+          <label v-if="canUseTemperature" class="field provider-option" data-providers="1,2"><span class="field-label"><Thermometer class="field-label-icon" />Temperature</span><input id="temperature" v-model="form.Temperature" type="number" min="0" max="2" step="0.1"></label>
         </div>
       </SectionPanel>
 
-      <SectionPanel title="提示词">
+      <SectionPanel title="提示词" :icon="MessageSquareText">
         <template #actions>
           <span class="prompt-mode">{{ promptModeText }}</span>
-          <button id="restoreDefaultPrompt" class="secondary" type="button" :disabled="promptUsesDefault" @click="restoreDefaultPrompt">{{ restorePromptText }}</button>
+          <button id="restoreDefaultPrompt" class="secondary" type="button" :disabled="promptUsesDefault" @click="restoreDefaultPrompt"><RotateCcw class="button-icon" />{{ restorePromptText }}</button>
         </template>
-        <label class="field"><span>完整提示词</span><textarea id="customPrompt" v-model="form.CustomPrompt" rows="12" spellcheck="false"></textarea></label>
+        <label class="field"><span class="field-label"><MessageSquareText class="field-label-icon" />完整提示词</span><textarea id="customPrompt" v-model="form.CustomPrompt" rows="12" spellcheck="false"></textarea></label>
       </SectionPanel>
     </div>
   </section>

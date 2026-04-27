@@ -1,5 +1,16 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from "vue";
+import {
+  BookOpenCheck,
+  FileText,
+  Hash,
+  Languages,
+  RefreshCw,
+  Save,
+  Search,
+  ShieldCheck,
+  Sparkles
+} from "lucide-vue-next";
 import { buildQuery, deleteJson, getJson, patchJson, postJson } from "../api/client";
 import SectionPanel from "../components/SectionPanel.vue";
 import { controlPanelStore, saveConfig, setDirtyForm, showToast } from "../state/controlPanelStore";
@@ -157,30 +168,34 @@ onMounted(loadGlossaryTerms);
         <h1>术语库</h1>
         <p>维护固定译名，并控制 AI 自动术语提取。</p>
       </div>
-      <button class="primary" id="saveGlossarySettings" type="button" @click="saveGlossarySettings">保存术语设置</button>
+      <button class="primary" id="saveGlossarySettings" type="button" @click="saveGlossarySettings"><Save class="button-icon" />保存术语设置</button>
     </div>
 
     <div class="form-stack">
-      <SectionPanel title="术语设置">
+      <SectionPanel title="术语设置" :icon="BookOpenCheck">
         <div class="form-grid four" @input="markSettingsDirty" @change="markSettingsDirty">
-          <label class="field"><span>注入术语上限</span><input id="glossaryMaxTerms" v-model.number="settings.GlossaryMaxTerms" type="number" min="0" max="100"></label>
-          <label class="field"><span>术语字符上限</span><input id="glossaryMaxCharacters" v-model.number="settings.GlossaryMaxCharacters" type="number" min="0" max="8000"></label>
+          <label class="field"><span class="field-label"><Hash class="field-label-icon" />注入术语上限</span><input id="glossaryMaxTerms" v-model.number="settings.GlossaryMaxTerms" type="number" min="0" max="100"></label>
+          <label class="field"><span class="field-label"><FileText class="field-label-icon" />术语字符上限</span><input id="glossaryMaxCharacters" v-model.number="settings.GlossaryMaxCharacters" type="number" min="0" max="8000"></label>
         </div>
         <div class="checks" @change="markSettingsDirty">
-          <label class="check"><input id="enableGlossary" v-model="settings.EnableGlossary" type="checkbox">启用术语库约束</label>
-          <label class="check"><input id="enableAutoTermExtraction" v-model="settings.EnableAutoTermExtraction" type="checkbox">启用 AI 自动提取术语</label>
+          <label class="check"><input id="enableGlossary" v-model="settings.EnableGlossary" type="checkbox"><ShieldCheck class="option-icon" />启用术语库约束</label>
+          <label class="check"><input id="enableAutoTermExtraction" v-model="settings.EnableAutoTermExtraction" type="checkbox"><Sparkles class="option-icon" />启用 AI 自动提取术语</label>
         </div>
         <p class="hint">AI 自动提取默认关闭；手动术语会优先进入提示词约束。</p>
       </SectionPanel>
 
-      <SectionPanel title="术语条目">
+      <SectionPanel title="术语条目" :icon="BookOpenCheck">
         <template #actions>
           <button id="refreshGlossary" class="secondary" type="button" :disabled="loading" @click="loadGlossaryTerms">
+            <RefreshCw class="button-icon" />
             {{ loading ? "刷新中" : "刷新" }}
           </button>
         </template>
         <div class="editor-tools">
-          <input id="glossarySearch" v-model="search" placeholder="搜索原术语、指定译名、语言或备注">
+          <label class="field search-field">
+            <span class="field-label"><Search class="field-label-icon" />搜索</span>
+            <input id="glossarySearch" v-model="search" placeholder="搜索原术语、指定译名、语言或备注">
+          </label>
         </div>
         <div class="table-wrap" id="glossaryWrap" tabindex="0">
           <table>
@@ -207,7 +222,7 @@ onMounted(loadGlossaryTerms);
                 <td>-</td>
                 <td>
                   <div class="table-actions">
-                    <button id="saveGlossaryInlineRow" type="button" @click="saveGlossaryTerm()">保存</button>
+                    <button id="saveGlossaryInlineRow" type="button" @click="saveGlossaryTerm()"><Save class="button-icon" />保存</button>
                     <button class="secondary" type="button" @click="resetInlineTerm">清空</button>
                   </div>
                 </td>
@@ -222,7 +237,7 @@ onMounted(loadGlossaryTerms);
                 <td>{{ formatDateTime(row.UpdatedUtc) }}</td>
                 <td>
                   <div class="table-actions">
-                    <button class="secondary" type="button" @click="editGlossaryTerm(row)">编辑</button>
+                    <button class="secondary" type="button" @click="editGlossaryTerm(row)"><Languages class="button-icon" />编辑</button>
                     <button class="danger" type="button" @click="deleteGlossaryTerm(row)">删除</button>
                   </div>
                 </td>

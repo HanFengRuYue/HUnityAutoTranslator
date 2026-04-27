@@ -6,10 +6,13 @@ import {
   BookOpen,
   FileText,
   Info,
+  MonitorCog,
+  Moon,
   Palette,
   PanelLeftClose,
   PanelLeftOpen,
-  Plug
+  Plug,
+  Sun
 } from "lucide-vue-next";
 import { controlPanelStore, cycleTheme, setActivePage } from "../state/controlPanelStore";
 import type { PageKey } from "../types/api";
@@ -19,6 +22,7 @@ const emit = defineEmits<{
 }>();
 
 const collapsedStorageKey = "hunity.controlPanel.sidebarCollapsed";
+const collapsedControlSize = 44;
 
 const pages: Array<{ key: PageKey; label: string; icon: typeof Activity }> = [
   { key: "status", label: "运行状态", icon: Activity },
@@ -55,6 +59,18 @@ const themeText = computed(() => {
   return "跟随系统";
 });
 
+const themeIcon = computed(() => {
+  if (controlPanelStore.theme === "light") {
+    return Sun;
+  }
+
+  if (controlPanelStore.theme === "dark") {
+    return Moon;
+  }
+
+  return MonitorCog;
+});
+
 function toggleCollapsed(): void {
   collapsed.value = !collapsed.value;
 }
@@ -66,7 +82,7 @@ watch(collapsed, (value) => {
 </script>
 
 <template>
-  <aside class="sidebar" :class="{ collapsed }">
+  <aside class="sidebar" :class="{ collapsed }" :style="`--collapsed-control-size: ${collapsedControlSize}px`">
     <div class="brand">
       <strong>HUnityAutoTranslator</strong>
       <span v-if="!collapsed">本机控制面板</span>
@@ -102,7 +118,8 @@ watch(collapsed, (value) => {
         <span v-if="!collapsed">{{ connectionText }}</span>
       </div>
       <button class="theme-cycle" type="button" :title="`主题：${themeText}`" @click="cycleTheme">
-        <Palette v-if="collapsed" class="nav-icon" />
+        <component v-if="collapsed" :is="themeIcon" class="nav-icon" />
+        <Palette v-else class="nav-icon" />
         <span v-if="!collapsed">主题</span>
         <strong v-if="!collapsed">{{ themeText }}</strong>
       </button>
