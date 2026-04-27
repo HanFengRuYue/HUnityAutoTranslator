@@ -55,6 +55,8 @@ public sealed record RuntimeConfig(
     double FontSizeAdjustmentValue,
     LlamaCppConfig LlamaCpp)
 {
+    public int EffectiveMaxConcurrentRequests => RuntimeConfigLimits.GetEffectiveMaxConcurrentRequests(this);
+
     public static RuntimeConfig CreateDefault()
     {
         return new RuntimeConfig(
@@ -69,7 +71,7 @@ public sealed record RuntimeConfig(
             ToggleTranslationHotkey: "Alt+F",
             ForceScanHotkey: "Alt+G",
             ToggleFontHotkey: "Alt+D",
-            MaxConcurrentRequests: 4,
+            MaxConcurrentRequests: RuntimeConfigLimits.DefaultMaxConcurrentRequests,
             RequestsPerMinute: 60,
             MaxBatchCharacters: 1800,
             ScanInterval: TimeSpan.FromMilliseconds(750),

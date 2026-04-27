@@ -522,8 +522,9 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
       </SectionPanel>
 
       <SectionPanel title="请求与输出" :icon="Gauge">
+        <p class="hint">在线服务商最多 100 并发；llama.cpp 使用并行槽位控制本地模型压力。</p>
         <div class="form-grid four">
-          <label class="field"><span class="field-label"><Gauge class="field-label-icon" />并发请求</span><input id="maxConcurrentRequests" v-model.number="form.MaxConcurrentRequests" type="number" min="1"></label>
+          <label class="field"><span class="field-label"><Gauge class="field-label-icon" />在线服务并发请求</span><input id="maxConcurrentRequests" v-model.number="form.MaxConcurrentRequests" type="number" min="1" max="100"></label>
           <label class="field"><span class="field-label"><Clock3 class="field-label-icon" />每分钟请求</span><input id="requestsPerMinute" v-model.number="form.RequestsPerMinute" type="number" min="1"></label>
           <label class="field"><span class="field-label"><MessageSquareText class="field-label-icon" />批次字符上限</span><input id="maxBatchCharacters" v-model.number="form.MaxBatchCharacters" type="number" min="1"></label>
           <label class="field"><span class="field-label"><Clock3 class="field-label-icon" />请求超时 (秒)</span><input id="requestTimeoutSeconds" v-model.number="form.RequestTimeoutSeconds" type="number" min="5" max="180"></label>

@@ -101,7 +101,7 @@ public sealed class CfgControlPanelSettingsStoreTests
             CustomPrompt = Line 1\nLine 2
 
             [扫描与写回]
-            MaxConcurrentRequests = 99
+            MaxConcurrentRequests = 150
             RequestsPerMinute = 700
             MaxBatchCharacters = 128
             ScanIntervalMilliseconds = 50
@@ -164,7 +164,7 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.Provider.Model.Should().Be("deepseek-v4-pro");
         config.Style.Should().Be(TranslationStyle.UiConcise);
         config.RequestTimeoutSeconds.Should().Be(5);
-        config.MaxConcurrentRequests.Should().Be(16);
+        config.MaxConcurrentRequests.Should().Be(100);
         config.RequestsPerMinute.Should().Be(600);
         config.MaxBatchCharacters.Should().Be(256);
         config.ScanInterval.TotalMilliseconds.Should().Be(100);
@@ -184,6 +184,19 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.LlamaCpp.ContextSize.Should().Be(512);
         config.LlamaCpp.GpuLayers.Should().Be(0);
         config.LlamaCpp.ParallelSlots.Should().Be(16);
+    }
+
+    [Fact]
+    public void Generated_cfg_documents_online_concurrency_limit_and_llamacpp_slots()
+    {
+        var path = NewCfgPath();
+
+        ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+
+        var cfg = File.ReadAllText(path);
+        cfg.Should().Contain("MaxConcurrentRequests = 4");
+        cfg.Should().Contain("范围：1 到 100");
+        cfg.Should().Contain("llama.cpp 使用 ParallelSlots");
     }
 
     [Fact]

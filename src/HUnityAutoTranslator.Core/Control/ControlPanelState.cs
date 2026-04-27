@@ -31,6 +31,7 @@ public sealed record ControlPanelState(
     ProviderStatus ProviderStatus,
     IReadOnlyList<RecentTranslationPreview> RecentTranslations,
     int MaxConcurrentRequests,
+    int EffectiveMaxConcurrentRequests,
     int RequestsPerMinute,
     int MaxBatchCharacters,
     int ScanIntervalMilliseconds,

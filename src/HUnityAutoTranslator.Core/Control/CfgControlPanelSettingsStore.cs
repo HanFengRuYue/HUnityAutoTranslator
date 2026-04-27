@@ -176,7 +176,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "已加密的 API Key，插件自动维护。除非你要清空密钥，否则不要手动修改。", "留空", null, "EncryptedApiKey", Text(settings.EncryptedApiKey));
 
         Section(builder, ScanSection);
-        Option(builder, "同时进行的翻译请求数量。", "4", "范围：1 到 16。", "MaxConcurrentRequests", Int(config.MaxConcurrentRequests ?? defaults.MaxConcurrentRequests));
+        Option(builder, "在线服务商同时进行的翻译请求数量。llama.cpp 使用 ParallelSlots。", "4", "范围：1 到 100。", "MaxConcurrentRequests", Int(config.MaxConcurrentRequests ?? defaults.MaxConcurrentRequests));
         Option(builder, "每分钟最多发送多少次请求。", "60", "范围：1 到 600。", "RequestsPerMinute", Int(config.RequestsPerMinute ?? defaults.RequestsPerMinute));
         Option(builder, "单批次最多包含多少字符。", "1800", "范围：256 到 8000。", "MaxBatchCharacters", Int(config.MaxBatchCharacters ?? defaults.MaxBatchCharacters));
         Option(builder, "扫描画面文字的间隔，单位毫秒。", "750", "范围：100 到 5000。", "ScanIntervalMilliseconds", Int(config.ScanIntervalMilliseconds ?? (int)defaults.ScanInterval.TotalMilliseconds));

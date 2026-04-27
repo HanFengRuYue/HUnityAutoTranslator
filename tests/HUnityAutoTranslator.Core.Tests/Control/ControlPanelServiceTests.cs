@@ -157,7 +157,7 @@ public sealed class ControlPanelServiceTests
 
         service.UpdateConfig(new UpdateConfigRequest(
             TargetLanguage: "ko",
-            MaxConcurrentRequests: 32,
+            MaxConcurrentRequests: 150,
             RequestsPerMinute: 700,
             Enabled: false,
             ProviderKind: ProviderKind.OpenAICompatible,
@@ -180,7 +180,8 @@ public sealed class ControlPanelServiceTests
         state.Model.Should().Be("local-model");
         state.QueueCount.Should().Be(5);
         state.CacheCount.Should().Be(9);
-        state.MaxConcurrentRequests.Should().Be(16);
+        state.MaxConcurrentRequests.Should().Be(100);
+        state.EffectiveMaxConcurrentRequests.Should().Be(100);
         state.RequestsPerMinute.Should().Be(600);
         config.EnableUgui.Should().BeFalse();
         config.EnableTmp.Should().BeFalse();
@@ -215,6 +216,7 @@ public sealed class ControlPanelServiceTests
         state.LlamaCpp.ContextSize.Should().Be(8192);
         state.LlamaCpp.GpuLayers.Should().Be(80);
         state.LlamaCpp.ParallelSlots.Should().Be(2);
+        state.EffectiveMaxConcurrentRequests.Should().Be(2);
         state.LlamaCppStatus.State.Should().Be("stopped");
         state.LlamaCppStatus.Port.Should().Be(0);
         state.LlamaCppStatus.Installed.Should().BeFalse();

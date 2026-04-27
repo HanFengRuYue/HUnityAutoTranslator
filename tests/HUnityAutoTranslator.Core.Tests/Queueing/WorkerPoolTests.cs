@@ -67,6 +67,109 @@ public sealed class WorkerPoolTests
     }
 
     [Fact]
+    public async Task WorkerPool_allows_online_provider_to_reach_one_hundred_concurrent_requests()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var provider = new BlockingProvider();
+        var limiter = new ProviderRateLimiter(requestsPerMinute: 6000);
+        var metrics = new ControlPanelMetrics();
+        var config = RuntimeConfig.CreateDefault() with { MaxConcurrentRequests = 100 };
+        var pool = new TranslationWorkerPool(queue, dispatcher, provider, limiter, config, metrics: metrics);
+
+        for (var i = 0; i < 100; i++)
+        {
+            queue.Enqueue(TranslationJob.Create($"target-{i}", $"Text {i:D3}", TranslationPriority.Normal));
+        }
+
+        var runTask = pool.RunUntilIdleAsync(CancellationToken.None);
+
+        try
+        {
+            await WaitUntilAsync(() => provider.StartedCount == 100, TimeSpan.FromSeconds(2));
+            provider.StartedCount.Should().Be(100);
+            provider.MaxObservedConcurrency.Should().Be(100);
+            metrics.Snapshot().InFlightTranslationCount.Should().Be(100);
+        }
+        finally
+        {
+            provider.Release();
+            await runTask;
+        }
+
+        metrics.Snapshot().InFlightTranslationCount.Should().Be(0);
+        dispatcher.PendingCount.Should().Be(100);
+    }
+
+    [Fact]
+    public async Task WorkerPool_limits_llamacpp_effective_concurrency_to_parallel_slots()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var provider = new BlockingProvider(ProviderKind.LlamaCpp);
+        var limiter = new ProviderRateLimiter(requestsPerMinute: 6000);
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            Provider = ProviderProfile.DefaultLlamaCpp(),
+            MaxConcurrentRequests = 100,
+            LlamaCpp = RuntimeConfig.CreateDefault().LlamaCpp with { ParallelSlots = 2 }
+        };
+        var pool = new TranslationWorkerPool(queue, dispatcher, provider, limiter, config);
+
+        for (var i = 0; i < 10; i++)
+        {
+            queue.Enqueue(TranslationJob.Create($"target-{i}", $"Local {i:D2}", TranslationPriority.Normal));
+        }
+
+        var runTask = pool.RunUntilIdleAsync(CancellationToken.None);
+
+        try
+        {
+            await WaitUntilAsync(() => provider.StartedCount == 2, TimeSpan.FromSeconds(1));
+            provider.StartedCount.Should().Be(2);
+            provider.MaxObservedConcurrency.Should().Be(2);
+        }
+        finally
+        {
+            provider.Release();
+            await runTask;
+        }
+
+        dispatcher.PendingCount.Should().Be(10);
+    }
+
+    [Fact]
+    public async Task WorkerPool_reports_provider_exceptions_without_faulting_the_pool()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var failures = new List<string>();
+        var metrics = new ControlPanelMetrics();
+        var config = RuntimeConfig.CreateDefault() with { MaxConcurrentRequests = 2 };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            new ThrowingProvider("network timeout"),
+            new ProviderRateLimiter(600),
+            config,
+            metrics: metrics,
+            failureReporter: failures.Add);
+
+        queue.Enqueue(TranslationJob.Create("ui-1", "Start", TranslationPriority.VisibleUi));
+        queue.Enqueue(TranslationJob.Create("ui-2", "Continue", TranslationPriority.VisibleUi));
+
+        var act = () => pool.RunUntilIdleAsync(CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+        failures.Should().HaveCount(2);
+        failures.Should().OnlyContain(message => message.Contains("network timeout", StringComparison.Ordinal));
+        metrics.Snapshot().InFlightTranslationCount.Should().Be(0);
+        dispatcher.PendingCount.Should().Be(0);
+        queue.PendingCount.Should().Be(0);
+        queue.InFlightCount.Should().Be(0);
+    }
+
+    [Fact]
     public async Task WorkerPool_builds_guarded_prompt_restores_placeholders_and_caches_results()
     {
         var queue = new TranslationJobQueue();
@@ -366,14 +469,20 @@ public sealed class WorkerPoolTests
     {
         private readonly object _gate = new();
         private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly ProviderKind _kind;
         private int _current;
         private int _startedCount;
+
+        public BlockingProvider(ProviderKind kind = ProviderKind.OpenAI)
+        {
+            _kind = kind;
+        }
 
         public int StartedCount => Volatile.Read(ref _startedCount);
 
         public int MaxObservedConcurrency { get; private set; }
 
-        public ProviderKind Kind => ProviderKind.OpenAI;
+        public ProviderKind Kind => _kind;
 
         public async Task<TranslationResponse> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken)
         {
@@ -429,6 +538,20 @@ public sealed class WorkerPoolTests
         public Task<TranslationResponse> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken)
         {
             return Task.FromResult(TranslationResponse.Failure(_message));
+        }
+    }
+
+    private sealed class ThrowingProvider : ITranslationProvider
+    {
+        private readonly string _message;
+
+        public ThrowingProvider(string message) => _message = message;
+
+        public ProviderKind Kind => ProviderKind.OpenAI;
+
+        public Task<TranslationResponse> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken)
+        {
+            throw new InvalidOperationException(_message);
         }
     }
 

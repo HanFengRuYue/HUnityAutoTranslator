@@ -75,6 +75,7 @@ public sealed class ControlPanelService
                 ProviderStatus: _providerStatus,
                 RecentTranslations: metrics.RecentTranslations,
                 config.MaxConcurrentRequests,
+                config.EffectiveMaxConcurrentRequests,
                 config.RequestsPerMinute,
                 config.MaxBatchCharacters,
                 (int)config.ScanInterval.TotalMilliseconds,
@@ -364,10 +365,10 @@ public sealed class ControlPanelService
             ? _config.TargetLanguage
             : request.TargetLanguage.Trim();
         var maxConcurrentRequests = request.MaxConcurrentRequests.HasValue
-            ? Clamp(request.MaxConcurrentRequests.Value, 1, 16)
+            ? RuntimeConfigLimits.ClampOnlineConcurrentRequests(request.MaxConcurrentRequests.Value)
             : _config.MaxConcurrentRequests;
         var requestsPerMinute = request.RequestsPerMinute.HasValue
-            ? Clamp(request.RequestsPerMinute.Value, 1, 600)
+            ? RuntimeConfigLimits.ClampRequestsPerMinute(request.RequestsPerMinute.Value)
             : _config.RequestsPerMinute;
         var maxBatchCharacters = request.MaxBatchCharacters.HasValue
             ? Clamp(request.MaxBatchCharacters.Value, 256, 8000)
@@ -604,7 +605,7 @@ public sealed class ControlPanelService
             SelectOptionalText(request.ModelPath, fallback: null),
             Clamp(request.ContextSize, 512, 131072),
             Clamp(request.GpuLayers, 0, 999),
-            Clamp(request.ParallelSlots, 1, 16));
+            RuntimeConfigLimits.ClampLlamaCppParallelSlots(request.ParallelSlots));
     }
 
     private RuntimeConfig BuildEffectiveConfig(RuntimeConfig config)

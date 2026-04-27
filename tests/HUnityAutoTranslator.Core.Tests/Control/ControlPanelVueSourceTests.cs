@@ -53,10 +53,24 @@ public sealed class ControlPanelVueSourceTests
         statusPageSource.Should().Contain("const activeTranslationCapacity");
         statusPageSource.Should().Contain("function formatInFlightCapacity");
         statusPageSource.Should().Contain("state.value.InFlightTranslationCount");
-        statusPageSource.Should().Contain("state.value.MaxConcurrentRequests");
+        statusPageSource.Should().Contain("state.value.EffectiveMaxConcurrentRequests");
         statusPageSource.Should().Contain("value-id=\"inFlightTranslationCount\"");
         statusPageSource.Should().NotContain("value-id=\"completedTranslationCount\"");
         statusPageSource.Should().NotContain("state?.CompletedTranslationCount");
+    }
+
+    [Fact]
+    public void Vue_ai_settings_documents_online_concurrency_limit_and_effective_capacity()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+
+        apiTypesSource.Should().Contain("EffectiveMaxConcurrentRequests: number;");
+        statusPageSource.Should().Contain("state.value.EffectiveMaxConcurrentRequests");
+        aiPageSource.Should().Contain("在线服务并发请求");
+        aiPageSource.Should().Contain("max=\"100\"");
+        aiPageSource.Should().Contain("llama.cpp 使用并行槽位");
     }
 
     [Fact]

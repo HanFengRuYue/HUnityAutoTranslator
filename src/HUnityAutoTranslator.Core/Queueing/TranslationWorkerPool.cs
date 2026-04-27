@@ -51,7 +51,7 @@ public sealed class TranslationWorkerPool
 
     public async Task RunUntilIdleAsync(CancellationToken cancellationToken)
     {
-        var workerCount = Math.Max(1, _config.MaxConcurrentRequests);
+        var workerCount = _config.EffectiveMaxConcurrentRequests;
         var workers = Enumerable.Range(0, workerCount)
             .Select(_ => RunWorkerAsync(cancellationToken))
             .ToArray();
@@ -144,6 +144,14 @@ public sealed class TranslationWorkerPool
                 {
                     ReportFailure(batch, $"翻译服务请求失败：{response.ErrorMessage ?? "未知错误"}");
                 }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                ReportFailure(batch, $"翻译请求处理异常：{ex.Message}");
             }
             finally
             {

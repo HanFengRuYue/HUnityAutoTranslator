@@ -91,6 +91,7 @@ export interface ControlPanelState {
   ProviderStatus: ProviderStatus;
   RecentTranslations: RecentTranslationPreview[];
   MaxConcurrentRequests: number;
+  EffectiveMaxConcurrentRequests: number;
   RequestsPerMinute: number;
   MaxBatchCharacters: number;
   ScanIntervalMilliseconds: number;

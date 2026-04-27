@@ -54,7 +54,7 @@ const enabledTone = computed(() => {
 const queueCount = computed(() => state.value ? state.value.QueueCount ?? state.value.QueuedTextCount ?? 0 : 0);
 const activeTranslationCapacity = computed(() => {
   const inFlight = state.value ? Math.max(0, state.value.InFlightTranslationCount ?? 0) : 0;
-  const max = state.value ? Math.max(1, state.value.MaxConcurrentRequests ?? 1) : 0;
+  const max = state.value ? Math.max(1, state.value.EffectiveMaxConcurrentRequests ?? 1) : 0;
   return { inFlight, max };
 });
 const providerLabel = computed(() => providerNames[String(state.value?.ProviderKind ?? "")] ?? "-");
