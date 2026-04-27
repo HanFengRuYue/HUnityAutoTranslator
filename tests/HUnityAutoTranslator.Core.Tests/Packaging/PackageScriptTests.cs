@@ -28,6 +28,32 @@ public sealed class PackageScriptTests
         File.Exists(Path.Combine(root, "build", "generate-control-panel.ps1")).Should().BeFalse();
     }
 
+    [Fact]
+    public void Package_script_can_build_fixed_separate_llamacpp_cuda_and_vulkan_packages()
+    {
+        var script = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "build", "package.ps1"));
+
+        script.Should().Contain("[ValidateSet(\"None\", \"Cuda13\", \"Vulkan\", \"All\")]");
+        script.Should().Contain("[string]$LlamaCppVariant = \"All\"");
+        script.Should().Contain("$LlamaCppReleaseTag = \"b8943\"");
+        script.Should().Contain("llama-b8943-bin-win-cuda-13.1-x64.zip");
+        script.Should().Contain("cudart-llama-bin-win-cuda-13.1-x64.zip");
+        script.Should().Contain("llama-b8943-bin-win-vulkan-x64.zip");
+        script.Should().Contain("b4a53f4fe822320357bc45b14d46bde1beadf6cc912a148d33b09b78482f20d7");
+        script.Should().Contain("f96935e7e385e3b2d0189239077c10fe8fd7e95690fea4afec455b1b6c7e3f18");
+        script.Should().Contain("cb7bf6f828afd15885f5a0d9e279f6d6a988662e6ca2296308b31818a91d1534");
+        script.Should().Contain("HUnityAutoTranslator-0.1.0-llamacpp-cuda13.zip");
+        script.Should().Contain("HUnityAutoTranslator-0.1.0-llamacpp-vulkan.zip");
+        script.Should().Contain("function Build-LlamaCppPackage");
+        script.Should().Contain("$llamaTargetRoot = Join-Path $llamaPackageRoot \"BepInEx\\plugins\\HUnityAutoTranslator\"");
+        script.Should().Contain("Add-LlamaCppBackend -Variant $Variant -TargetRoot $llamaTargetRoot");
+        script.Should().Contain("foreach ($variant in Get-LlamaCppPackageVariants -Variant $LlamaCppVariant)");
+        script.Should().NotContain("HUnityAutoTranslator-0.1.0-cuda13.zip");
+        script.Should().NotContain("HUnityAutoTranslator-0.1.0-vulkan.zip");
+        script.Should().NotContain("Add-LlamaCppBackend -Variant $LlamaCppVariant -PluginRoot $pluginRoot");
+        script.Should().Contain("if ($GeneratePanelOnly)");
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

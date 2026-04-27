@@ -4,7 +4,9 @@ obj/
 artifacts/
 publish/
 /build/HUnityAutoTranslator/
+/build/HUnityAutoTranslator-llamacpp-*/
 /build/HUnityAutoTranslator-*.zip
+/build/.cache/
 /src/HUnityAutoTranslator.ControlPanel/node_modules/
 /src/HUnityAutoTranslator.ControlPanel/dist/
 *.user

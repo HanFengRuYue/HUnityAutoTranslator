@@ -1,5 +1,7 @@
 param(
     [string]$Configuration = "Release",
+    [ValidateSet("None", "Cuda13", "Vulkan", "All")]
+    [string]$LlamaCppVariant = "All",
     [switch]$GeneratePanelOnly
 )
 
@@ -13,6 +15,7 @@ $pluginRoot = Join-Path $packageRoot "BepInEx\plugins\HUnityAutoTranslator"
 $buildOutput = Join-Path $root "src\HUnityAutoTranslator.Plugin\bin\$Configuration\netstandard2.1"
 $zipPath = Join-Path $outputRoot "HUnityAutoTranslator-0.1.0.zip"
 $controlPanelRoot = Join-Path $root "src\HUnityAutoTranslator.ControlPanel"
+$LlamaCppReleaseTag = "b8943"
 
 function Normalize-Newlines([string]$Value) {
     return ($Value -replace "`r`n", "`n") -replace "`r", "`n"
@@ -118,6 +121,142 @@ function Build-ControlPanel([string]$ControlPanelRoot) {
     Write-ControlPanelHtml -InputHtml $inputHtml -OutputFile $outputFile
 }
 
+function Get-CheckedAsset([string]$AssetName, [string]$Sha256) {
+    $cacheRoot = Join-Path $outputRoot ".cache\llama.cpp\$LlamaCppReleaseTag"
+    New-Item -ItemType Directory -Force -Path $cacheRoot | Out-Null
+
+    $assetPath = Join-Path $cacheRoot $AssetName
+    $expectedHash = $Sha256.ToLowerInvariant()
+    if (Test-Path -LiteralPath $assetPath) {
+        $existingHash = (Get-FileHash -LiteralPath $assetPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($existingHash -eq $expectedHash) {
+            return $assetPath
+        }
+
+        Remove-Item -LiteralPath $assetPath -Force
+    }
+
+    $assetUrl = "https://github.com/ggml-org/llama.cpp/releases/download/$LlamaCppReleaseTag/$AssetName"
+    Write-Host "Downloading llama.cpp asset: $AssetName"
+    Invoke-WebRequest -Uri $assetUrl -OutFile $assetPath
+
+    $actualHash = (Get-FileHash -LiteralPath $assetPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualHash -ne $expectedHash) {
+        Remove-Item -LiteralPath $assetPath -Force
+        throw "SHA256 mismatch for $AssetName. Expected $expectedHash but got $actualHash."
+    }
+
+    return $assetPath
+}
+
+function Expand-LlamaCppAsset([string]$AssetPath, [string]$TargetDirectory) {
+    Expand-Archive -LiteralPath $AssetPath -DestinationPath $TargetDirectory -Force
+}
+
+function Add-LlamaCppBackend([string]$Variant, [string]$TargetRoot) {
+    if ($Variant -eq "None") {
+        return
+    }
+
+    $backend = ""
+    $assets = @()
+    if ($Variant -eq "Cuda13") {
+        $backend = "CUDA 13.1"
+        $assets = @(
+            @{ Name = "llama-b8943-bin-win-cuda-13.1-x64.zip"; Sha256 = "b4a53f4fe822320357bc45b14d46bde1beadf6cc912a148d33b09b78482f20d7" },
+            @{ Name = "cudart-llama-bin-win-cuda-13.1-x64.zip"; Sha256 = "f96935e7e385e3b2d0189239077c10fe8fd7e95690fea4afec455b1b6c7e3f18" }
+        )
+    }
+    elseif ($Variant -eq "Vulkan") {
+        $backend = "Vulkan"
+        $assets = @(
+            @{ Name = "llama-b8943-bin-win-vulkan-x64.zip"; Sha256 = "cb7bf6f828afd15885f5a0d9e279f6d6a988662e6ca2296308b31818a91d1534" }
+        )
+    }
+    else {
+        throw "Unknown llama.cpp package variant: $Variant"
+    }
+
+    $llamaRoot = Join-Path $TargetRoot "llama.cpp"
+    New-Item -ItemType Directory -Force -Path $llamaRoot | Out-Null
+    foreach ($asset in $assets) {
+        $assetPath = Get-CheckedAsset -AssetName $asset.Name -Sha256 $asset.Sha256
+        Expand-LlamaCppAsset -AssetPath $assetPath -TargetDirectory $llamaRoot
+    }
+
+    $serverPath = Join-Path $llamaRoot "llama-server.exe"
+    if (-not (Test-Path -LiteralPath $serverPath)) {
+        throw "llama.cpp package did not contain llama-server.exe for variant $Variant."
+    }
+
+    $manifest = @{
+        Backend = $backend
+        ServerPath = "llama-server.exe"
+        Release = $LlamaCppReleaseTag
+        Variant = $Variant
+        Assets = @($assets | ForEach-Object { $_.Name })
+    }
+    $manifestPath = Join-Path $llamaRoot "backend.json"
+    $manifest | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $manifestPath -Encoding UTF8
+}
+
+function Get-LlamaCppPackageVariants([string]$Variant) {
+    if ($Variant -eq "All") {
+        return @("Cuda13", "Vulkan")
+    }
+
+    if ($Variant -eq "None") {
+        return @()
+    }
+
+    return @($Variant)
+}
+
+function Remove-BuildSubdirectory([string]$Path) {
+    if (-not (Test-Path -LiteralPath $Path)) {
+        return
+    }
+
+    $resolvedOutputRoot = (Resolve-Path -LiteralPath $outputRoot).Path.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $resolvedPath = (Resolve-Path -LiteralPath $Path).Path
+    if (-not $resolvedPath.StartsWith($resolvedOutputRoot + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing to remove a path outside build output: $resolvedPath"
+    }
+
+    Remove-Item -LiteralPath $Path -Recurse -Force
+}
+
+function Get-LlamaCppPackageZipName([string]$Variant) {
+    if ($Variant -eq "Cuda13") {
+        return "HUnityAutoTranslator-0.1.0-llamacpp-cuda13.zip"
+    }
+
+    if ($Variant -eq "Vulkan") {
+        return "HUnityAutoTranslator-0.1.0-llamacpp-vulkan.zip"
+    }
+
+    throw "Unknown llama.cpp package variant: $Variant"
+}
+
+function Build-LlamaCppPackage([string]$Variant) {
+    $suffix = $Variant.ToLowerInvariant()
+    $llamaPackageRoot = Join-Path $outputRoot "HUnityAutoTranslator-llamacpp-$suffix"
+    $llamaTargetRoot = Join-Path $llamaPackageRoot "BepInEx\plugins\HUnityAutoTranslator"
+    $llamaZipPath = Join-Path $outputRoot (Get-LlamaCppPackageZipName -Variant $Variant)
+
+    Remove-BuildSubdirectory -Path $llamaPackageRoot
+    New-Item -ItemType Directory -Force -Path $llamaTargetRoot | Out-Null
+    Add-LlamaCppBackend -Variant $Variant -TargetRoot $llamaTargetRoot
+
+    if (Test-Path -LiteralPath $llamaZipPath) {
+        Remove-Item -LiteralPath $llamaZipPath -Force
+    }
+
+    Compress-Archive -Path (Join-Path $llamaPackageRoot "*") -DestinationPath $llamaZipPath -Force
+    Write-Host "llama.cpp package directory: $llamaPackageRoot"
+    Write-Host "llama.cpp package zip: $llamaZipPath"
+}
+
 if (Test-Path -LiteralPath (Join-Path $controlPanelRoot "package.json")) {
     Build-ControlPanel -ControlPanelRoot $controlPanelRoot
 }
@@ -171,3 +310,7 @@ Compress-Archive -Path (Join-Path $packageRoot "*") -DestinationPath $zipPath -F
 
 Write-Host "Package directory: $packageRoot"
 Write-Host "Package zip: $zipPath"
+
+foreach ($variant in Get-LlamaCppPackageVariants -Variant $LlamaCppVariant) {
+    Build-LlamaCppPackage -Variant $variant
+}
