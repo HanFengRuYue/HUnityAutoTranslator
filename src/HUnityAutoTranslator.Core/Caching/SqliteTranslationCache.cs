@@ -890,7 +890,7 @@ PRAGMA user_version={SchemaVersion};
     private static void AddEntryParameters(SqliteCommand command, TranslationCacheEntry entry, string createdUtc, string updatedUtc)
     {
         AddEntryKeyParameters(command, entry);
-        command.Parameters.AddWithValue("$translated_text", entry.TranslatedText == null ? DBNull.Value : entry.TranslatedText);
+        command.Parameters.AddWithValue("$translated_text", string.IsNullOrWhiteSpace(entry.TranslatedText) ? DBNull.Value : entry.TranslatedText);
         command.Parameters.AddWithValue("$component_type", ToDbValue(entry.ComponentType));
         command.Parameters.AddWithValue("$replacement_font", ToDbValue(entry.ReplacementFont));
         command.Parameters.AddWithValue("$created_utc", createdUtc);

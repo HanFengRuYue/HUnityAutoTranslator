@@ -31,6 +31,19 @@ public sealed class ComponentRefreshSourceTests
     }
 
     [Fact]
+    public void Manual_translation_clear_and_delete_publish_source_restore_writeback()
+    {
+        var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+
+        source.Should().Contain("NormalizeManualEntry(entry)");
+        source.Should().Contain("PublishRestoreSourceWriteback(entry, previousTranslatedText);");
+        source.Should().Contain("PublishRestoreSourceWriteback(entry, previousTranslatedText)");
+        source.Should().Contain("previousTranslatedText: removedTranslatedText");
+        source.Should().Contain("entry.SourceText,");
+        source.Should().Contain("_cache.Delete(entry);");
+    }
+
+    [Fact]
     public void Unity_applier_can_resolve_refresh_results_by_component_context()
     {
         var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));

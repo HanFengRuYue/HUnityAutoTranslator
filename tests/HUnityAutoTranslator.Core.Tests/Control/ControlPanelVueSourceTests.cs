@@ -548,6 +548,18 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_editor_delete_key_clears_editable_cells_instead_of_deleting_rows()
+    {
+        var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
+
+        editorPageSource.Should().Contain("function clearSelectedEditableCells()");
+        editorPageSource.Should().Contain("updateCellValue(cell.row, column, \"\");");
+        editorPageSource.Should().Contain("tableMessage.value = `已清空 ${clearedCells} 个单元格，等待保存。`;");
+        editorPageSource.Should().Contain("void clearSelectedEditableCells();");
+        editorPageSource.Should().NotContain("event.key === \"Delete\" && selectedCells.value.size) {\r\n    event.preventDefault();\r\n    void deleteSelectedRows();");
+    }
+
+    [Fact]
     public void Vue_editor_exposes_component_font_override_column()
     {
         var tableSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "table.ts"));

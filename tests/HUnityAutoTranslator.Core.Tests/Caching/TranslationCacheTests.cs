@@ -905,6 +905,53 @@ VALUES ('legacy-cache-key', 'legacy translated', '2026-04-25T00:00:00Z');
     }
 
     [Fact]
+    public void Memory_cache_update_treats_blank_translation_as_untranslated()
+    {
+        var cache = new MemoryTranslationCache();
+        var key = TranslationCacheKey.Create("Clear Me", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+        var context = new TranslationCacheContext("Menu", "Canvas/Clear", "Text");
+
+        cache.Update(SampleRow("Clear Me", "Menu", "Canvas/Clear", "Text", "", DateTimeOffset.UtcNow));
+
+        cache.Count.Should().Be(0);
+        cache.TryGet(key, context, out _).Should().BeFalse();
+        cache.Query(new TranslationCacheQuery("Clear", "source_text", false, 0, 10))
+            .Items[0].TranslatedText.Should().BeNull();
+    }
+
+    [Fact]
+    public void Disk_cache_update_treats_blank_translation_as_untranslated()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.jsonl");
+        using var cache = new DiskTranslationCache(path);
+        var key = TranslationCacheKey.Create("Clear Me", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+        var context = new TranslationCacheContext("Menu", "Canvas/Clear", "Text");
+
+        cache.Update(SampleRow("Clear Me", "Menu", "Canvas/Clear", "Text", "", DateTimeOffset.UtcNow));
+
+        cache.Count.Should().Be(0);
+        cache.TryGet(key, context, out _).Should().BeFalse();
+        cache.Query(new TranslationCacheQuery("Clear", "source_text", false, 0, 10))
+            .Items[0].TranslatedText.Should().BeNull();
+    }
+
+    [Fact]
+    public void Sqlite_cache_update_treats_blank_translation_as_untranslated()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        using var cache = new SqliteTranslationCache(path);
+        var key = TranslationCacheKey.Create("Clear Me", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+        var context = new TranslationCacheContext("Menu", "Canvas/Clear", "Text");
+
+        cache.Update(SampleRow("Clear Me", "Menu", "Canvas/Clear", "Text", "", DateTimeOffset.UtcNow));
+
+        cache.Count.Should().Be(0);
+        cache.TryGet(key, context, out _).Should().BeFalse();
+        cache.Query(new TranslationCacheQuery("Clear", "source_text", false, 0, 10))
+            .Items[0].TranslatedText.Should().BeNull();
+    }
+
+    [Fact]
     public void Sqlite_cache_imports_valid_json_rows()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");

@@ -365,6 +365,29 @@ function updateCell(rowIndex: number, column: TableColumn, event: Event): void {
   updateCellValue(rowIndex, column, (event.target as HTMLTextAreaElement).value);
 }
 
+function clearSelectedEditableCells(): void {
+  const cells = selectedCellAddresses();
+  let clearedCells = 0;
+  for (const cell of cells) {
+    const column = visibleColumns.value.find((item) => item.key === cell.columnKey);
+    if (!column?.editable || !rows.value[cell.row]) {
+      continue;
+    }
+
+    updateCellValue(cell.row, column, "");
+    clearedCells++;
+  }
+
+  if (!clearedCells) {
+    tableMessage.value = "没有选中的可编辑单元格。";
+    showToast("没有选中的可编辑单元格。", "warn");
+    return;
+  }
+
+  tableMessage.value = `已清空 ${clearedCells} 个单元格，等待保存。`;
+  showToast(tableMessage.value, "ok");
+}
+
 async function copyCells(): Promise<void> {
   const cells = selectedCellAddresses();
   if (!cells.length) {
@@ -650,7 +673,7 @@ function handleTableKeydown(event: KeyboardEvent): void {
     void pasteCells();
   } else if (event.key === "Delete" && selectedCells.value.size) {
     event.preventDefault();
-    void deleteSelectedRows();
+    void clearSelectedEditableCells();
   }
 }
 

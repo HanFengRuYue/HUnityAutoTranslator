@@ -273,6 +273,7 @@ public sealed class MemoryTranslationCache : ITranslationCache
     {
         return entry with
         {
+            TranslatedText = string.IsNullOrWhiteSpace(entry.TranslatedText) ? null : entry.TranslatedText,
             SceneName = TranslationCacheLookupKey.NormalizeContextPart(entry.SceneName),
             ComponentHierarchy = TranslationCacheLookupKey.NormalizeContextPart(entry.ComponentHierarchy)
         };

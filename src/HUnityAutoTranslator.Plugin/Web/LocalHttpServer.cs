@@ -280,12 +280,19 @@ internal sealed class LocalHttpServer : IDisposable
                     return;
                 }
 
-                entry = entry with { UpdatedUtc = DateTimeOffset.UtcNow };
+                entry = NormalizeManualEntry(entry) with { UpdatedUtc = DateTimeOffset.UtcNow };
                 var previousTranslatedText = TryGetExistingTranslation(entry, out var existingTranslatedText)
                     ? existingTranslatedText
                     : null;
                 _cache.Update(entry);
-                PublishManualWriteback(entry, previousTranslatedText);
+                if (entry.TranslatedText == null)
+                {
+                    PublishRestoreSourceWriteback(entry, previousTranslatedText);
+                }
+                else
+                {
+                    PublishManualWriteback(entry, previousTranslatedText);
+                }
                 await WriteJsonAsync(context.Response, _cache.Query(new TranslationCacheQuery(null, "updated_utc", true, 0, 100))).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "DELETE" && path == "/api/translations")
@@ -298,9 +305,14 @@ internal sealed class LocalHttpServer : IDisposable
                     return;
                 }
 
-                foreach (var entry in entries)
+                foreach (var rawEntry in entries)
                 {
+                    var entry = NormalizeManualEntry(rawEntry) with { UpdatedUtc = DateTimeOffset.UtcNow };
+                    var previousTranslatedText = TryGetExistingTranslation(entry, out var existingTranslatedText)
+                        ? existingTranslatedText
+                        : null;
                     _cache.Delete(entry);
+                    PublishRestoreSourceWriteback(entry, previousTranslatedText);
                 }
 
                 await WriteJsonAsync(context.Response, new { DeletedCount = entries.Count }).ConfigureAwait(false);
@@ -504,6 +516,14 @@ internal sealed class LocalHttpServer : IDisposable
         return _cache.TryGet(key, context, out translatedText);
     }
 
+    private static TranslationCacheEntry NormalizeManualEntry(TranslationCacheEntry entry)
+    {
+        return entry with
+        {
+            TranslatedText = string.IsNullOrWhiteSpace(entry.TranslatedText) ? null : entry.TranslatedText
+        };
+    }
+
     private bool PublishManualWriteback(TranslationCacheEntry entry, string? previousTranslatedText)
     {
         if (string.IsNullOrWhiteSpace(entry.SourceText) ||
@@ -526,6 +546,37 @@ internal sealed class LocalHttpServer : IDisposable
             entry.TranslatedText!,
             ManualWritebackPriority,
             previousTranslatedText: previousTranslatedText,
+            sceneName: entry.SceneName,
+            componentHierarchy: entry.ComponentHierarchy,
+            componentType: entry.ComponentType,
+            updatedUtc: entry.UpdatedUtc));
+        return true;
+    }
+
+    private bool PublishRestoreSourceWriteback(TranslationCacheEntry entry, string? previousTranslatedText)
+    {
+        var removedTranslatedText = string.IsNullOrWhiteSpace(previousTranslatedText)
+            ? entry.TranslatedText
+            : previousTranslatedText;
+        if (string.IsNullOrWhiteSpace(entry.SourceText) ||
+            string.IsNullOrWhiteSpace(removedTranslatedText))
+        {
+            return false;
+        }
+
+        var targetId = string.Empty;
+        _highlighter?.TryResolveTargetId(TranslationHighlightRequest.FromEntry(entry), out targetId);
+        if (string.IsNullOrEmpty(targetId) && string.IsNullOrWhiteSpace(entry.ComponentHierarchy))
+        {
+            return false;
+        }
+
+        _dispatcher.Publish(new TranslationResult(
+            targetId,
+            entry.SourceText,
+            entry.SourceText,
+            ManualWritebackPriority,
+            previousTranslatedText: removedTranslatedText,
             sceneName: entry.SceneName,
             componentHierarchy: entry.ComponentHierarchy,
             componentType: entry.ComponentType,

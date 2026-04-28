@@ -353,6 +353,7 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
     {
         return entry with
         {
+            TranslatedText = string.IsNullOrWhiteSpace(entry.TranslatedText) ? null : entry.TranslatedText,
             SceneName = TranslationCacheLookupKey.NormalizeContextPart(entry.SceneName),
             ComponentHierarchy = TranslationCacheLookupKey.NormalizeContextPart(entry.ComponentHierarchy)
         };
