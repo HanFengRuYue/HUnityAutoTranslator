@@ -28,6 +28,7 @@ import { api } from "../api/client";
 import SectionPanel from "../components/SectionPanel.vue";
 import {
   controlPanelStore,
+  refreshState,
   saveApiKey,
   saveConfig,
   setDirtyForm,
@@ -35,6 +36,9 @@ import {
 } from "../state/controlPanelStore";
 import type {
   ControlPanelState,
+  LlamaCppBenchmarkCandidate,
+  LlamaCppBenchmarkResult,
+  LlamaCppConfig,
   LlamaCppModelPickResult,
   LlamaCppServerStatus,
   PromptTemplateConfig,
@@ -211,12 +215,17 @@ const form = reactive({
   LlamaCppModelPath: "",
   LlamaCppContextSize: 4096,
   LlamaCppGpuLayers: 999,
-  LlamaCppParallelSlots: 1
+  LlamaCppParallelSlots: 1,
+  LlamaCppBatchSize: 2048,
+  LlamaCppUBatchSize: 512,
+  LlamaCppFlashAttentionMode: "auto"
 });
 
 const utilityBusy = ref(false);
 const llamaCppBusy = ref(false);
 const llamaCppModelPicking = ref(false);
+const llamaCppBenchmarkBusy = ref(false);
+const llamaCppBenchmarkResult = ref<LlamaCppBenchmarkResult | null>(null);
 const activePromptTemplateKey = ref<PromptTemplateKey>("SystemPrompt");
 const formDirty = computed(() => controlPanelStore.dirtyForms.has(formKey));
 const providerOptions = computed(() => modelPresets[form.ProviderKind] ?? modelPresets[0]);
@@ -357,6 +366,9 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.LlamaCppContextSize = state.LlamaCpp?.ContextSize ?? 4096;
   form.LlamaCppGpuLayers = state.LlamaCpp?.GpuLayers ?? 999;
   form.LlamaCppParallelSlots = state.LlamaCpp?.ParallelSlots ?? 1;
+  form.LlamaCppBatchSize = state.LlamaCpp?.BatchSize ?? 2048;
+  form.LlamaCppUBatchSize = state.LlamaCpp?.UBatchSize ?? 512;
+  form.LlamaCppFlashAttentionMode = state.LlamaCpp?.FlashAttentionMode ?? "auto";
   form.ApiKey = "";
   updateModelPresetFromInput();
   setDirtyForm(formKey, false);
@@ -392,7 +404,10 @@ function readConfig(): UpdateConfigRequest {
       ModelPath: form.LlamaCppModelPath.trim() || null,
       ContextSize: numberValue(form.LlamaCppContextSize),
       GpuLayers: numberValue(form.LlamaCppGpuLayers),
-      ParallelSlots: numberValue(form.LlamaCppParallelSlots)
+      ParallelSlots: numberValue(form.LlamaCppParallelSlots),
+      BatchSize: numberValue(form.LlamaCppBatchSize),
+      UBatchSize: numberValue(form.LlamaCppUBatchSize),
+      FlashAttentionMode: form.LlamaCppFlashAttentionMode
     }
   };
 }
@@ -585,6 +600,46 @@ async function pickLlamaCppModel(): Promise<void> {
   }
 }
 
+function formatBenchmarkRate(value: number | null | undefined): string {
+  return value === null || value === undefined ? "-" : `${value.toFixed(1)} t/s`;
+}
+
+function formatLlamaConfig(config: LlamaCppConfig | null | undefined): string {
+  if (!config) {
+    return "-";
+  }
+
+  return `槽位 ${config.ParallelSlots} / 每槽上下文 ${config.ContextSize} / batch ${config.BatchSize} / ubatch ${config.UBatchSize} / fa ${config.FlashAttentionMode}`;
+}
+
+function formatBenchmarkCandidate(candidate: LlamaCppBenchmarkCandidate): string {
+  const tool = candidate.Tool === "llama-batched-bench" ? `并行 ${candidate.ParallelSlots}` : "单槽";
+  const context = candidate.TotalContextSize > 0 ? ` / 总上下文 ${candidate.TotalContextSize}` : "";
+  return `${tool}: prompt ${formatBenchmarkRate(candidate.PromptTokensPerSecond)} / gen ${formatBenchmarkRate(candidate.GenerationTokensPerSecond)} / total ${formatBenchmarkRate(candidate.TotalTokensPerSecond)}${context}`;
+}
+
+async function runLlamaCppBenchmark(): Promise<void> {
+  if (formDirty.value) {
+    showToast("请先保存当前 AI 设置，再运行本地 CUDA 基准。", "warn", 5200);
+    return;
+  }
+
+  llamaCppBenchmarkBusy.value = true;
+  try {
+    const result = await api<LlamaCppBenchmarkResult>("/api/llamacpp/benchmark", { method: "POST", body: {} });
+    llamaCppBenchmarkResult.value = result;
+    showToast(result.Message, result.Succeeded ? "ok" : "warn", 6200);
+    if (result.Saved) {
+      const state = await refreshState({ quiet: true });
+      applyState(state, true);
+    }
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "本地 CUDA 基准运行失败。", "error");
+  } finally {
+    llamaCppBenchmarkBusy.value = false;
+  }
+}
+
 function applyProviderDefaults(): void {
   const defaults = providerDefaults[form.ProviderKind] ?? providerDefaults[0];
   form.BaseUrl = defaults.baseUrl;
@@ -707,6 +762,30 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
               <button v-if="!llamaCppIsActive" id="startLlamaCpp" class="primary" type="button" :disabled="llamaCppBusy" @click="startLlamaCpp"><Play class="button-icon" />{{ llamaCppBusy ? "处理中..." : "启动本地模型" }}</button>
               <button v-else id="stopLlamaCpp" class="secondary" type="button" :disabled="llamaCppBusy" @click="stopLlamaCpp"><Square class="button-icon" />{{ llamaCppBusy ? "处理中..." : "停止本地模型" }}</button>
             </div>
+          </div>
+          <div class="llama-tune-row">
+            <label class="field"><span class="field-label"><Gauge class="field-label-icon" />Batch</span><input id="llamaCppBatchSize" v-model.number="form.LlamaCppBatchSize" type="number" min="128" max="8192"></label>
+            <label class="field"><span class="field-label"><Gauge class="field-label-icon" />UBatch</span><input id="llamaCppUBatchSize" v-model.number="form.LlamaCppUBatchSize" type="number" min="64" max="4096"></label>
+            <label class="field"><span class="field-label"><Zap class="field-label-icon" />Flash Attention</span>
+              <select id="llamaCppFlashAttentionMode" v-model="form.LlamaCppFlashAttentionMode">
+                <option value="auto">auto</option>
+                <option value="on">on</option>
+                <option value="off">off</option>
+              </select>
+            </label>
+            <div class="actions inline-actions llama-run-actions">
+              <button id="runLlamaCppBenchmark" class="secondary" type="button" :disabled="llamaCppBenchmarkBusy || llamaCppIsActive" @click="runLlamaCppBenchmark"><Gauge class="button-icon" />{{ llamaCppBenchmarkBusy ? "基准运行中..." : "运行 CUDA 基准" }}</button>
+            </div>
+          </div>
+          <div v-if="llamaCppBenchmarkResult" class="llama-benchmark-result">
+            <div><span>当前配置</span><strong>{{ formatLlamaConfig(llamaCppBenchmarkResult.CurrentConfig) }}</strong></div>
+            <div><span>推荐配置</span><strong>{{ formatLlamaConfig(llamaCppBenchmarkResult.RecommendedConfig) }}</strong></div>
+            <div><span>自动保存</span><strong>{{ llamaCppBenchmarkResult.Saved ? "已保存" : "未保存" }}</strong></div>
+            <div class="llama-benchmark-list">
+              <span>吞吐结果</span>
+              <strong v-for="candidate in llamaCppBenchmarkResult.Candidates" :key="`${candidate.Tool}-${candidate.ParallelSlots}-${candidate.BatchSize}-${candidate.UBatchSize}-${candidate.FlashAttentionMode}`">{{ formatBenchmarkCandidate(candidate) }}</strong>
+            </div>
+            <pre v-if="llamaCppBenchmarkResult.Errors.length || llamaCppBenchmarkResult.LastOutput">{{ [...llamaCppBenchmarkResult.Errors, llamaCppBenchmarkResult.LastOutput ?? ""].filter(Boolean).join("\n") }}</pre>
           </div>
         </div>
       </SectionPanel>

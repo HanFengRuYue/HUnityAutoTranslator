@@ -164,6 +164,32 @@ internal sealed class LocalHttpServer : IDisposable
                 _controlPanel.SetLlamaCppStatus(status);
                 await WriteJsonAsync(context.Response, status).ConfigureAwait(false);
             }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/llamacpp/benchmark")
+            {
+                var result = _llamaCppServer == null
+                    ? LlamaCppBenchmarkResult.Failure(_controlPanel.GetConfig().LlamaCpp, "llama.cpp 本地模型管理器不可用。")
+                    : await _llamaCppServer.BenchmarkAsync(_controlPanel.GetConfig(), CancellationToken.None).ConfigureAwait(false);
+                if (result.Succeeded && result.RecommendedConfig != null)
+                {
+                    var current = _controlPanel.GetConfig().LlamaCpp;
+                    var savedConfig = current with
+                    {
+                        BatchSize = result.RecommendedConfig.BatchSize,
+                        UBatchSize = result.RecommendedConfig.UBatchSize,
+                        FlashAttentionMode = result.RecommendedConfig.FlashAttentionMode,
+                        ParallelSlots = result.RecommendedConfig.ParallelSlots
+                    };
+                    _controlPanel.UpdateConfig(new UpdateConfigRequest(LlamaCpp: savedConfig));
+                    result = result with
+                    {
+                        Saved = true,
+                        Message = "基准完成，已自动保存推荐参数。",
+                        RecommendedConfig = savedConfig
+                    };
+                }
+
+                await WriteJsonAsync(context.Response, result).ConfigureAwait(false);
+            }
             else if (context.Request.HttpMethod == "GET" && path == "/api/translations")
             {
                 await WriteJsonAsync(context.Response, _cache.Query(ParseTranslationQuery(context.Request))).ConfigureAwait(false);

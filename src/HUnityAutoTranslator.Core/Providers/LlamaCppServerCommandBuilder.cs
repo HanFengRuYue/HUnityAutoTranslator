@@ -12,6 +12,7 @@ public static class LlamaCppServerCommandBuilder
             throw new ArgumentException("llama.cpp model path is required.", nameof(config));
         }
 
+        var totalContextSize = Math.Max(1, config.ContextSize) * Math.Max(1, config.ParallelSlots);
         return string.Join(" ", new[]
         {
             "--host",
@@ -23,11 +24,18 @@ public static class LlamaCppServerCommandBuilder
             "--alias",
             "local-model",
             "-c",
-            config.ContextSize.ToString(CultureInfo.InvariantCulture),
+            totalContextSize.ToString(CultureInfo.InvariantCulture),
             "-ngl",
             config.GpuLayers.ToString(CultureInfo.InvariantCulture),
             "-np",
             config.ParallelSlots.ToString(CultureInfo.InvariantCulture),
+            "-b",
+            config.BatchSize.ToString(CultureInfo.InvariantCulture),
+            "-ub",
+            config.UBatchSize.ToString(CultureInfo.InvariantCulture),
+            "-fa",
+            config.FlashAttentionMode,
+            "--metrics",
             "--no-webui"
         });
     }

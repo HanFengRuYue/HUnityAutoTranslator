@@ -701,6 +701,12 @@ button:disabled {
   align-items: end;
   gap: 12px;
 }
+.llama-tune-row {
+  display: grid;
+  grid-template-columns: minmax(110px, 1fr) minmax(110px, 1fr) minmax(150px, 1fr) auto;
+  align-items: end;
+  gap: 12px;
+}
 .llama-run-actions {
   justify-content: flex-start;
   flex-wrap: nowrap;
@@ -709,6 +715,35 @@ button:disabled {
 .llama-run-actions button {
   min-width: 104px;
   white-space: nowrap;
+}
+.llama-benchmark-result {
+  display: grid;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.llama-benchmark-result > div,
+.llama-benchmark-list {
+  display: grid;
+  gap: 4px;
+}
+.llama-benchmark-result span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.llama-benchmark-result strong {
+  overflow-wrap: anywhere;
+}
+.llama-benchmark-result pre {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--muted);
+  font-size: 12px;
 }
 .field {
   display: grid;
@@ -1316,7 +1351,8 @@ input.compact-check {
   .status-command { grid-template-columns: 1fr; }
   .ai-model-row,
   .ai-model-row-local,
-  .llama-run-row {
+  .llama-run-row,
+  .llama-tune-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .ai-provider-actions,
@@ -1352,6 +1388,7 @@ input.compact-check {
   .ai-model-row-local,
   .llama-status-strip,
   .llama-run-row,
+  .llama-tune-row,
   .form-grid.two,
   .form-grid.three,
   .form-grid.four,

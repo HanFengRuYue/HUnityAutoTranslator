@@ -312,12 +312,20 @@ public sealed class ControlPanelVueSourceTests
 
         apiTypesSource.Should().Contain("export interface LlamaCppConfig");
         apiTypesSource.Should().Contain("export interface LlamaCppServerStatus");
+        apiTypesSource.Should().Contain("BatchSize: number;");
+        apiTypesSource.Should().Contain("UBatchSize: number;");
+        apiTypesSource.Should().Contain("FlashAttentionMode: string;");
+        apiTypesSource.Should().Contain("export interface LlamaCppBenchmarkResult");
         apiTypesSource.Should().Contain("Installed: boolean");
         apiTypesSource.Should().Contain("Release: string | null");
         apiTypesSource.Should().Contain("Variant: string | null");
         apiTypesSource.Should().Contain("ServerPath: string | null");
         aiPageSource.Should().Contain("id=\"llamaCppModelPath\"");
         aiPageSource.Should().Contain("id=\"pickLlamaCppModel\"");
+        aiPageSource.Should().Contain("id=\"runLlamaCppBenchmark\"");
+        aiPageSource.Should().Contain("id=\"llamaCppBatchSize\"");
+        aiPageSource.Should().Contain("id=\"llamaCppUBatchSize\"");
+        aiPageSource.Should().Contain("id=\"llamaCppFlashAttentionMode\"");
         aiPageSource.Should().Contain("id=\"startLlamaCpp\"");
         aiPageSource.Should().Contain("id=\"stopLlamaCpp\"");
         aiPageSource.Should().Contain("llamaCppIsActive");
@@ -326,6 +334,7 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("llamaCppInstallText");
         aiPageSource.Should().Contain("/api/llamacpp/start");
         aiPageSource.Should().Contain("/api/llamacpp/stop");
+        aiPageSource.Should().Contain("/api/llamacpp/benchmark");
         aiPageSource.Should().Contain("/api/llamacpp/model/pick");
         aiPageSource.Should().NotContain("id=\"llamaCppPort\"");
         aiPageSource.Should().NotContain("<div><span>端口</span>");

@@ -125,7 +125,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
 
     private static LlamaCppConfig? BuildLlamaCppConfig(Dictionary<string, Dictionary<string, string>> values)
     {
-        var keys = new[] { "ModelPath", "ContextSize", "GpuLayers", "ParallelSlots" };
+        var keys = new[] { "ModelPath", "ContextSize", "GpuLayers", "ParallelSlots", "BatchSize", "UBatchSize", "FlashAttentionMode" };
         if (!keys.Any(key => HasValue(values, LlamaCppSection, key)))
         {
             return null;
@@ -136,7 +136,10 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             ReadString(values, LlamaCppSection, "ModelPath"),
             ReadInt(values, LlamaCppSection, "ContextSize") ?? defaults.ContextSize,
             ReadInt(values, LlamaCppSection, "GpuLayers") ?? defaults.GpuLayers,
-            ReadInt(values, LlamaCppSection, "ParallelSlots") ?? defaults.ParallelSlots);
+            ReadInt(values, LlamaCppSection, "ParallelSlots") ?? defaults.ParallelSlots,
+            ReadInt(values, LlamaCppSection, "BatchSize") ?? defaults.BatchSize,
+            ReadInt(values, LlamaCppSection, "UBatchSize") ?? defaults.UBatchSize,
+            ReadString(values, LlamaCppSection, "FlashAttentionMode") ?? defaults.FlashAttentionMode);
     }
 
     private static PromptTemplateConfig? BuildPromptTemplates(Dictionary<string, Dictionary<string, string>> values)
@@ -276,6 +279,10 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "llama.cpp 上下文长度。", "4096", "范围：512 到 131072。", "ContextSize", Int(llamaCpp.ContextSize));
         Option(builder, "llama.cpp GPU 层数。999 表示尽量全部放入 GPU。", "999", "范围：0 到 999。", "GpuLayers", Int(llamaCpp.GpuLayers));
         Option(builder, "llama.cpp 并行槽位数量。", "1", "范围：1 到 16。", "ParallelSlots", Int(llamaCpp.ParallelSlots));
+
+        Option(builder, "llama.cpp prompt batch size。", "2048", "范围：128 到 8192。", "BatchSize", Int(llamaCpp.BatchSize));
+        Option(builder, "llama.cpp physical ubatch size。", "512", "范围：64 到 4096，且不超过 BatchSize。", "UBatchSize", Int(llamaCpp.UBatchSize));
+        Option(builder, "llama.cpp Flash Attention 模式。", "auto", "可选：auto、on、off。", "FlashAttentionMode", Text(llamaCpp.FlashAttentionMode));
 
         return builder.ToString();
     }

@@ -4,7 +4,10 @@ public sealed record LlamaCppConfig(
     string? ModelPath,
     int ContextSize,
     int GpuLayers,
-    int ParallelSlots)
+    int ParallelSlots,
+    int BatchSize = 2048,
+    int UBatchSize = 512,
+    string FlashAttentionMode = "auto")
 {
     public static LlamaCppConfig Default()
     {
@@ -12,6 +15,9 @@ public sealed record LlamaCppConfig(
             ModelPath: null,
             ContextSize: 4096,
             GpuLayers: 999,
-            ParallelSlots: 1);
+            ParallelSlots: 1,
+            BatchSize: 2048,
+            UBatchSize: 512,
+            FlashAttentionMode: "auto");
     }
 }

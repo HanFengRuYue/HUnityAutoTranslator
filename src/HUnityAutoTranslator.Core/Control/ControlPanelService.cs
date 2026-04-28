@@ -635,11 +635,15 @@ public sealed class ControlPanelService
             return _config.LlamaCpp;
         }
 
+        var batchSize = RuntimeConfigLimits.ClampLlamaCppBatchSize(request.BatchSize);
         return new LlamaCppConfig(
             SelectOptionalText(request.ModelPath, fallback: null),
             Clamp(request.ContextSize, 512, 131072),
             Clamp(request.GpuLayers, 0, 999),
-            RuntimeConfigLimits.ClampLlamaCppParallelSlots(request.ParallelSlots));
+            RuntimeConfigLimits.ClampLlamaCppParallelSlots(request.ParallelSlots),
+            batchSize,
+            RuntimeConfigLimits.ClampLlamaCppUBatchSize(request.UBatchSize, batchSize),
+            RuntimeConfigLimits.NormalizeLlamaCppFlashAttentionMode(request.FlashAttentionMode));
     }
 
     private RuntimeConfig BuildEffectiveConfig(RuntimeConfig config)

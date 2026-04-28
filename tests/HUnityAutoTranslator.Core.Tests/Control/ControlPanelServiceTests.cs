@@ -242,7 +242,10 @@ public sealed class ControlPanelServiceTests
                 ModelPath: @"D:\Models\game-ui.gguf",
                 ContextSize: 8192,
                 GpuLayers: 80,
-                ParallelSlots: 2)));
+                ParallelSlots: 2,
+                BatchSize: 4096,
+                UBatchSize: 1024,
+                FlashAttentionMode: "on")));
 
         var state = service.GetState();
         var config = service.GetConfig();
@@ -256,6 +259,9 @@ public sealed class ControlPanelServiceTests
         state.LlamaCpp.ContextSize.Should().Be(8192);
         state.LlamaCpp.GpuLayers.Should().Be(80);
         state.LlamaCpp.ParallelSlots.Should().Be(2);
+        state.LlamaCpp.BatchSize.Should().Be(4096);
+        state.LlamaCpp.UBatchSize.Should().Be(1024);
+        state.LlamaCpp.FlashAttentionMode.Should().Be("on");
         state.EffectiveMaxConcurrentRequests.Should().Be(2);
         state.LlamaCppStatus.State.Should().Be("stopped");
         state.LlamaCppStatus.Port.Should().Be(0);
@@ -274,7 +280,10 @@ public sealed class ControlPanelServiceTests
                 ModelPath: "  ",
                 ContextSize: 64,
                 GpuLayers: -4,
-                ParallelSlots: 99)));
+                ParallelSlots: 99,
+                BatchSize: 32,
+                UBatchSize: 99999,
+                FlashAttentionMode: "maybe")));
 
         var state = service.GetState();
 
@@ -282,6 +291,9 @@ public sealed class ControlPanelServiceTests
         state.LlamaCpp.ContextSize.Should().Be(512);
         state.LlamaCpp.GpuLayers.Should().Be(0);
         state.LlamaCpp.ParallelSlots.Should().Be(16);
+        state.LlamaCpp.BatchSize.Should().Be(128);
+        state.LlamaCpp.UBatchSize.Should().Be(128);
+        state.LlamaCpp.FlashAttentionMode.Should().Be("auto");
     }
 
     [Fact]

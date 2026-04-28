@@ -47,7 +47,7 @@ public sealed class CfgControlPanelSettingsStoreTests
                 CustomPrompt: null,
                 FontSizeAdjustmentMode: FontSizeAdjustmentMode.Percent,
                 FontSizeAdjustmentValue: -10,
-                LlamaCpp: new LlamaCppConfig(null, 4096, 999, 1))
+                LlamaCpp: new LlamaCppConfig(null, 4096, 999, 1, 2048, 512, "auto"))
         });
 
         var cfg = File.ReadAllText(path);
@@ -66,6 +66,9 @@ public sealed class CfgControlPanelSettingsStoreTests
         cfg.Should().Contain("ProviderKind = LlamaCpp");
         cfg.Should().Contain("Style = Localized");
         cfg.Should().Contain("FontSizeAdjustmentMode = Percent");
+        cfg.Should().Contain("BatchSize = 2048");
+        cfg.Should().Contain("UBatchSize = 512");
+        cfg.Should().Contain("FlashAttentionMode = auto");
         cfg.Should().NotContain("ProviderKind = 3");
         cfg.Should().NotContain("Style = 2");
         cfg.Should().NotContain("FontSizeAdjustmentMode = 2");
@@ -156,6 +159,9 @@ public sealed class CfgControlPanelSettingsStoreTests
             ContextSize = 64
             GpuLayers = -5
             ParallelSlots = 99
+            BatchSize = 32
+            UBatchSize = 99999
+            FlashAttentionMode = maybe
             """);
 
         var service = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
@@ -200,6 +206,31 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.LlamaCpp.ContextSize.Should().Be(512);
         config.LlamaCpp.GpuLayers.Should().Be(0);
         config.LlamaCpp.ParallelSlots.Should().Be(16);
+        config.LlamaCpp.BatchSize.Should().Be(128);
+        config.LlamaCpp.UBatchSize.Should().Be(128);
+        config.LlamaCpp.FlashAttentionMode.Should().Be("auto");
+    }
+
+    [Fact]
+    public void CreateDefault_loads_legacy_llamacpp_cfg_with_new_performance_defaults()
+    {
+        var path = NewCfgPath();
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, """
+            [llama.cpp]
+            ModelPath = D:\Models\legacy.gguf
+            ContextSize = 4096
+            GpuLayers = 999
+            ParallelSlots = 1
+            """);
+
+        var service = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+        var config = service.GetConfig();
+
+        config.LlamaCpp.ModelPath.Should().Be(@"D:\Models\legacy.gguf");
+        config.LlamaCpp.BatchSize.Should().Be(2048);
+        config.LlamaCpp.UBatchSize.Should().Be(512);
+        config.LlamaCpp.FlashAttentionMode.Should().Be("auto");
     }
 
     [Fact]

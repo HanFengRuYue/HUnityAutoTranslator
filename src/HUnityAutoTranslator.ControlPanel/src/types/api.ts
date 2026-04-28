@@ -32,6 +32,9 @@ export interface LlamaCppConfig {
   ContextSize: number;
   GpuLayers: number;
   ParallelSlots: number;
+  BatchSize: number;
+  UBatchSize: number;
+  FlashAttentionMode: string;
 }
 
 export interface LlamaCppServerStatus {
@@ -51,6 +54,32 @@ export interface LlamaCppModelPickResult {
   Status: "selected" | "cancelled" | "unsupported" | "error";
   FilePath: string | null;
   Message: string;
+}
+
+export interface LlamaCppBenchmarkCandidate {
+  Tool: string;
+  BatchSize: number;
+  UBatchSize: number;
+  FlashAttentionMode: string;
+  ParallelSlots: number;
+  TotalContextSize: number;
+  PromptTokensPerSecond: number | null;
+  GenerationTokensPerSecond: number | null;
+  TotalTokensPerSecond: number | null;
+  TotalSeconds: number | null;
+  Succeeded: boolean;
+  Error: string | null;
+}
+
+export interface LlamaCppBenchmarkResult {
+  Succeeded: boolean;
+  Saved: boolean;
+  Message: string;
+  CurrentConfig: LlamaCppConfig;
+  RecommendedConfig: LlamaCppConfig | null;
+  Candidates: LlamaCppBenchmarkCandidate[];
+  Errors: string[];
+  LastOutput: string | null;
 }
 
 export interface PromptTemplateConfig {

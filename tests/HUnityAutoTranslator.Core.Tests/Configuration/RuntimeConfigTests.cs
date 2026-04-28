@@ -70,6 +70,9 @@ public sealed class RuntimeConfigTests
         config.LlamaCpp.ContextSize.Should().Be(4096);
         config.LlamaCpp.GpuLayers.Should().Be(999);
         config.LlamaCpp.ParallelSlots.Should().Be(1);
+        config.LlamaCpp.BatchSize.Should().Be(2048);
+        config.LlamaCpp.UBatchSize.Should().Be(512);
+        config.LlamaCpp.FlashAttentionMode.Should().Be("auto");
     }
 
     [Fact]
