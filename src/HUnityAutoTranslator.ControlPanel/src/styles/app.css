@@ -462,6 +462,14 @@ button:disabled {
   background: var(--surface-2);
   transform: translateY(-1px);
 }
+.help-target[data-help] {
+  position: relative;
+  overflow: visible;
+}
+.help-target[data-help]:hover,
+.help-target[data-help]:focus-within {
+  z-index: 35;
+}
 .metric-head,
 .section-title-row,
 .field-label {
@@ -494,7 +502,8 @@ button:disabled {
 .status-warn { color: var(--warn); }
 .metric-danger strong,
 .status-danger { color: var(--danger); }
-.metric[data-help]::after {
+.metric[data-help]::after,
+.help-target[data-help]::after {
   content: attr(data-help);
   position: absolute;
   left: 12px;
@@ -518,7 +527,9 @@ button:disabled {
   transition: opacity 0.16s ease, transform 0.16s ease;
 }
 .metric:hover::after,
-.metric:focus-visible::after {
+.metric:focus-visible::after,
+.help-target:hover::after,
+.help-target:focus-within::after {
   opacity: 1;
   transform: translateY(0);
 }
@@ -1404,6 +1415,11 @@ input.compact-check {
     width: min(320px, calc(100vw - 24px));
   }
   .metric[data-help]::after {
+    left: 12px;
+    right: auto;
+    max-width: calc(100vw - 52px);
+  }
+  .help-target[data-help]::after {
     left: 12px;
     right: auto;
     max-width: calc(100vw - 52px);

@@ -85,6 +85,35 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_settings_pages_use_shared_help_tooltips_for_major_options()
+    {
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+        var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var glossaryPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "GlossaryPage.vue"));
+
+        cssSource.Should().Contain(".help-target[data-help]::after");
+        cssSource.Should().Contain(".help-target:hover::after");
+        cssSource.Should().Contain(".help-target:focus-within::after");
+        cssSource.Should().Contain(".help-target:hover");
+
+        pluginPageSource.Should().Contain("class=\"check help-target\"");
+        pluginPageSource.Should().Contain("暂停采集、翻译和写回，已保存的配置和缓存不会被删除。");
+        pluginPageSource.Should().Contain("控制插件多久扫描一次 Unity 文本，数值越小越及时但更耗性能。");
+        pluginPageSource.Should().Contain("点击后直接监听组合键，按 Backspace 或 Delete 可清空为 None。");
+
+        aiPageSource.Should().Contain("class=\"field help-target\"");
+        aiPageSource.Should().Contain("选择要调用的翻译后端，切换后会带入该服务商的默认地址和模型。");
+        aiPageSource.Should().Contain("限制同时发送给在线服务商的翻译请求数，过高可能触发限流或增加费用。");
+        aiPageSource.Should().Contain("help: \"控制模型的总体翻译规则");
+        aiPageSource.Should().Contain(":data-help=\"field.help\"");
+
+        glossaryPageSource.Should().Contain("class=\"check help-target\"");
+        glossaryPageSource.Should().Contain("把匹配到的术语作为强制译名写入提示词，手动术语优先。");
+        glossaryPageSource.Should().Contain("限制每次请求最多注入多少条术语，设为 0 等于不注入术语。");
+    }
+
+    [Fact]
     public void Vue_status_and_settings_surfaces_keep_structural_icons_without_plugin_checkbox_icons()
     {
         var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
@@ -348,7 +377,8 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("Model: isLlamaCpp.value ? \"local-model\" : form.Model");
         aiPageSource.Should().Contain("<div v-if=\"!isLlamaCpp\" class=\"ai-model-row\"");
         aiPageSource.Should().Contain("<button v-if=\"!isLlamaCpp\" id=\"fetchModels\"");
-        aiPageSource.Should().Contain("<label v-if=\"!isLlamaCpp\" class=\"field\"><span class=\"field-label\"><Gauge class=\"field-label-icon\" />在线服务并发请求</span>");
+        aiPageSource.Should().Contain("<label v-if=\"!isLlamaCpp\" class=\"field help-target\"");
+        aiPageSource.Should().Contain("<span class=\"field-label\"><Gauge class=\"field-label-icon\" />在线服务并发请求</span>");
         aiPageSource.Should().Contain("llama.cpp 使用并行槽位控制本地模型压力。");
     }
 

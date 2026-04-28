@@ -325,60 +325,60 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
     <div class="form-stack" @input="markDirty" @change="markDirty">
       <SectionPanel title="运行与采集" :icon="ScanLine">
         <div class="checks">
-          <label class="check"><input id="enabled" v-model="form.Enabled" type="checkbox">启用翻译</label>
-          <label class="check"><input id="autoOpenControlPanel" v-model="form.AutoOpenControlPanel" type="checkbox">启动后自动打开面板</label>
-          <label class="check"><input id="enableUgui" v-model="form.EnableUgui" type="checkbox">采集 UGUI</label>
-          <label class="check"><input id="enableTmp" v-model="form.EnableTmp" type="checkbox">采集 TextMeshPro</label>
-          <label class="check"><input id="enableImgui" v-model="form.EnableImgui" type="checkbox">采集 IMGUI</label>
+          <label class="check help-target" data-help="暂停采集、翻译和写回，已保存的配置和缓存不会被删除。"><input id="enabled" v-model="form.Enabled" type="checkbox">启用翻译</label>
+          <label class="check help-target" data-help="插件加载后自动在浏览器打开本机控制面板，关闭后仍可用快捷键打开。"><input id="autoOpenControlPanel" v-model="form.AutoOpenControlPanel" type="checkbox">启动后自动打开面板</label>
+          <label class="check help-target" data-help="采集 Unity UGUI Text 文本，常见于菜单、按钮和传统界面。"><input id="enableUgui" v-model="form.EnableUgui" type="checkbox">采集 UGUI</label>
+          <label class="check help-target" data-help="采集 TextMeshPro 文本，常见于较新的 Unity UI 和高质量字体渲染。"><input id="enableTmp" v-model="form.EnableTmp" type="checkbox">采集 TextMeshPro</label>
+          <label class="check help-target" data-help="采集 IMGUI 绘制的文本，通常用于调试窗口或旧式插件界面。"><input id="enableImgui" v-model="form.EnableImgui" type="checkbox">采集 IMGUI</label>
         </div>
         <div class="form-grid four">
-          <label class="field"><span class="field-label"><Timer class="field-label-icon" />扫描间隔 (毫秒)</span><input id="scanIntervalMilliseconds" v-model.number="form.ScanIntervalMilliseconds" type="number" min="100"></label>
-          <label class="field"><span class="field-label"><ScanLine class="field-label-icon" />每次扫描上限</span><input id="maxScanTargetsPerTick" v-model.number="form.MaxScanTargetsPerTick" type="number" min="1"></label>
-          <label class="field"><span class="field-label"><Pencil class="field-label-icon" />每帧写回上限</span><input id="maxWritebacksPerFrame" v-model.number="form.MaxWritebacksPerFrame" type="number" min="1"></label>
-          <label class="field"><span class="field-label"><Maximize2 class="field-label-icon" />原文长度上限</span><input id="maxSourceTextLength" v-model.number="form.MaxSourceTextLength" type="number" min="1"></label>
+          <label class="field help-target" data-help="控制插件多久扫描一次 Unity 文本，数值越小越及时但更耗性能。"><span class="field-label"><Timer class="field-label-icon" />扫描间隔 (毫秒)</span><input id="scanIntervalMilliseconds" v-model.number="form.ScanIntervalMilliseconds" type="number" min="100"></label>
+          <label class="field help-target" data-help="限制单次扫描最多处理多少个文本目标，降低它可减少单次卡顿。"><span class="field-label"><ScanLine class="field-label-icon" />每次扫描上限</span><input id="maxScanTargetsPerTick" v-model.number="form.MaxScanTargetsPerTick" type="number" min="1"></label>
+          <label class="field help-target" data-help="限制每帧最多把多少条译文写回游戏界面，降低它可减少瞬时压力。"><span class="field-label"><Pencil class="field-label-icon" />每帧写回上限</span><input id="maxWritebacksPerFrame" v-model.number="form.MaxWritebacksPerFrame" type="number" min="1"></label>
+          <label class="field help-target" data-help="超过这个长度的原文不会进入翻译队列，用来跳过异常长文本或日志。"><span class="field-label"><Maximize2 class="field-label-icon" />原文长度上限</span><input id="maxSourceTextLength" v-model.number="form.MaxSourceTextLength" type="number" min="1"></label>
         </div>
       </SectionPanel>
 
       <SectionPanel title="文本策略" :icon="FileText">
         <div class="checks">
-          <label class="check"><input id="ignoreInvisibleText" v-model="form.IgnoreInvisibleText" type="checkbox">忽略不可见文本</label>
-          <label class="check"><input id="skipNumericSymbolText" v-model="form.SkipNumericSymbolText" type="checkbox">跳过数字/符号文本</label>
-          <label class="check"><input id="enableCacheLookup" v-model="form.EnableCacheLookup" type="checkbox">启用缓存查找</label>
-          <label class="check"><input id="enableTranslationDebugLogs" v-model="form.EnableTranslationDebugLogs" type="checkbox">输出翻译请求调试日志</label>
-          <label class="check"><input id="enableTranslationContext" v-model="form.EnableTranslationContext" type="checkbox">启用翻译上下文</label>
-          <label class="check"><input id="manualEditsOverrideAi" v-model="form.ManualEditsOverrideAi" type="checkbox">手动编辑优先</label>
-          <label class="check"><input id="reapplyRememberedTranslations" v-model="form.ReapplyRememberedTranslations" type="checkbox">重新应用已记住译文</label>
+          <label class="check help-target" data-help="跳过当前不可见的 UI 文本，减少隐藏界面和模板文本进入翻译队列。"><input id="ignoreInvisibleText" v-model="form.IgnoreInvisibleText" type="checkbox">忽略不可见文本</label>
+          <label class="check help-target" data-help="跳过只有数字、标点或符号的文本，避免无意义请求和错误替换。"><input id="skipNumericSymbolText" v-model="form.SkipNumericSymbolText" type="checkbox">跳过数字/符号文本</label>
+          <label class="check help-target" data-help="优先从本地缓存读取已有译文，命中后不会再次请求 AI。"><input id="enableCacheLookup" v-model="form.EnableCacheLookup" type="checkbox">启用缓存查找</label>
+          <label class="check help-target" data-help="在 BepInEx 日志输出请求和响应细节，排查提示词或模型问题时再开启。"><input id="enableTranslationDebugLogs" v-model="form.EnableTranslationDebugLogs" type="checkbox">输出翻译请求调试日志</label>
+          <label class="check help-target" data-help="把同组件或同场景附近文本作为参考发给 AI，帮助短词和按钮翻译更准确。"><input id="enableTranslationContext" v-model="form.EnableTranslationContext" type="checkbox">启用翻译上下文</label>
+          <label class="check help-target" data-help="控制面板里手动改过的译文优先于 AI 结果，避免被后续自动翻译覆盖。"><input id="manualEditsOverrideAi" v-model="form.ManualEditsOverrideAi" type="checkbox">手动编辑优先</label>
+          <label class="check help-target" data-help="重新扫描时把缓存中记住的译文再次写回游戏，适合界面重建后恢复翻译。"><input id="reapplyRememberedTranslations" v-model="form.ReapplyRememberedTranslations" type="checkbox">重新应用已记住译文</label>
         </div>
         <div class="form-grid three">
-          <label class="field"><span class="field-label"><Sparkles class="field-label-icon" />上下文示例数</span><input id="translationContextMaxExamples" v-model.number="form.TranslationContextMaxExamples" type="number" min="0"></label>
-          <label class="field"><span class="field-label"><FileText class="field-label-icon" />上下文字符数</span><input id="translationContextMaxCharacters" v-model.number="form.TranslationContextMaxCharacters" type="number" min="0"></label>
-          <label class="field"><span class="field-label"><FileClock class="field-label-icon" />缓存保留天数</span><input id="cacheRetentionDays" v-model.number="form.CacheRetentionDays" type="number" min="1"></label>
+          <label class="field help-target" data-help="每条请求最多带入多少条历史上下文示例，过多会增加 token 消耗。"><span class="field-label"><Sparkles class="field-label-icon" />上下文示例数</span><input id="translationContextMaxExamples" v-model.number="form.TranslationContextMaxExamples" type="number" min="0"></label>
+          <label class="field help-target" data-help="限制上下文示例的总字符数，用来控制提示词长度和请求成本。"><span class="field-label"><FileText class="field-label-icon" />上下文字符数</span><input id="translationContextMaxCharacters" v-model.number="form.TranslationContextMaxCharacters" type="number" min="0"></label>
+          <label class="field help-target" data-help="本地缓存译文保留的天数，过期行可在清理时移除。"><span class="field-label"><FileClock class="field-label-icon" />缓存保留天数</span><input id="cacheRetentionDays" v-model.number="form.CacheRetentionDays" type="number" min="1"></label>
         </div>
       </SectionPanel>
 
       <SectionPanel title="快捷键" :icon="Keyboard">
         <div class="form-grid four">
-          <label class="field"><span class="field-label"><Keyboard class="field-label-icon" />打开控制面板</span><input id="openControlPanelHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'OpenControlPanelHotkey' }" :value="hotkeyValue('OpenControlPanelHotkey')" readonly autocomplete="off" placeholder="Alt+H" @focus="beginHotkeyCapture('OpenControlPanelHotkey')" @click="beginHotkeyCapture('OpenControlPanelHotkey')" @blur="cancelHotkeyCapture('OpenControlPanelHotkey')" @keydown="handleHotkeyKeydown($event, 'OpenControlPanelHotkey')"></label>
-          <label class="field"><span class="field-label"><Wand2 class="field-label-icon" />原文/译文切换</span><input id="toggleTranslationHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'ToggleTranslationHotkey' }" :value="hotkeyValue('ToggleTranslationHotkey')" readonly autocomplete="off" placeholder="Alt+F" @focus="beginHotkeyCapture('ToggleTranslationHotkey')" @click="beginHotkeyCapture('ToggleTranslationHotkey')" @blur="cancelHotkeyCapture('ToggleTranslationHotkey')" @keydown="handleHotkeyKeydown($event, 'ToggleTranslationHotkey')"></label>
-          <label class="field"><span class="field-label"><ScanLine class="field-label-icon" />全局扫描更新</span><input id="forceScanHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'ForceScanHotkey' }" :value="hotkeyValue('ForceScanHotkey')" readonly autocomplete="off" placeholder="Alt+G" @focus="beginHotkeyCapture('ForceScanHotkey')" @click="beginHotkeyCapture('ForceScanHotkey')" @blur="cancelHotkeyCapture('ForceScanHotkey')" @keydown="handleHotkeyKeydown($event, 'ForceScanHotkey')"></label>
-          <label class="field"><span class="field-label"><Type class="field-label-icon" />字体状态切换</span><input id="toggleFontHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'ToggleFontHotkey' }" :value="hotkeyValue('ToggleFontHotkey')" readonly autocomplete="off" placeholder="Alt+D" @focus="beginHotkeyCapture('ToggleFontHotkey')" @click="beginHotkeyCapture('ToggleFontHotkey')" @blur="cancelHotkeyCapture('ToggleFontHotkey')" @keydown="handleHotkeyKeydown($event, 'ToggleFontHotkey')"></label>
+          <label class="field help-target" data-help="点击后直接监听组合键，按 Backspace 或 Delete 可清空为 None。"><span class="field-label"><Keyboard class="field-label-icon" />打开控制面板</span><input id="openControlPanelHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'OpenControlPanelHotkey' }" :value="hotkeyValue('OpenControlPanelHotkey')" readonly autocomplete="off" placeholder="Alt+H" @focus="beginHotkeyCapture('OpenControlPanelHotkey')" @click="beginHotkeyCapture('OpenControlPanelHotkey')" @blur="cancelHotkeyCapture('OpenControlPanelHotkey')" @keydown="handleHotkeyKeydown($event, 'OpenControlPanelHotkey')"></label>
+          <label class="field help-target" data-help="在游戏中临时切换显示原文或译文，不会改写缓存内容。"><span class="field-label"><Wand2 class="field-label-icon" />原文/译文切换</span><input id="toggleTranslationHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'ToggleTranslationHotkey' }" :value="hotkeyValue('ToggleTranslationHotkey')" readonly autocomplete="off" placeholder="Alt+F" @focus="beginHotkeyCapture('ToggleTranslationHotkey')" @click="beginHotkeyCapture('ToggleTranslationHotkey')" @blur="cancelHotkeyCapture('ToggleTranslationHotkey')" @keydown="handleHotkeyKeydown($event, 'ToggleTranslationHotkey')"></label>
+          <label class="field help-target" data-help="立即重新扫描当前场景文本，适合界面变化后手动刷新目标。"><span class="field-label"><ScanLine class="field-label-icon" />全局扫描更新</span><input id="forceScanHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'ForceScanHotkey' }" :value="hotkeyValue('ForceScanHotkey')" readonly autocomplete="off" placeholder="Alt+G" @focus="beginHotkeyCapture('ForceScanHotkey')" @click="beginHotkeyCapture('ForceScanHotkey')" @blur="cancelHotkeyCapture('ForceScanHotkey')" @keydown="handleHotkeyKeydown($event, 'ForceScanHotkey')"></label>
+          <label class="field help-target" data-help="在游戏中临时启用或恢复字体替换，用来快速检查字体显示效果。"><span class="field-label"><Type class="field-label-icon" />字体状态切换</span><input id="toggleFontHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'ToggleFontHotkey' }" :value="hotkeyValue('ToggleFontHotkey')" readonly autocomplete="off" placeholder="Alt+D" @focus="beginHotkeyCapture('ToggleFontHotkey')" @click="beginHotkeyCapture('ToggleFontHotkey')" @blur="cancelHotkeyCapture('ToggleFontHotkey')" @keydown="handleHotkeyKeydown($event, 'ToggleFontHotkey')"></label>
         </div>
       </SectionPanel>
 
       <SectionPanel title="字体替换" :icon="Type">
         <div class="checks">
-          <label class="check"><input id="enableFontReplacement" v-model="form.EnableFontReplacement" type="checkbox">启用字体替换</label>
-          <label class="check"><input id="replaceUguiFonts" v-model="form.ReplaceUguiFonts" type="checkbox">UGUI 替换字体</label>
-          <label class="check"><input id="replaceTmpFonts" v-model="form.ReplaceTmpFonts" type="checkbox">TextMeshPro fallback</label>
-          <label class="check"><input id="replaceImguiFonts" v-model="form.ReplaceImguiFonts" type="checkbox">IMGUI 替换字体</label>
-          <label class="check"><input id="autoUseCjkFallbackFonts" v-model="form.AutoUseCjkFallbackFonts" type="checkbox">自动使用 CJK 字体</label>
+          <label class="check help-target" data-help="开启后插件会尝试把文本组件换成能显示中文的字体。"><input id="enableFontReplacement" v-model="form.EnableFontReplacement" type="checkbox">启用字体替换</label>
+          <label class="check help-target" data-help="替换 UGUI Text 使用的字体，解决中文方块或缺字。"><input id="replaceUguiFonts" v-model="form.ReplaceUguiFonts" type="checkbox">UGUI 替换字体</label>
+          <label class="check help-target" data-help="为 TextMeshPro 安装 fallback 字体，不直接改原 TMP 字体资产。"><input id="replaceTmpFonts" v-model="form.ReplaceTmpFonts" type="checkbox">TextMeshPro fallback</label>
+          <label class="check help-target" data-help="替换 IMGUI 绘制文本时使用的字体，主要影响旧式界面。"><input id="replaceImguiFonts" v-model="form.ReplaceImguiFonts" type="checkbox">IMGUI 替换字体</label>
+          <label class="check help-target" data-help="未手动指定字体时自动选择系统 CJK 字体，适合作为默认兜底。"><input id="autoUseCjkFallbackFonts" v-model="form.AutoUseCjkFallbackFonts" type="checkbox">自动使用 CJK 字体</label>
         </div>
         <div class="form-grid two">
-          <label class="field">
+          <label class="field help-target" data-help="指定字体 family 名称；留空时使用自动检测到的中文字体。">
             <span class="field-label"><Type class="field-label-icon" />手动字体名</span>
             <input id="replacementFontName" v-model="form.ReplacementFontName" autocomplete="off" :placeholder="`留空自动选择：${automaticFontName}`">
           </label>
-          <div class="field">
+          <div class="field help-target" data-help="指定 TTF/OTF 字体文件路径；选择文件会自动填入字体名，保存后生效。">
             <span class="field-label"><FileText class="field-label-icon" />手动字体文件</span>
             <div class="input-action-row">
               <input id="replacementFontFile" v-model="form.ReplacementFontFile" autocomplete="off" :placeholder="`留空自动选择 TTF：${automaticFontFile}`">
@@ -390,15 +390,15 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
           </div>
         </div>
         <div class="form-grid three">
-          <label class="field"><span class="field-label"><Type class="field-label-icon" />字体采样字号</span><input id="fontSamplingPointSize" v-model.number="form.FontSamplingPointSize" type="number" min="16"></label>
-          <label class="field"><span class="field-label"><Wand2 class="field-label-icon" />字号调整模式</span>
+          <label class="field help-target" data-help="创建 TMP fallback 字体时使用的采样字号，较大值可提升字形质量但更耗内存。"><span class="field-label"><Type class="field-label-icon" />字体采样字号</span><input id="fontSamplingPointSize" v-model.number="form.FontSamplingPointSize" type="number" min="16"></label>
+          <label class="field help-target" data-help="按原文本组件大小缩放译文字号，避免中文译文溢出原控件。"><span class="field-label"><Wand2 class="field-label-icon" />字号调整模式</span>
             <select id="fontSizeAdjustmentMode" v-model.number="form.FontSizeAdjustmentMode">
               <option :value="0">关闭</option>
               <option :value="1">按比例</option>
               <option :value="2">固定增减</option>
             </select>
           </label>
-          <label class="field"><span class="field-label"><Maximize2 class="field-label-icon" />字号调整值</span><input id="fontSizeAdjustmentValue" v-model.number="form.FontSizeAdjustmentValue" type="number" step="0.1"></label>
+          <label class="field help-target" data-help="配合字号调整模式使用；按比例时是倍率，固定增减时是字号增量。"><span class="field-label"><Maximize2 class="field-label-icon" />字号调整值</span><input id="fontSizeAdjustmentValue" v-model.number="form.FontSizeAdjustmentValue" type="number" step="0.1"></label>
         </div>
       </SectionPanel>
     </div>

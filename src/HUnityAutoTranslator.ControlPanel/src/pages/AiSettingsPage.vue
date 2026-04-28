@@ -59,72 +59,84 @@ interface SaveBehavior {
 const promptTemplateFields: Array<{
   key: PromptTemplateKey;
   label: string;
+  help: string;
   placeholders: string[];
   required: string[];
 }> = [
   {
     key: "SystemPrompt",
     label: "系统提示词",
+    help: "控制模型的总体翻译规则、目标语言、游戏背景和术语策略。",
     placeholders: ["{TargetLanguage}", "{StyleInstruction}", "{GameTitle}", "{GameContext}", "{GlossarySystemPolicy}"],
     required: []
   },
   {
     key: "GlossarySystemPolicy",
     label: "术语库系统约束",
+    help: "告诉模型术语库规则必须优先，避免把指定译名改成近义词。",
     placeholders: [],
     required: []
   },
   {
     key: "BatchUserPrompt",
     label: "批量翻译请求",
+    help: "定义每批文本如何发给模型，必须保留输入 JSON 占位符。",
     placeholders: ["{PromptSections}", "{InputJson}"],
     required: ["{InputJson}"]
   },
   {
     key: "GlossaryTermsSection",
     label: "术语库条目片段",
+    help: "把匹配到的术语条目注入提示词，要求模型按指定译名输出。",
     placeholders: ["{GlossaryTermsJson}"],
     required: ["{GlossaryTermsJson}"]
   },
   {
     key: "CurrentItemContextSection",
     label: "当前文本上下文片段",
+    help: "把当前文本的场景、层级和邻近标签发给模型，帮助短词消歧。",
     placeholders: ["{ItemContextsJson}"],
     required: ["{ItemContextsJson}"]
   },
   {
     key: "ItemHintsSection",
     label: "短文本提示片段",
+    help: "为按钮、开关、设置值等短 UI 文本提供角色提示。",
     placeholders: ["{ItemHintsJson}"],
     required: ["{ItemHintsJson}"]
   },
   {
     key: "ContextExamplesSection",
     label: "历史上下文片段",
+    help: "提供附近或同组件历史译文作为风格和术语参考，不覆盖术语库。",
     placeholders: ["{ContextExamplesJson}"],
     required: ["{ContextExamplesJson}"]
   },
   {
     key: "GlossaryRepairPrompt",
     label: "术语修复提示词",
+    help: "当译文漏用强制术语时，用它要求模型修复单条译文。",
     placeholders: ["{SourceText}", "{InvalidTranslation}", "{FailureReason}", "{RequiredGlossaryTermsJson}", "{RequiredGlossaryTermsBlock}"],
     required: ["{SourceText}", "{InvalidTranslation}", "{FailureReason}"]
   },
   {
     key: "QualityRepairPrompt",
     label: "质量修复提示词",
+    help: "当译文格式、长度或语义校验失败时，用它进行二次修复。",
     placeholders: ["{SourceText}", "{InvalidTranslation}", "{FailureReason}", "{RepairContextJson}", "{GameTitle}"],
     required: ["{SourceText}", "{InvalidTranslation}", "{FailureReason}", "{RepairContextJson}"]
   },
   {
     key: "GlossaryExtractionSystemPrompt",
     label: "自动术语抽取系统",
+    help: "控制自动术语抽取时模型扮演的角色，只有启用自动抽取时使用。",
     placeholders: [],
     required: []
   },
   {
     key: "GlossaryExtractionUserPrompt",
     label: "自动术语抽取请求",
+    help: "定义待分析文本如何发给模型，用于生成候选术语。",
     placeholders: ["{RowsJson}"],
     required: ["{RowsJson}"]
   }
@@ -693,7 +705,7 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
     <div class="form-stack" @input="markDirty" @change="markDirty">
       <SectionPanel title="服务商" :icon="Bot">
         <div class="ai-provider-grid">
-          <label class="field"><span class="field-label"><Server class="field-label-icon" />服务商</span>
+          <label class="field help-target" data-help="选择要调用的翻译后端，切换后会带入该服务商的默认地址和模型。"><span class="field-label"><Server class="field-label-icon" />服务商</span>
             <select id="providerKind" v-model.number="form.ProviderKind" @change="applyProviderDefaults">
               <option :value="0">OpenAI Responses</option>
               <option :value="1">DeepSeek</option>
@@ -701,9 +713,9 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
               <option :value="2">OpenAI 兼容</option>
             </select>
           </label>
-          <label class="field"><span class="field-label"><Globe2 class="field-label-icon" />目标语言</span><input id="targetLanguage" v-model="form.TargetLanguage" autocomplete="off"></label>
-          <label class="field"><span class="field-label"><Gamepad2 class="field-label-icon" />游戏名称</span><input id="gameTitle" v-model="form.GameTitle" autocomplete="off" :placeholder="automaticGameTitle || '自动检测当前游戏'"></label>
-          <label class="field"><span class="field-label"><MessageSquareText class="field-label-icon" />翻译风格</span>
+          <label class="field help-target" data-help="译文输出语言，建议填写 zh-Hans、zh-Hant 或具体语言名称。"><span class="field-label"><Globe2 class="field-label-icon" />目标语言</span><input id="targetLanguage" v-model="form.TargetLanguage" autocomplete="off"></label>
+          <label class="field help-target" data-help="用于提示词中的游戏名；留空时使用插件自动检测到的当前游戏。"><span class="field-label"><Gamepad2 class="field-label-icon" />游戏名称</span><input id="gameTitle" v-model="form.GameTitle" autocomplete="off" :placeholder="automaticGameTitle || '自动检测当前游戏'"></label>
+          <label class="field help-target" data-help="控制译文偏忠实、自然、本地化或更短的 UI 风格。"><span class="field-label"><MessageSquareText class="field-label-icon" />翻译风格</span>
             <select id="style" v-model.number="form.Style">
               <option :value="0">忠实</option>
               <option :value="1">自然</option>
@@ -714,32 +726,32 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
         </div>
         <p class="hint">{{ activeProviderName }} · {{ activeStyleHint }}</p>
         <div v-if="!isLlamaCpp" class="ai-endpoint-grid">
-          <label class="field"><span class="field-label"><Globe2 class="field-label-icon" />Base URL</span><input id="baseUrl" v-model="form.BaseUrl" autocomplete="off"></label>
-          <label class="field"><span class="field-label"><Settings2 class="field-label-icon" />Endpoint</span><input id="endpoint" v-model="form.Endpoint" autocomplete="off"></label>
-          <label class="field"><span class="field-label"><ListChecks class="field-label-icon" />模型预设</span>
+          <label class="field help-target" data-help="服务商 API 根地址，不包含具体翻译接口路径。"><span class="field-label"><Globe2 class="field-label-icon" />Base URL</span><input id="baseUrl" v-model="form.BaseUrl" autocomplete="off"></label>
+          <label class="field help-target" data-help="翻译请求路径，例如 /v1/responses 或 /chat/completions。"><span class="field-label"><Settings2 class="field-label-icon" />Endpoint</span><input id="endpoint" v-model="form.Endpoint" autocomplete="off"></label>
+          <label class="field help-target" data-help="从常用模型中快速选择；选手动填写时不会覆盖模型输入框。"><span class="field-label"><ListChecks class="field-label-icon" />模型预设</span>
             <select id="modelPreset" v-model="form.ModelPreset" @change="applyModelPreset">
               <option v-for="option in providerOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
             </select>
           </label>
         </div>
         <div v-if="!isLlamaCpp" class="ai-model-row">
-          <label class="field"><span class="field-label"><Bot class="field-label-icon" />模型</span><input id="model" v-model="form.Model" autocomplete="off" @input="updateModelPresetFromInput"></label>
-          <label class="field"><span class="field-label"><KeyRound class="field-label-icon" />API Key</span><input id="apiKey" v-model="form.ApiKey" type="password" autocomplete="off" placeholder="留空不会覆盖已保存密钥"></label>
+          <label class="field help-target" data-help="实际发送给服务商的模型 ID，可使用预设或手动填写兼容端模型名。"><span class="field-label"><Bot class="field-label-icon" />模型</span><input id="model" v-model="form.Model" autocomplete="off" @input="updateModelPresetFromInput"></label>
+          <label class="field help-target" data-help="新的密钥会加密保存；留空保存时不会覆盖已保存密钥。"><span class="field-label"><KeyRound class="field-label-icon" />API Key</span><input id="apiKey" v-model="form.ApiKey" type="password" autocomplete="off" placeholder="留空不会覆盖已保存密钥"></label>
           <div class="actions inline-actions ai-provider-actions">
-            <button id="saveKey" class="secondary" type="button" @click="saveKeyOnly"><FileKey class="option-icon" />只保存密钥</button>
-            <button id="testProvider" class="secondary" type="button" :disabled="utilityBusy" @click="testProvider"><Zap class="button-icon" />测试连接</button>
-            <button v-if="!isLlamaCpp" id="fetchModels" class="secondary" type="button" :disabled="utilityBusy" @click="fetchModels"><ListRestart class="button-icon" />获取模型列表</button>
-            <button id="fetchBalance" class="secondary" type="button" :disabled="utilityBusy" @click="fetchBalance"><WalletCards class="button-icon" />查询余额/成本</button>
+            <button id="saveKey" class="secondary help-target" data-help="只更新 API Key，不改变当前表单里的其他 AI 设置。" type="button" @click="saveKeyOnly"><FileKey class="option-icon" />只保存密钥</button>
+            <button id="testProvider" class="secondary help-target" data-help="先保存当前 AI 设置和新密钥，再向服务商发起一次连通性测试。" type="button" :disabled="utilityBusy" @click="testProvider"><Zap class="button-icon" />测试连接</button>
+            <button v-if="!isLlamaCpp" id="fetchModels" class="secondary help-target" data-help="从当前服务商读取模型列表，并在顶部通知里显示部分结果。" type="button" :disabled="utilityBusy" @click="fetchModels"><ListRestart class="button-icon" />获取模型列表</button>
+            <button id="fetchBalance" class="secondary help-target" data-help="查询当前服务商余额或近期成本，结果会显示在顶部通知中。" type="button" :disabled="utilityBusy" @click="fetchBalance"><WalletCards class="button-icon" />查询余额/成本</button>
           </div>
         </div>
         <div v-else class="actions inline-actions ai-provider-actions">
-          <button id="testProvider" class="secondary" type="button" :disabled="utilityBusy" @click="testProvider"><Zap class="button-icon" />测试连接</button>
+          <button id="testProvider" class="secondary help-target" data-help="向当前 llama.cpp 本地服务发起一次连通性测试。" type="button" :disabled="utilityBusy" @click="testProvider"><Zap class="button-icon" />测试连接</button>
         </div>
       </SectionPanel>
 
       <SectionPanel v-if="isLlamaCpp" title="llama.cpp 本地模型" :icon="Server">
         <div class="llama-local-panel">
-          <div class="field llama-model-row">
+          <div class="field llama-model-row help-target" data-help="选择本地 GGUF 模型文件，启动 llama.cpp 时会使用这个路径。">
             <span class="field-label"><FolderOpen class="field-label-icon" />GGUF 模型文件</span>
             <div class="input-action-row">
               <input id="llamaCppModelPath" v-model="form.LlamaCppModelPath" autocomplete="off" placeholder="选择 .gguf 模型文件">
@@ -755,18 +767,18 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
             <div class="llama-result-card"><span>结果</span><strong>{{ llamaCppStatusText }}</strong></div>
           </div>
           <div class="llama-run-row">
-            <label class="field"><span class="field-label"><MessageSquareText class="field-label-icon" />上下文长度</span><input id="llamaCppContextSize" v-model.number="form.LlamaCppContextSize" type="number" min="512"></label>
-            <label class="field"><span class="field-label"><Layers class="field-label-icon" />GPU 层数</span><input id="llamaCppGpuLayers" v-model.number="form.LlamaCppGpuLayers" type="number" min="0" max="999"></label>
-            <label class="field"><span class="field-label"><Gauge class="field-label-icon" />并行槽位</span><input id="llamaCppParallelSlots" v-model.number="form.LlamaCppParallelSlots" type="number" min="1" max="16"></label>
+            <label class="field help-target" data-help="每个请求可使用的上下文窗口大小，过小会截断提示词，过大更占显存。"><span class="field-label"><MessageSquareText class="field-label-icon" />上下文长度</span><input id="llamaCppContextSize" v-model.number="form.LlamaCppContextSize" type="number" min="512"></label>
+            <label class="field help-target" data-help="把多少模型层放到 GPU 上，999 表示尽量全放；显存不足时调低。"><span class="field-label"><Layers class="field-label-icon" />GPU 层数</span><input id="llamaCppGpuLayers" v-model.number="form.LlamaCppGpuLayers" type="number" min="0" max="999"></label>
+            <label class="field help-target" data-help="本地模型同时处理请求的槽位数，过高会抢显存并降低稳定性。"><span class="field-label"><Gauge class="field-label-icon" />并行槽位</span><input id="llamaCppParallelSlots" v-model.number="form.LlamaCppParallelSlots" type="number" min="1" max="16"></label>
             <div class="actions inline-actions llama-run-actions">
-              <button v-if="!llamaCppIsActive" id="startLlamaCpp" class="primary" type="button" :disabled="llamaCppBusy" @click="startLlamaCpp"><Play class="button-icon" />{{ llamaCppBusy ? "处理中..." : "启动本地模型" }}</button>
-              <button v-else id="stopLlamaCpp" class="secondary" type="button" :disabled="llamaCppBusy" @click="stopLlamaCpp"><Square class="button-icon" />{{ llamaCppBusy ? "处理中..." : "停止本地模型" }}</button>
+              <button v-if="!llamaCppIsActive" id="startLlamaCpp" class="primary help-target" data-help="保存当前设置后启动内置 llama.cpp 服务，只监听本机地址。" type="button" :disabled="llamaCppBusy" @click="startLlamaCpp"><Play class="button-icon" />{{ llamaCppBusy ? "处理中..." : "启动本地模型" }}</button>
+              <button v-else id="stopLlamaCpp" class="secondary help-target" data-help="停止由插件启动的本地 llama.cpp 服务，不会删除模型文件。" type="button" :disabled="llamaCppBusy" @click="stopLlamaCpp"><Square class="button-icon" />{{ llamaCppBusy ? "处理中..." : "停止本地模型" }}</button>
             </div>
           </div>
           <div class="llama-tune-row">
-            <label class="field"><span class="field-label"><Gauge class="field-label-icon" />Batch</span><input id="llamaCppBatchSize" v-model.number="form.LlamaCppBatchSize" type="number" min="128" max="8192"></label>
-            <label class="field"><span class="field-label"><Gauge class="field-label-icon" />UBatch</span><input id="llamaCppUBatchSize" v-model.number="form.LlamaCppUBatchSize" type="number" min="64" max="4096"></label>
-            <label class="field"><span class="field-label"><Zap class="field-label-icon" />Flash Attention</span>
+            <label class="field help-target" data-help="llama.cpp 的 prompt batch 大小，较大可提升吞吐但更占显存。"><span class="field-label"><Gauge class="field-label-icon" />Batch</span><input id="llamaCppBatchSize" v-model.number="form.LlamaCppBatchSize" type="number" min="128" max="8192"></label>
+            <label class="field help-target" data-help="llama.cpp 的物理 micro-batch 大小，显存紧张或不稳定时调低。"><span class="field-label"><Gauge class="field-label-icon" />UBatch</span><input id="llamaCppUBatchSize" v-model.number="form.LlamaCppUBatchSize" type="number" min="64" max="4096"></label>
+            <label class="field help-target" data-help="控制 llama.cpp 是否启用 Flash Attention；auto 会交给后端自行判断。"><span class="field-label"><Zap class="field-label-icon" />Flash Attention</span>
               <select id="llamaCppFlashAttentionMode" v-model="form.LlamaCppFlashAttentionMode">
                 <option value="auto">auto</option>
                 <option value="on">on</option>
@@ -774,7 +786,7 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
               </select>
             </label>
             <div class="actions inline-actions llama-run-actions">
-              <button id="runLlamaCppBenchmark" class="secondary" type="button" :disabled="llamaCppBenchmarkBusy || llamaCppIsActive" @click="runLlamaCppBenchmark"><Gauge class="button-icon" />{{ llamaCppBenchmarkBusy ? "基准运行中..." : "运行 CUDA 基准" }}</button>
+              <button id="runLlamaCppBenchmark" class="secondary help-target" data-help="用当前模型测试多组 CUDA 参数，并可保存推荐的本地模型配置。" type="button" :disabled="llamaCppBenchmarkBusy || llamaCppIsActive" @click="runLlamaCppBenchmark"><Gauge class="button-icon" />{{ llamaCppBenchmarkBusy ? "基准运行中..." : "运行 CUDA 基准" }}</button>
             </div>
           </div>
           <div v-if="llamaCppBenchmarkResult" class="llama-benchmark-result">
@@ -793,11 +805,11 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
       <SectionPanel title="请求与输出" :icon="Gauge">
         <p class="hint">{{ isLlamaCpp ? "llama.cpp 使用并行槽位控制本地模型压力。" : "在线服务商最多 100 并发。" }}</p>
         <div class="form-grid four">
-          <label v-if="!isLlamaCpp" class="field"><span class="field-label"><Gauge class="field-label-icon" />在线服务并发请求</span><input id="maxConcurrentRequests" v-model.number="form.MaxConcurrentRequests" type="number" min="1" max="100"></label>
-          <label class="field"><span class="field-label"><Clock3 class="field-label-icon" />每分钟请求</span><input id="requestsPerMinute" v-model.number="form.RequestsPerMinute" type="number" min="1"></label>
-          <label class="field"><span class="field-label"><MessageSquareText class="field-label-icon" />批次字符上限</span><input id="maxBatchCharacters" v-model.number="form.MaxBatchCharacters" type="number" min="1"></label>
-          <label class="field"><span class="field-label"><Clock3 class="field-label-icon" />请求超时 (秒)</span><input id="requestTimeoutSeconds" v-model.number="form.RequestTimeoutSeconds" type="number" min="5" max="180"></label>
-          <label v-if="isOpenAi" class="field provider-option" data-providers="0"><span class="field-label"><Brain class="field-label-icon" />OpenAI 推理强度</span>
+          <label v-if="!isLlamaCpp" class="field help-target" data-help="限制同时发送给在线服务商的翻译请求数，过高可能触发限流或增加费用。"><span class="field-label"><Gauge class="field-label-icon" />在线服务并发请求</span><input id="maxConcurrentRequests" v-model.number="form.MaxConcurrentRequests" type="number" min="1" max="100"></label>
+          <label class="field help-target" data-help="限制每分钟最多发起多少次请求，用来配合服务商速率限制。"><span class="field-label"><Clock3 class="field-label-icon" />每分钟请求</span><input id="requestsPerMinute" v-model.number="form.RequestsPerMinute" type="number" min="1"></label>
+          <label class="field help-target" data-help="单批翻译最多包含多少原文字符，调低可减少失败重试和响应延迟。"><span class="field-label"><MessageSquareText class="field-label-icon" />批次字符上限</span><input id="maxBatchCharacters" v-model.number="form.MaxBatchCharacters" type="number" min="1"></label>
+          <label class="field help-target" data-help="单次 AI 请求最长等待时间，网络慢或本地模型慢时可适当调高。"><span class="field-label"><Clock3 class="field-label-icon" />请求超时 (秒)</span><input id="requestTimeoutSeconds" v-model.number="form.RequestTimeoutSeconds" type="number" min="5" max="180"></label>
+          <label v-if="isOpenAi" class="field provider-option help-target" data-help="控制 OpenAI 模型额外推理投入；翻译通常保持关闭或低档以节省成本。" data-providers="0"><span class="field-label"><Brain class="field-label-icon" />OpenAI 推理强度</span>
             <select id="reasoningEffort" v-model="form.ReasoningEffort">
               <option value="none">关闭</option>
               <option value="low">low</option>
@@ -806,27 +818,27 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
               <option value="xhigh">xhigh</option>
             </select>
           </label>
-          <label v-if="isDeepSeek" class="field provider-option" data-providers="1"><span class="field-label"><Brain class="field-label-icon" />DeepSeek 推理强度</span>
+          <label v-if="isDeepSeek" class="field provider-option help-target" data-help="控制 DeepSeek 推理模型的思考强度；普通翻译建议关闭。" data-providers="1"><span class="field-label"><Brain class="field-label-icon" />DeepSeek 推理强度</span>
             <select id="deepSeekReasoningEffort" v-model="form.DeepSeekReasoningEffort">
               <option value="none">关闭</option>
               <option value="high">high</option>
               <option value="max">max</option>
             </select>
           </label>
-          <label v-if="isOpenAi" class="field provider-option" data-providers="0"><span class="field-label"><Settings2 class="field-label-icon" />OpenAI 输出详细度</span>
+          <label v-if="isOpenAi" class="field provider-option help-target" data-help="控制 OpenAI 输出说明倾向；翻译只需要数组结果，通常用 low。" data-providers="0"><span class="field-label"><Settings2 class="field-label-icon" />OpenAI 输出详细度</span>
             <select id="outputVerbosity" v-model="form.OutputVerbosity">
               <option value="low">low</option>
               <option value="medium">medium</option>
               <option value="high">high</option>
             </select>
           </label>
-          <label v-if="isDeepSeek" class="field provider-option" data-providers="1"><span class="field-label"><Brain class="field-label-icon" />DeepSeek Thinking</span>
+          <label v-if="isDeepSeek" class="field provider-option help-target" data-help="开启 DeepSeek Thinking 会让模型先思考再回答，可能更慢且更耗 token。" data-providers="1"><span class="field-label"><Brain class="field-label-icon" />DeepSeek Thinking</span>
             <select id="deepSeekThinkingMode" v-model="form.DeepSeekThinkingMode">
               <option value="disabled">关闭</option>
               <option value="enabled">启用</option>
             </select>
           </label>
-          <label v-if="canUseTemperature" class="field provider-option" data-providers="1,2,3"><span class="field-label"><Thermometer class="field-label-icon" />Temperature</span><input id="temperature" v-model="form.Temperature" type="number" min="0" max="2" step="0.1"></label>
+          <label v-if="canUseTemperature" class="field provider-option help-target" data-help="控制输出随机性；翻译建议低值或留空，避免同一句多次译法漂移。" data-providers="1,2,3"><span class="field-label"><Thermometer class="field-label-icon" />Temperature</span><input id="temperature" v-model="form.Temperature" type="number" min="0" max="2" step="0.1"></label>
         </div>
       </SectionPanel>
 
@@ -842,8 +854,9 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
           <button
             v-for="field in promptTemplateFields"
             :key="field.key"
-            class="prompt-template-tab"
+            class="prompt-template-tab help-target"
             :class="{ active: activePromptTemplateKey === field.key }"
+            :data-help="field.help"
             type="button"
             @click="activePromptTemplateKey = field.key">
             {{ field.label }}

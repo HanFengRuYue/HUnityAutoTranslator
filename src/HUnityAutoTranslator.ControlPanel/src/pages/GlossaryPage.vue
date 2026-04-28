@@ -190,12 +190,12 @@ onMounted(loadGlossaryTerms);
     <div class="form-stack">
       <SectionPanel title="术语设置" :icon="BookOpenCheck">
         <div class="form-grid four" @input="markSettingsDirty" @change="markSettingsDirty">
-          <label class="field"><span class="field-label"><Hash class="field-label-icon" />注入术语上限</span><input id="glossaryMaxTerms" v-model.number="settings.GlossaryMaxTerms" type="number" min="0" max="100"></label>
-          <label class="field"><span class="field-label"><FileText class="field-label-icon" />术语字符上限</span><input id="glossaryMaxCharacters" v-model.number="settings.GlossaryMaxCharacters" type="number" min="0" max="8000"></label>
+          <label class="field help-target" data-help="限制每次请求最多注入多少条术语，设为 0 等于不注入术语。"><span class="field-label"><Hash class="field-label-icon" />注入术语上限</span><input id="glossaryMaxTerms" v-model.number="settings.GlossaryMaxTerms" type="number" min="0" max="100"></label>
+          <label class="field help-target" data-help="限制注入提示词的术语总字符数，避免术语过多导致请求变长。"><span class="field-label"><FileText class="field-label-icon" />术语字符上限</span><input id="glossaryMaxCharacters" v-model.number="settings.GlossaryMaxCharacters" type="number" min="0" max="8000"></label>
         </div>
         <div class="checks" @change="markSettingsDirty">
-          <label class="check"><input id="enableGlossary" v-model="settings.EnableGlossary" type="checkbox"><ShieldCheck class="option-icon" />启用术语库约束</label>
-          <label class="check"><input id="enableAutoTermExtraction" v-model="settings.EnableAutoTermExtraction" type="checkbox"><Sparkles class="option-icon" />启用 AI 自动提取术语</label>
+          <label class="check help-target" data-help="把匹配到的术语作为强制译名写入提示词，手动术语优先。"><input id="enableGlossary" v-model="settings.EnableGlossary" type="checkbox"><ShieldCheck class="option-icon" />启用术语库约束</label>
+          <label class="check help-target" data-help="允许 AI 从翻译缓存中抽取候选术语；默认关闭，启用后会增加额外请求。"><input id="enableAutoTermExtraction" v-model="settings.EnableAutoTermExtraction" type="checkbox"><Sparkles class="option-icon" />启用 AI 自动提取术语</label>
         </div>
         <p class="hint">AI 自动提取默认关闭；手动术语会优先进入提示词约束。</p>
       </SectionPanel>
@@ -212,7 +212,7 @@ onMounted(loadGlossaryTerms);
           </button>
         </template>
         <div class="editor-tools">
-          <label class="field search-field">
+          <label class="field search-field help-target" data-help="按原术语、指定译名、语言或备注筛选当前术语列表。">
             <span class="field-label"><Search class="field-label-icon" />搜索</span>
             <input id="glossarySearch" v-model="search" placeholder="搜索原术语、指定译名、语言或备注">
           </label>
