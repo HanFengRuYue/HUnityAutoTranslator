@@ -39,6 +39,7 @@ const form = reactive({
   IgnoreInvisibleText: true,
   SkipNumericSymbolText: true,
   EnableCacheLookup: true,
+  EnableTranslationDebugLogs: false,
   EnableTranslationContext: true,
   TranslationContextMaxExamples: 4,
   TranslationContextMaxCharacters: 1200,
@@ -212,6 +213,7 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.IgnoreInvisibleText = state.IgnoreInvisibleText;
   form.SkipNumericSymbolText = state.SkipNumericSymbolText;
   form.EnableCacheLookup = state.EnableCacheLookup;
+  form.EnableTranslationDebugLogs = state.EnableTranslationDebugLogs;
   form.EnableTranslationContext = state.EnableTranslationContext;
   form.TranslationContextMaxExamples = state.TranslationContextMaxExamples;
   form.TranslationContextMaxCharacters = state.TranslationContextMaxCharacters;
@@ -249,6 +251,7 @@ function readConfig(): UpdateConfigRequest {
     IgnoreInvisibleText: form.IgnoreInvisibleText,
     SkipNumericSymbolText: form.SkipNumericSymbolText,
     EnableCacheLookup: form.EnableCacheLookup,
+    EnableTranslationDebugLogs: form.EnableTranslationDebugLogs,
     EnableTranslationContext: form.EnableTranslationContext,
     TranslationContextMaxExamples: numberValue(form.TranslationContextMaxExamples),
     TranslationContextMaxCharacters: numberValue(form.TranslationContextMaxCharacters),
@@ -341,6 +344,7 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
           <label class="check"><input id="ignoreInvisibleText" v-model="form.IgnoreInvisibleText" type="checkbox">忽略不可见文本</label>
           <label class="check"><input id="skipNumericSymbolText" v-model="form.SkipNumericSymbolText" type="checkbox">跳过数字/符号文本</label>
           <label class="check"><input id="enableCacheLookup" v-model="form.EnableCacheLookup" type="checkbox">启用缓存查找</label>
+          <label class="check"><input id="enableTranslationDebugLogs" v-model="form.EnableTranslationDebugLogs" type="checkbox">输出翻译请求调试日志</label>
           <label class="check"><input id="enableTranslationContext" v-model="form.EnableTranslationContext" type="checkbox">启用翻译上下文</label>
           <label class="check"><input id="manualEditsOverrideAi" v-model="form.ManualEditsOverrideAi" type="checkbox">手动编辑优先</label>
           <label class="check"><input id="reapplyRememberedTranslations" v-model="form.ReapplyRememberedTranslations" type="checkbox">重新应用已记住译文</label>

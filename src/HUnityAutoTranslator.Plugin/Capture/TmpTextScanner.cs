@@ -119,7 +119,7 @@ internal sealed class TmpTextScanner : ITextCaptureModule
 
         var context = new TranslationCacheContext(target.SceneName, target.HierarchyPath, target.ComponentType);
         var config = _configProvider();
-        var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, TextPipeline.GetPromptPolicyVersion(config));
         _fontReplacement?.ApplyToTmp(component, key, context);
         if (_applier.IsRememberedTranslation(target.Id, text))
         {

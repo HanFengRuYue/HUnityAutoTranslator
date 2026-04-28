@@ -207,19 +207,47 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_ai_settings_exposes_game_title_override_and_llamacpp_temperature()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+
+        apiTypesSource.Should().Contain("GameTitle: string | null;");
+        apiTypesSource.Should().Contain("AutomaticGameTitle: string | null;");
+        apiTypesSource.Should().Contain("GameTitle?: string | null;");
+        aiPageSource.Should().Contain("Gamepad2");
+        aiPageSource.Should().Contain("GameTitle: \"\"");
+        aiPageSource.Should().Contain("const automaticGameTitle");
+        aiPageSource.Should().Contain("form.GameTitle = state.GameTitle ?? \"\";");
+        aiPageSource.Should().Contain("GameTitle: form.GameTitle.trim()");
+        aiPageSource.Should().Contain("id=\"gameTitle\"");
+        aiPageSource.Should().Contain(":placeholder=\"automaticGameTitle ||");
+        aiPageSource.Should().Contain("form.ProviderKind === 1 || form.ProviderKind === 2 || form.ProviderKind === 3");
+        aiPageSource.Should().Contain("data-providers=\"1,2,3\"");
+    }
+
+    [Fact]
     public void Vue_ai_prompt_editor_shows_default_prompt_and_removes_custom_instruction()
     {
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
         var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
 
         apiTypesSource.Should().Contain("DefaultSystemPrompt: string;");
+        apiTypesSource.Should().Contain("PromptTemplates: PromptTemplateConfig;");
+        apiTypesSource.Should().Contain("DefaultPromptTemplates: PromptTemplateConfig;");
         apiTypesSource.Should().NotContain("CustomInstruction");
         aiPageSource.Should().Contain("DefaultSystemPrompt");
+        aiPageSource.Should().Contain("promptTemplateFields");
+        aiPageSource.Should().Contain("activePromptTemplateKey");
         aiPageSource.Should().Contain("id=\"customPrompt\"");
+        aiPageSource.Should().Contain("id=\"restorePromptTemplate\"");
+        aiPageSource.Should().Contain("id=\"restoreAllPromptTemplates\"");
         aiPageSource.Should().Contain("function restoreDefaultPrompt");
+        aiPageSource.Should().Contain("function validatePromptTemplates");
         aiPageSource.Should().Contain("function normalizePrompt(value: string | null | undefined): string");
         aiPageSource.Should().Contain("promptModeText");
         aiPageSource.Should().Contain("class=\"prompt-editor-head\"");
+        aiPageSource.Should().Contain("class=\"prompt-template-tabs\"");
         aiPageSource.Should().Contain("class=\"prompt-editor-field\"");
         aiPageSource.Should().Contain("正在使用内置提示词");
         aiPageSource.Should().Contain("恢复内置提示词");
@@ -284,11 +312,27 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("id=\"pickLlamaCppModel\"");
         aiPageSource.Should().Contain("id=\"startLlamaCpp\"");
         aiPageSource.Should().Contain("id=\"stopLlamaCpp\"");
+        aiPageSource.Should().Contain("llamaCppIsActive");
+        aiPageSource.Should().Contain("v-if=\"!llamaCppIsActive\"");
+        aiPageSource.Should().Contain("v-else id=\"stopLlamaCpp\"");
         aiPageSource.Should().Contain("llamaCppInstallText");
         aiPageSource.Should().Contain("/api/llamacpp/start");
         aiPageSource.Should().Contain("/api/llamacpp/stop");
         aiPageSource.Should().Contain("/api/llamacpp/model/pick");
         aiPageSource.Should().NotContain("id=\"llamaCppPort\"");
+        aiPageSource.Should().NotContain("<div><span>端口</span>");
+    }
+
+    [Fact]
+    public void Vue_ai_settings_hides_online_model_controls_for_llamacpp()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+
+        aiPageSource.Should().Contain("Model: isLlamaCpp.value ? \"local-model\" : form.Model");
+        aiPageSource.Should().Contain("<div v-if=\"!isLlamaCpp\" class=\"ai-model-row\"");
+        aiPageSource.Should().Contain("<button v-if=\"!isLlamaCpp\" id=\"fetchModels\"");
+        aiPageSource.Should().Contain("<label v-if=\"!isLlamaCpp\" class=\"field\"><span class=\"field-label\"><Gauge class=\"field-label-icon\" />在线服务并发请求</span>");
+        aiPageSource.Should().Contain("llama.cpp 使用并行槽位控制本地模型压力。");
     }
 
     [Fact]

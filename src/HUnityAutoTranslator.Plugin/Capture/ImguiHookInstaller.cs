@@ -120,7 +120,7 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
     private string TranslateOrQueue(string text)
     {
         var config = _configProvider();
-        var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, TextPipeline.GetPromptPolicyVersion(config));
         var context = new TranslationCacheContext(GetActiveSceneName(), ComponentHierarchy: null, ComponentType: "IMGUI");
         _fontReplacement?.ApplyToImgui(key, context);
         if (_cache.TryGet(key, context, out var translated))

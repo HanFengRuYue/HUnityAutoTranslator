@@ -11,30 +11,36 @@ public static class PromptBuilder
     {
         var style = BuildStyleInstruction(options.Style);
         var targetLanguageName = ResolveTargetLanguageName(options.TargetLanguage);
-        if (!string.IsNullOrWhiteSpace(options.CustomPrompt))
+        var gameContext = BuildGameContext(options.GameTitle);
+        var templates = (options.Templates ?? PromptTemplateConfig.Empty).NormalizeAgainstDefaults();
+        var glossaryPolicy = options.HasGlossaryTerms
+            ? "\n" + ApplyTemplate(templates.Resolve(item => item.GlossarySystemPolicy), new Dictionary<string, string>())
+            : string.Empty;
+        var template = !string.IsNullOrWhiteSpace(templates.SystemPrompt)
+            ? templates.SystemPrompt!
+            : !string.IsNullOrWhiteSpace(options.CustomPrompt)
+                ? options.CustomPrompt!.Trim()
+                : templates.Resolve(item => item.SystemPrompt);
+        var values = new Dictionary<string, string>
         {
-            var customPrompt = ApplyPromptVariables(options.CustomPrompt.Trim(), targetLanguageName, style);
-            return options.HasGlossaryTerms
-                ? customPrompt + "\n" + BuildGlossarySystemPolicy()
-                : customPrompt;
+            ["TargetLanguage"] = targetLanguageName,
+            ["StyleInstruction"] = style,
+            ["GameTitle"] = NormalizeSingleLine(options.GameTitle),
+            ["GameContext"] = gameContext,
+            ["GlossarySystemPolicy"] = glossaryPolicy
+        };
+        var prompt = ApplyTemplate(template, values);
+        if (options.HasGlossaryTerms && !prompt.Contains(glossaryPolicy.Trim(), StringComparison.Ordinal))
+        {
+            prompt += glossaryPolicy;
         }
 
-        var glossary = options.HasGlossaryTerms ? "\n" + BuildGlossarySystemPolicy() : string.Empty;
-        return $"""
-You are a game localization translation engine.
-Target language: {targetLanguageName}.
-Detect the source language automatically. Translate it into the target language.
-Output only the translated text. Do not explain, greet, add quotes, add Markdown, or add prefixes such as "Translation:".
-Do not add indexes, item numbers, source labels, list markers, or any copied batch labels to the translation.
-Preserve placeholders, control characters, line breaks, Unity rich text tags, and TextMeshPro tags exactly.
-Use natural game localization. Keep menu and button text short; keep dialogue consistent with character voice.
-{style}{glossary}
-""";
+        return prompt;
     }
 
-    public static string BuildDefaultSystemPrompt(string targetLanguage, TranslationStyle style)
+    public static string BuildDefaultSystemPrompt(string targetLanguage, TranslationStyle style, string? gameTitle = null)
     {
-        return BuildSystemPrompt(new PromptOptions(targetLanguage, style));
+        return BuildSystemPrompt(new PromptOptions(targetLanguage, style, GameTitle: gameTitle));
     }
 
     public static string BuildSingleUserPrompt(string protectedText)
@@ -45,10 +51,13 @@ Use natural game localization. Keep menu and button text short; keep dialogue co
     public static string BuildBatchUserPrompt(
         IReadOnlyList<string> protectedTexts,
         IReadOnlyList<TranslationContextExample>? contextExamples = null,
-        IReadOnlyList<GlossaryPromptTerm>? glossaryTerms = null)
+        IReadOnlyList<GlossaryPromptTerm>? glossaryTerms = null,
+        IReadOnlyList<PromptItemContext>? itemContexts = null,
+        string? gameTitle = null,
+        PromptTemplateConfig? templates = null)
     {
+        var promptTemplates = (templates ?? PromptTemplateConfig.Empty).NormalizeAgainstDefaults();
         var json = JsonConvert.SerializeObject(protectedTexts, Formatting.None);
-        var instruction = "Translate each string in the JSON array below. Return only a JSON string array with the same length and order. Do not split one input string into multiple output items, even when it contains line breaks. Do not return object keys, indexes, item numbers, labels, or list markers.";
         var sections = new List<string>();
         if (glossaryTerms != null && glossaryTerms.Count > 0)
         {
@@ -61,7 +70,35 @@ Use natural game localization. Keep menu and button text short; keep dialogue co
                     note = term.Note
                 }),
                 Formatting.None);
-            sections.Add("Mandatory glossary terms are provided below. For the input item at text_index, if that source term appears in the item, use the target term exactly and do not replace it with a synonym. Do not translate the glossary table and do not add unused glossary terms to items where the source term does not appear.\n" + glossaryJson);
+            sections.Add(ApplyTemplate(
+                promptTemplates.Resolve(item => item.GlossaryTermsSection),
+                new Dictionary<string, string> { ["GlossaryTermsJson"] = glossaryJson }));
+        }
+
+        if (itemContexts != null && itemContexts.Count > 0)
+        {
+            var contextJson = JsonConvert.SerializeObject(
+                itemContexts.Select(item => new
+                {
+                    text_index = item.TextIndex,
+                    scene = NullIfWhiteSpace(item.SceneName),
+                    component_hierarchy = NullIfWhiteSpace(item.ComponentHierarchy),
+                    parent_hierarchy = GetParentHierarchy(item.ComponentHierarchy),
+                    component_type = NullIfWhiteSpace(item.ComponentType)
+                }),
+                Formatting.None);
+            sections.Add(ApplyTemplate(
+                promptTemplates.Resolve(item => item.CurrentItemContextSection),
+                new Dictionary<string, string> { ["ItemContextsJson"] = contextJson }));
+        }
+
+        var hintRows = BuildItemHintRows(protectedTexts, itemContexts, gameTitle);
+        if (hintRows.Count > 0)
+        {
+            var hintsJson = JsonConvert.SerializeObject(hintRows, Formatting.None);
+            sections.Add(ApplyTemplate(
+                promptTemplates.Resolve(item => item.ItemHintsSection),
+                new Dictionary<string, string> { ["ItemHintsJson"] = hintsJson }));
         }
 
         if (contextExamples != null && contextExamples.Count > 0)
@@ -73,24 +110,31 @@ Use natural game localization. Keep menu and button text short; keep dialogue co
                     translation = example.TranslatedText
                 }),
                 Formatting.None);
-            sections.Add("Translation context examples are provided only as reference for terminology, tone, and nearby dialogue. Do not translate the examples and do not include them in the output. These examples must not override mandatory glossary terms.\n" + examplesJson);
+            sections.Add(ApplyTemplate(
+                promptTemplates.Resolve(item => item.ContextExamplesSection),
+                new Dictionary<string, string> { ["ContextExamplesJson"] = examplesJson }));
         }
 
-        return (sections.Count == 0 ? string.Empty : string.Join("\n", sections) + "\n")
-            + instruction
-            + "\n"
-            + json;
+        return ApplyTemplate(
+            promptTemplates.Resolve(item => item.BatchUserPrompt),
+            new Dictionary<string, string>
+            {
+                ["PromptSections"] = sections.Count == 0 ? string.Empty : string.Join("\n", sections) + "\n",
+                ["InputJson"] = json
+            });
     }
 
     public static string BuildRepairPrompt(
         string sourceText,
         string invalidTranslation,
         string reason,
-        IReadOnlyList<GlossaryPromptTerm>? glossaryTerms = null)
+        IReadOnlyList<GlossaryPromptTerm>? glossaryTerms = null,
+        PromptTemplateConfig? templates = null)
     {
-        var glossary = glossaryTerms == null || glossaryTerms.Count == 0
-            ? string.Empty
-            : "\nRequired glossary terms:\n" + JsonConvert.SerializeObject(
+        var promptTemplates = (templates ?? PromptTemplateConfig.Empty).NormalizeAgainstDefaults();
+        var glossaryJson = glossaryTerms == null || glossaryTerms.Count == 0
+            ? "[]"
+            : JsonConvert.SerializeObject(
                 glossaryTerms.Select(term => new
                 {
                     source = term.SourceTerm,
@@ -98,13 +142,115 @@ Use natural game localization. Keep menu and button text short; keep dialogue co
                     note = term.Note
                 }),
                 Formatting.None);
-        return $"""
-The previous translation result was invalid. Reason: {reason}
-Translate again. Output only the repaired translation, with no explanation.
-Source text: {sourceText}
-Invalid translation: {invalidTranslation}
-{glossary}
-""";
+        return ApplyTemplate(
+            promptTemplates.Resolve(item => item.GlossaryRepairPrompt),
+            new Dictionary<string, string>
+            {
+                ["SourceText"] = sourceText,
+                ["InvalidTranslation"] = invalidTranslation,
+                ["FailureReason"] = reason,
+                ["RequiredGlossaryTermsJson"] = glossaryJson,
+                ["RequiredGlossaryTermsBlock"] = glossaryTerms == null || glossaryTerms.Count == 0
+                    ? string.Empty
+                    : "\nRequired glossary terms:\n" + glossaryJson
+            });
+    }
+
+    public static string BuildQualityRepairPrompt(
+        string sourceText,
+        string invalidTranslation,
+        string reason,
+        PromptItemContext? itemContext,
+        IReadOnlyList<string>? sameParentSourceTexts,
+        string? gameTitle,
+        PromptTemplateConfig? templates = null)
+    {
+        var promptTemplates = (templates ?? PromptTemplateConfig.Empty).NormalizeAgainstDefaults();
+        var hints = PromptItemClassifier.BuildHints(sourceText, itemContext, gameTitle);
+        var context = itemContext == null
+            ? null
+            : new
+            {
+                text_index = itemContext.TextIndex,
+                scene = NullIfWhiteSpace(itemContext.SceneName),
+                component_hierarchy = NullIfWhiteSpace(itemContext.ComponentHierarchy),
+                parent_hierarchy = PromptItemClassifier.GetParentHierarchy(itemContext.ComponentHierarchy),
+                component_type = NullIfWhiteSpace(itemContext.ComponentType),
+                hints
+            };
+        var repairContext = JsonConvert.SerializeObject(
+            new
+            {
+                game_title = NormalizeSingleLine(gameTitle),
+                source = sourceText,
+                invalid_translation = invalidTranslation,
+                failure_reason = reason,
+                item_context = context,
+                same_parent_source_texts = sameParentSourceTexts ?? Array.Empty<string>()
+            },
+            Formatting.None);
+        return ApplyTemplate(
+            promptTemplates.Resolve(item => item.QualityRepairPrompt),
+            new Dictionary<string, string>
+            {
+                ["SourceText"] = sourceText,
+                ["InvalidTranslation"] = invalidTranslation,
+                ["FailureReason"] = reason,
+                ["RepairContextJson"] = repairContext,
+                ["GameTitle"] = NormalizeSingleLine(gameTitle)
+            });
+    }
+
+    private static IReadOnlyList<object> BuildItemHintRows(
+        IReadOnlyList<string> protectedTexts,
+        IReadOnlyList<PromptItemContext>? itemContexts,
+        string? gameTitle)
+    {
+        var contextByIndex = itemContexts == null
+            ? new Dictionary<int, PromptItemContext>()
+            : itemContexts.GroupBy(context => context.TextIndex).ToDictionary(group => group.Key, group => group.First());
+        var rows = new List<object>();
+        for (var i = 0; i < protectedTexts.Count; i++)
+        {
+            contextByIndex.TryGetValue(i, out var context);
+            var hints = PromptItemClassifier.BuildHints(protectedTexts[i], context, gameTitle);
+            if (hints.Count == 0)
+            {
+                continue;
+            }
+
+            rows.Add(new
+            {
+                text_index = i,
+                hints
+            });
+        }
+
+        return rows;
+    }
+
+    public static string BuildGlossaryExtractionSystemPrompt(PromptTemplateConfig? templates = null)
+    {
+        var promptTemplates = (templates ?? PromptTemplateConfig.Empty).NormalizeAgainstDefaults();
+        return promptTemplates.Resolve(item => item.GlossaryExtractionSystemPrompt);
+    }
+
+    public static string BuildGlossaryExtractionUserPrompt(
+        IReadOnlyList<TranslationCacheEntry> rows,
+        PromptTemplateConfig? templates = null)
+    {
+        var promptTemplates = (templates ?? PromptTemplateConfig.Empty).NormalizeAgainstDefaults();
+        var payload = rows.Select(row => new
+        {
+            source = row.SourceText,
+            translation = row.TranslatedText
+        });
+        return ApplyTemplate(
+            promptTemplates.Resolve(item => item.GlossaryExtractionUserPrompt),
+            new Dictionary<string, string>
+            {
+                ["RowsJson"] = JsonConvert.SerializeObject(payload, Formatting.None)
+            });
     }
 
     private static string BuildStyleInstruction(TranslationStyle style)
@@ -119,16 +265,50 @@ Invalid translation: {invalidTranslation}
         };
     }
 
-    private static string ApplyPromptVariables(string prompt, string targetLanguageName, string styleInstruction)
+    private static string ApplyTemplate(string template, IReadOnlyDictionary<string, string> values)
     {
-        return prompt
-            .Replace("{TargetLanguage}", targetLanguageName, StringComparison.Ordinal)
-            .Replace("{StyleInstruction}", styleInstruction, StringComparison.Ordinal);
+        var result = template;
+        foreach (var pair in values)
+        {
+            result = result.Replace("{" + pair.Key + "}", pair.Value, StringComparison.Ordinal);
+        }
+
+        return result.Trim();
     }
 
-    private static string BuildGlossarySystemPolicy()
+    private static string BuildGameContext(string? gameTitle)
     {
-        return "Mandatory glossary policy: When a source string contains a glossary source term supplied in the user message, use the glossary target term exactly. Glossary terms outrank style guidance and translation context examples. Do not translate the glossary table itself, do not invent glossary terms, and do not add unused terms to unrelated strings.";
+        var normalized = NormalizeSingleLine(gameTitle);
+        return normalized.Length == 0
+            ? string.Empty
+            : $"Game title: {normalized}. Use this game's context for character names, locations, menus, short UI labels, and horror-game text.";
+    }
+
+    private static string NormalizeSingleLine(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return string.Empty;
+        }
+
+        return string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    private static string? NullIfWhiteSpace(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static string? GetParentHierarchy(string? componentHierarchy)
+    {
+        var normalized = NullIfWhiteSpace(componentHierarchy);
+        if (normalized == null)
+        {
+            return null;
+        }
+
+        var index = normalized.LastIndexOf('/');
+        return index <= 0 ? null : normalized[..index];
     }
 
     private static string ResolveTargetLanguageName(string targetLanguage)

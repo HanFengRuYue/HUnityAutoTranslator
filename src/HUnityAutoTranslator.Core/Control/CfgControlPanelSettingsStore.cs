@@ -13,6 +13,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
     private const string ScanSection = "扫描与写回";
     private const string CacheSection = "缓存与上下文";
     private const string GlossarySection = "术语库";
+    private const string PromptTemplateSection = "提示词模板";
     private const string FontSection = "字体";
     private const string LlamaCppSection = "llama.cpp";
 
@@ -64,6 +65,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         var temperatureText = ReadString(values, ProviderSection, "Temperature");
         return new UpdateConfigRequest(
             TargetLanguage: ReadString(values, BasicSection, "TargetLanguage"),
+            GameTitle: ReadString(values, BasicSection, "GameTitle"),
             MaxConcurrentRequests: ReadInt(values, ScanSection, "MaxConcurrentRequests"),
             RequestsPerMinute: ReadInt(values, ScanSection, "RequestsPerMinute"),
             Enabled: ReadBool(values, BasicSection, "Enabled"),
@@ -89,10 +91,12 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             Temperature: ReadDouble(values, ProviderSection, "Temperature"),
             ClearTemperature: temperatureText != null && string.IsNullOrWhiteSpace(temperatureText),
             CustomPrompt: ReadPrompt(values, ProviderSection, "CustomPrompt"),
+            PromptTemplates: BuildPromptTemplates(values),
             MaxSourceTextLength: ReadInt(values, ScanSection, "MaxSourceTextLength"),
             IgnoreInvisibleText: ReadBool(values, ScanSection, "IgnoreInvisibleText"),
             SkipNumericSymbolText: ReadBool(values, ScanSection, "SkipNumericSymbolText"),
             EnableCacheLookup: ReadBool(values, CacheSection, "EnableCacheLookup"),
+            EnableTranslationDebugLogs: ReadBool(values, CacheSection, "EnableTranslationDebugLogs"),
             EnableTranslationContext: ReadBool(values, CacheSection, "EnableTranslationContext"),
             TranslationContextMaxExamples: ReadInt(values, CacheSection, "TranslationContextMaxExamples"),
             TranslationContextMaxCharacters: ReadInt(values, CacheSection, "TranslationContextMaxCharacters"),
@@ -135,12 +139,48 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             ReadInt(values, LlamaCppSection, "ParallelSlots") ?? defaults.ParallelSlots);
     }
 
+    private static PromptTemplateConfig? BuildPromptTemplates(Dictionary<string, Dictionary<string, string>> values)
+    {
+        var keys = new[]
+        {
+            "SystemPrompt",
+            "GlossarySystemPolicy",
+            "BatchUserPrompt",
+            "GlossaryTermsSection",
+            "CurrentItemContextSection",
+            "ItemHintsSection",
+            "ContextExamplesSection",
+            "GlossaryRepairPrompt",
+            "QualityRepairPrompt",
+            "GlossaryExtractionSystemPrompt",
+            "GlossaryExtractionUserPrompt"
+        };
+        if (!keys.Any(key => HasValue(values, PromptTemplateSection, key)))
+        {
+            return null;
+        }
+
+        return new PromptTemplateConfig(
+            ReadPrompt(values, PromptTemplateSection, "SystemPrompt"),
+            ReadPrompt(values, PromptTemplateSection, "GlossarySystemPolicy"),
+            ReadPrompt(values, PromptTemplateSection, "BatchUserPrompt"),
+            ReadPrompt(values, PromptTemplateSection, "GlossaryTermsSection"),
+            ReadPrompt(values, PromptTemplateSection, "CurrentItemContextSection"),
+            ReadPrompt(values, PromptTemplateSection, "ItemHintsSection"),
+            ReadPrompt(values, PromptTemplateSection, "ContextExamplesSection"),
+            ReadPrompt(values, PromptTemplateSection, "GlossaryRepairPrompt"),
+            ReadPrompt(values, PromptTemplateSection, "QualityRepairPrompt"),
+            ReadPrompt(values, PromptTemplateSection, "GlossaryExtractionSystemPrompt"),
+            ReadPrompt(values, PromptTemplateSection, "GlossaryExtractionUserPrompt"));
+    }
+
     private static string BuildFile(ControlPanelSettings settings)
     {
         var defaults = RuntimeConfig.CreateDefault();
         var config = settings.Config ?? new UpdateConfigRequest();
         var providerKind = config.ProviderKind ?? defaults.Provider.Kind;
         var llamaCpp = config.LlamaCpp ?? defaults.LlamaCpp;
+        var promptTemplates = config.PromptTemplates ?? PromptTemplateConfig.Empty;
         var builder = new StringBuilder();
 
         builder.AppendLine("# HUnityAutoTranslator 配置文件");
@@ -151,6 +191,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Section(builder, BasicSection);
         Option(builder, "是否启用自动翻译。", "true", "true 或 false。", "Enabled", Bool(config.Enabled ?? defaults.Enabled));
         Option(builder, "目标语言。常用：zh-Hans 简体中文，zh-Hant 繁体中文，ja 日文，ko 韩文，en 英文。", "zh-Hans", null, "TargetLanguage", Text(config.TargetLanguage ?? defaults.TargetLanguage));
+        Option(builder, "游戏名称。留空会使用当前 Unity 游戏名；填写后会手动覆盖自动检测值。", "留空", "示例：The Glitched Attraction。", "GameTitle", Text(config.GameTitle));
         Option(builder, "启动游戏后是否自动打开控制面板。", "true", "true 或 false。", "AutoOpenControlPanel", Bool(config.AutoOpenControlPanel ?? defaults.AutoOpenControlPanel));
         Option(builder, "控制面板端口。监听地址固定为 127.0.0.1。", "48110", "范围：1 到 65535。", "HttpPort", Int(config.HttpPort ?? defaults.HttpPort));
 
@@ -171,9 +212,22 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "OpenAI 输出详细程度。普通翻译建议 low。", "low", "可选：low、medium、high。", "OutputVerbosity", Text(config.OutputVerbosity ?? defaults.OutputVerbosity));
         Option(builder, "DeepSeek 思考模式。普通 UI 翻译建议 disabled。", "disabled", "可选：enabled、disabled。", "DeepSeekThinkingMode", Text(config.DeepSeekThinkingMode ?? defaults.DeepSeekThinkingMode));
         Option(builder, "采样温度。留空表示使用服务默认值。", "留空", "范围：0 到 2。", "Temperature", NullableDouble(config.Temperature));
-        Option(builder, "自定义系统提示词。留空使用内置提示词；需要换行时写 \\n。", "留空", "可使用 {TargetLanguage} 和 {StyleInstruction} 占位符。", "CustomPrompt", Prompt(config.CustomPrompt));
+        Option(builder, "自定义系统提示词。留空使用内置提示词；需要换行时写 \\n。", "留空", "可使用 {TargetLanguage}、{StyleInstruction}、{GameTitle}、{GameContext} 占位符。", "CustomPrompt", Prompt(config.CustomPrompt));
         Option(builder, "API Key 临时填写处。", "留空", "如果你不想打开控制面板，可以把密钥填在这里；插件下次启动会自动加密保存，并清空这一项。", "ApiKey", Text(settings.ApiKey));
         Option(builder, "已加密的 API Key，插件自动维护。除非你要清空密钥，否则不要手动修改。", "留空", null, "EncryptedApiKey", Text(settings.EncryptedApiKey));
+
+        Section(builder, PromptTemplateSection);
+        Option(builder, "系统提示词模板。留空使用内置默认；需要换行时写 \\n。", "内置默认", "可用：{TargetLanguage}、{StyleInstruction}、{GameTitle}、{GameContext}、{GlossarySystemPolicy}。", "SystemPrompt", Prompt(promptTemplates.SystemPrompt));
+        Option(builder, "术语库系统约束模板。留空使用内置默认。", "内置默认", "通常由系统提示词中的 {GlossarySystemPolicy} 引入。", "GlossarySystemPolicy", Prompt(promptTemplates.GlossarySystemPolicy));
+        Option(builder, "批量翻译用户提示词模板。留空使用内置默认，必须保留 {InputJson}。", "内置默认", "可用：{PromptSections}、{InputJson}。", "BatchUserPrompt", Prompt(promptTemplates.BatchUserPrompt));
+        Option(builder, "术语库条目片段模板。留空使用内置默认，必须保留 {GlossaryTermsJson}。", "内置默认", null, "GlossaryTermsSection", Prompt(promptTemplates.GlossaryTermsSection));
+        Option(builder, "当前文本上下文片段模板。留空使用内置默认，必须保留 {ItemContextsJson}。", "内置默认", null, "CurrentItemContextSection", Prompt(promptTemplates.CurrentItemContextSection));
+        Option(builder, "短文本提示片段模板。留空使用内置默认，必须保留 {ItemHintsJson}。", "内置默认", null, "ItemHintsSection", Prompt(promptTemplates.ItemHintsSection));
+        Option(builder, "历史上下文示例片段模板。留空使用内置默认，必须保留 {ContextExamplesJson}。", "内置默认", null, "ContextExamplesSection", Prompt(promptTemplates.ContextExamplesSection));
+        Option(builder, "术语库修复提示词模板。留空使用内置默认，必须保留 {SourceText}、{InvalidTranslation}、{FailureReason}。", "内置默认", "可用：{RequiredGlossaryTermsJson}、{RequiredGlossaryTermsBlock}。", "GlossaryRepairPrompt", Prompt(promptTemplates.GlossaryRepairPrompt));
+        Option(builder, "质量修复提示词模板。留空使用内置默认，必须保留 {SourceText}、{InvalidTranslation}、{FailureReason}、{RepairContextJson}。", "内置默认", null, "QualityRepairPrompt", Prompt(promptTemplates.QualityRepairPrompt));
+        Option(builder, "自动术语抽取系统提示词模板。留空使用内置默认。", "内置默认", null, "GlossaryExtractionSystemPrompt", Prompt(promptTemplates.GlossaryExtractionSystemPrompt));
+        Option(builder, "自动术语抽取用户提示词模板。留空使用内置默认，必须保留 {RowsJson}。", "内置默认", null, "GlossaryExtractionUserPrompt", Prompt(promptTemplates.GlossaryExtractionUserPrompt));
 
         Section(builder, ScanSection);
         Option(builder, "在线服务商同时进行的翻译请求数量。llama.cpp 使用 ParallelSlots。", "4", "范围：1 到 100。", "MaxConcurrentRequests", Int(config.MaxConcurrentRequests ?? defaults.MaxConcurrentRequests));
@@ -191,6 +245,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
 
         Section(builder, CacheSection);
         Option(builder, "是否启用翻译缓存命中。", "true", "true 或 false。", "EnableCacheLookup", Bool(config.EnableCacheLookup ?? defaults.EnableCacheLookup));
+        Option(builder, "是否输出 AI 翻译请求结构调试日志。只建议测试时开启，会记录源文、场景、组件层级和 item hints。", "false", "true 或 false。", "EnableTranslationDebugLogs", Bool(config.EnableTranslationDebugLogs ?? defaults.EnableTranslationDebugLogs));
         Option(builder, "是否把同组件或同场景附近文本作为翻译上下文。", "true", "true 或 false。", "EnableTranslationContext", Bool(config.EnableTranslationContext ?? defaults.EnableTranslationContext));
         Option(builder, "最多附带多少条上下文示例。", "4", "范围：0 到 20。", "TranslationContextMaxExamples", Int(config.TranslationContextMaxExamples ?? defaults.TranslationContextMaxExamples));
         Option(builder, "上下文示例最多占用多少字符。", "1200", "范围：0 到 8000。", "TranslationContextMaxCharacters", Int(config.TranslationContextMaxCharacters ?? defaults.TranslationContextMaxCharacters));

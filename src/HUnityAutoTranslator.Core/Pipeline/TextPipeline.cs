@@ -2,6 +2,7 @@ using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Glossary;
+using HUnityAutoTranslator.Core.Prompts;
 using HUnityAutoTranslator.Core.Queueing;
 using HUnityAutoTranslator.Core.Text;
 
@@ -9,7 +10,7 @@ namespace HUnityAutoTranslator.Core.Pipeline;
 
 public sealed class TextPipeline
 {
-    public const string PromptPolicyVersion = "prompt-v1";
+    public const string PromptPolicyVersion = "prompt-v3";
 
     private readonly ITranslationCache _cache;
     private readonly TranslationJobQueue _queue;
@@ -52,14 +53,23 @@ public sealed class TextPipeline
             return PipelineDecision.Ignored();
         }
 
-        var key = TranslationCacheKey.Create(capturedText.SourceText, config.TargetLanguage, config.Provider, PromptPolicyVersion);
+        var key = TranslationCacheKey.Create(capturedText.SourceText, config.TargetLanguage, config.Provider, GetPromptPolicyVersion(config));
         _metrics?.RecordCaptured(key);
         _cache.RecordCaptured(key, capturedText.Context);
         if (config.EnableCacheLookup &&
-            _cache.TryGet(key, capturedText.Context, out var translatedText) &&
-            CachedTranslationSatisfiesGlossary(capturedText.SourceText, translatedText, config))
+            _cache.TryGet(key, capturedText.Context, out var translatedText))
         {
-            return PipelineDecision.UseCachedTranslation(translatedText);
+            var qualityValidation = ValidateCachedTranslationQuality(capturedText, translatedText, config);
+            if (CachedTranslationSatisfiesGlossary(capturedText.SourceText, translatedText, config) &&
+                qualityValidation.IsValid)
+            {
+                return PipelineDecision.UseCachedTranslation(translatedText);
+            }
+
+            if (!qualityValidation.IsValid)
+            {
+                MarkCachedTranslationPending(key, capturedText.Context);
+            }
         }
 
         var enqueued = _queue.Enqueue(TranslationJob.Create(
@@ -89,5 +99,48 @@ public sealed class TextPipeline
             config.GlossaryMaxCharacters);
         return matches.Count == 0 ||
             GlossaryOutputValidator.ValidateSingle(sourceText, translatedText, matches).IsValid;
+    }
+
+    public static string GetPromptPolicyVersion(RuntimeConfig config)
+    {
+        var hash = config.PromptTemplates.GetTemplateHash();
+        return string.IsNullOrWhiteSpace(hash)
+            ? PromptPolicyVersion
+            : PromptPolicyVersion + "-" + hash;
+    }
+
+    private static ValidationResult ValidateCachedTranslationQuality(CapturedText capturedText, string translatedText, RuntimeConfig config)
+    {
+        var context = new PromptItemContext(
+            0,
+            capturedText.Context.SceneName,
+            capturedText.Context.ComponentHierarchy,
+            capturedText.Context.ComponentType);
+        return TranslationQualityValidator.ValidateBatch(
+            new[] { capturedText.SourceText },
+            new[] { translatedText },
+            new[] { context },
+            config.TargetLanguage,
+            config.GameTitle);
+    }
+
+    private void MarkCachedTranslationPending(TranslationCacheKey key, TranslationCacheContext context)
+    {
+        var now = DateTimeOffset.UtcNow;
+        _cache.Update(new TranslationCacheEntry(
+            key.SourceText,
+            key.TargetLanguage,
+            ProviderKind: string.Empty,
+            ProviderBaseUrl: string.Empty,
+            ProviderEndpoint: string.Empty,
+            ProviderModel: string.Empty,
+            key.PromptPolicyVersion,
+            TranslatedText: null,
+            context.SceneName,
+            context.ComponentHierarchy,
+            context.ComponentType,
+            ReplacementFont: null,
+            CreatedUtc: now,
+            UpdatedUtc: now));
     }
 }

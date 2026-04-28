@@ -14,6 +14,7 @@ public sealed class ControlPanelService
     private string? _lastError;
     private string? _automaticReplacementFontName;
     private string? _automaticReplacementFontFile;
+    private string? _automaticGameTitle;
     private LlamaCppServerStatus _llamaCppStatus;
     private ProviderStatus _providerStatus = new("unchecked", "尚未检测", null);
 
@@ -50,6 +51,8 @@ public sealed class ControlPanelService
             return new ControlPanelState(
                 config.Enabled,
                 config.TargetLanguage,
+                _config.GameTitle,
+                _automaticGameTitle,
                 config.Style,
                 config.Provider.Kind,
                 config.Provider.BaseUrl,
@@ -87,11 +90,14 @@ public sealed class ControlPanelService
                 config.DeepSeekThinkingMode,
                 config.Temperature,
                 config.CustomPrompt,
-                PromptBuilder.BuildDefaultSystemPrompt(config.TargetLanguage, config.Style),
+                PromptBuilder.BuildDefaultSystemPrompt(config.TargetLanguage, config.Style, config.GameTitle),
+                config.PromptTemplates,
+                PromptTemplateConfig.Default,
                 config.MaxSourceTextLength,
                 config.IgnoreInvisibleText,
                 config.SkipNumericSymbolText,
                 config.EnableCacheLookup,
+                config.EnableTranslationDebugLogs,
                 config.EnableTranslationContext,
                 config.TranslationContextMaxExamples,
                 config.TranslationContextMaxCharacters,
@@ -178,6 +184,14 @@ public sealed class ControlPanelService
         lock (_gate)
         {
             _llamaCppStatus = status;
+        }
+    }
+
+    public void SetAutomaticGameTitle(string? gameTitle)
+    {
+        lock (_gate)
+        {
+            _automaticGameTitle = SelectOptionalText(gameTitle, fallback: null);
         }
     }
 
@@ -364,6 +378,9 @@ public sealed class ControlPanelService
         var targetLanguage = string.IsNullOrWhiteSpace(request.TargetLanguage)
             ? _config.TargetLanguage
             : request.TargetLanguage.Trim();
+        var gameTitle = request.GameTitle == null
+            ? _config.GameTitle
+            : SelectOptionalText(request.GameTitle, fallback: null);
         var maxConcurrentRequests = request.MaxConcurrentRequests.HasValue
             ? RuntimeConfigLimits.ClampOnlineConcurrentRequests(request.MaxConcurrentRequests.Value)
             : _config.MaxConcurrentRequests;
@@ -417,9 +434,20 @@ public sealed class ControlPanelService
             : request.Temperature.HasValue
                 ? Clamp(request.Temperature.Value, 0.0, 2.0)
                 : _config.Temperature;
-        var customPrompt = request.CustomPrompt == null
+        var requestedCustomPrompt = request.CustomPrompt == null
             ? _config.CustomPrompt
             : (string.IsNullOrWhiteSpace(request.CustomPrompt) ? null : request.CustomPrompt.Trim());
+        var promptTemplates = request.PromptTemplates == null
+            ? _config.PromptTemplates
+            : request.PromptTemplates.NormalizeAgainstDefaults();
+        if (request.CustomPrompt != null && request.PromptTemplates == null)
+        {
+            promptTemplates = (promptTemplates with { SystemPrompt = requestedCustomPrompt }).NormalizeAgainstDefaults();
+        }
+
+        var customPrompt = request.PromptTemplates == null
+            ? requestedCustomPrompt
+            : promptTemplates.SystemPrompt;
 
         _config = _config with
         {
@@ -431,6 +459,7 @@ public sealed class ControlPanelService
             ForceScanHotkey = SelectHotkey(request.ForceScanHotkey, _config.ForceScanHotkey),
             ToggleFontHotkey = SelectHotkey(request.ToggleFontHotkey, _config.ToggleFontHotkey),
             TargetLanguage = targetLanguage,
+            GameTitle = gameTitle,
             Style = request.Style ?? _config.Style,
             Provider = provider,
             MaxConcurrentRequests = maxConcurrentRequests,
@@ -445,10 +474,12 @@ public sealed class ControlPanelService
             DeepSeekThinkingMode = SelectKnown(request.DeepSeekThinkingMode, _config.DeepSeekThinkingMode, "enabled", "disabled"),
             Temperature = temperature,
             CustomPrompt = customPrompt,
+            PromptTemplates = promptTemplates,
             MaxSourceTextLength = maxSourceTextLength,
             IgnoreInvisibleText = request.IgnoreInvisibleText ?? _config.IgnoreInvisibleText,
             SkipNumericSymbolText = request.SkipNumericSymbolText ?? _config.SkipNumericSymbolText,
             EnableCacheLookup = request.EnableCacheLookup ?? _config.EnableCacheLookup,
+            EnableTranslationDebugLogs = request.EnableTranslationDebugLogs ?? _config.EnableTranslationDebugLogs,
             EnableTranslationContext = request.EnableTranslationContext ?? _config.EnableTranslationContext,
             TranslationContextMaxExamples = translationContextMaxExamples,
             TranslationContextMaxCharacters = translationContextMaxCharacters,
@@ -497,6 +528,7 @@ public sealed class ControlPanelService
         {
             Config = new UpdateConfigRequest(
                 TargetLanguage: _config.TargetLanguage,
+                GameTitle: _config.GameTitle,
                 MaxConcurrentRequests: _config.MaxConcurrentRequests,
                 RequestsPerMinute: _config.RequestsPerMinute,
                 Enabled: _config.Enabled,
@@ -521,10 +553,12 @@ public sealed class ControlPanelService
                 DeepSeekThinkingMode: _config.DeepSeekThinkingMode,
                 Temperature: _config.Temperature,
                 CustomPrompt: _config.CustomPrompt,
+                PromptTemplates: _config.PromptTemplates,
                 MaxSourceTextLength: _config.MaxSourceTextLength,
                 IgnoreInvisibleText: _config.IgnoreInvisibleText,
                 SkipNumericSymbolText: _config.SkipNumericSymbolText,
                 EnableCacheLookup: _config.EnableCacheLookup,
+                EnableTranslationDebugLogs: _config.EnableTranslationDebugLogs,
                 EnableTranslationContext: _config.EnableTranslationContext,
                 TranslationContextMaxExamples: _config.TranslationContextMaxExamples,
                 TranslationContextMaxCharacters: _config.TranslationContextMaxCharacters,
@@ -580,7 +614,7 @@ public sealed class ControlPanelService
             {
                 BaseUrl = "http://127.0.0.1:0",
                 Endpoint = "/v1/chat/completions",
-                Model = string.IsNullOrWhiteSpace(request.Model) ? provider.Model : request.Model.Trim(),
+                Model = "local-model",
                 ApiKeyConfigured = true
             };
         }
@@ -610,15 +644,20 @@ public sealed class ControlPanelService
 
     private RuntimeConfig BuildEffectiveConfig(RuntimeConfig config)
     {
-        if (config.Provider.Kind != ProviderKind.LlamaCpp)
+        var effective = config with
         {
-            return config;
+            GameTitle = SelectOptionalText(config.GameTitle, _automaticGameTitle)
+        };
+
+        if (effective.Provider.Kind != ProviderKind.LlamaCpp)
+        {
+            return effective;
         }
 
         var port = _llamaCppStatus.Port;
-        return config with
+        return effective with
         {
-            Provider = config.Provider with
+            Provider = effective.Provider with
             {
                 BaseUrl = $"http://127.0.0.1:{port}",
                 Endpoint = "/v1/chat/completions",

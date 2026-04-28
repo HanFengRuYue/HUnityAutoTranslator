@@ -7,6 +7,8 @@ using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Dispatching;
 using HUnityAutoTranslator.Core.Glossary;
+using HUnityAutoTranslator.Core.Pipeline;
+using HUnityAutoTranslator.Core.Prompts;
 using HUnityAutoTranslator.Core.Providers;
 using HUnityAutoTranslator.Core.Queueing;
 using HUnityAutoTranslator.Plugin.Unity;
@@ -476,6 +478,7 @@ internal sealed class LocalHttpServer : IDisposable
     private int QueueRetranslations(IReadOnlyList<TranslationCacheEntry> entries)
     {
         var queued = 0;
+        var config = _controlPanel.GetConfig();
         foreach (var entry in entries)
         {
             if (string.IsNullOrWhiteSpace(entry.SourceText))
@@ -484,6 +487,20 @@ internal sealed class LocalHttpServer : IDisposable
             }
 
             var context = new TranslationCacheContext(entry.SceneName, entry.ComponentHierarchy, entry.ComponentType);
+            if (CachedEntryFailsCurrentQualityRules(entry, config))
+            {
+                _cache.Update(entry with
+                {
+                    ProviderKind = string.Empty,
+                    ProviderBaseUrl = string.Empty,
+                    ProviderEndpoint = string.Empty,
+                    ProviderModel = string.Empty,
+                    PromptPolicyVersion = TextPipeline.GetPromptPolicyVersion(config),
+                    TranslatedText = null,
+                    UpdatedUtc = DateTimeOffset.UtcNow
+                });
+            }
+
             if (_queue.Enqueue(TranslationJob.Create(
                 "retranslate:" + entry.SourceText,
                 entry.SourceText,
@@ -497,6 +514,26 @@ internal sealed class LocalHttpServer : IDisposable
         }
 
         return queued;
+    }
+
+    private static bool CachedEntryFailsCurrentQualityRules(TranslationCacheEntry entry, RuntimeConfig config)
+    {
+        if (string.IsNullOrWhiteSpace(entry.TranslatedText))
+        {
+            return false;
+        }
+
+        var itemContext = new PromptItemContext(
+            0,
+            entry.SceneName,
+            entry.ComponentHierarchy,
+            entry.ComponentType);
+        return !TranslationQualityValidator.ValidateBatch(
+            new[] { entry.SourceText },
+            new[] { entry.TranslatedText! },
+            new[] { itemContext },
+            string.IsNullOrWhiteSpace(entry.TargetLanguage) ? config.TargetLanguage : entry.TargetLanguage,
+            config.GameTitle).IsValid;
     }
 
     private bool TryGetExistingTranslation(TranslationCacheEntry entry, out string translatedText)

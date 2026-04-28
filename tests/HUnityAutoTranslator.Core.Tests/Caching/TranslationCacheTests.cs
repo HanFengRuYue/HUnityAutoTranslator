@@ -72,6 +72,47 @@ public sealed class TranslationCacheTests
     }
 
     [Fact]
+    public void MemoryCache_does_not_reuse_translation_when_prompt_policy_changes()
+    {
+        var cache = new MemoryTranslationCache();
+        var context = new TranslationCacheContext("MainMenu", "Canvas/Menu/Start", "UnityEngine.UI.Text");
+        var oldKey = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v2");
+        var newKey = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v3");
+
+        cache.Set(oldKey, "old prompt translation", context);
+
+        cache.TryGet(newKey, context, out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void DiskCache_does_not_reuse_translation_when_prompt_policy_changes()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.jsonl");
+        using var cache = new DiskTranslationCache(path);
+        var context = new TranslationCacheContext("MainMenu", "Canvas/Menu/Start", "UnityEngine.UI.Text");
+        var oldKey = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v2");
+        var newKey = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v3");
+
+        cache.Set(oldKey, "old prompt translation", context);
+
+        cache.TryGet(newKey, context, out _).Should().BeFalse();
+    }
+
+    [Fact]
+    public void SqliteCache_does_not_reuse_translation_when_prompt_policy_changes()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        using var cache = new SqliteTranslationCache(path);
+        var context = new TranslationCacheContext("MainMenu", "Canvas/Menu/Start", "UnityEngine.UI.Text");
+        var oldKey = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v2");
+        var newKey = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v3");
+
+        cache.Set(oldKey, "old prompt translation", context);
+
+        cache.TryGet(newKey, context, out _).Should().BeFalse();
+    }
+
+    [Fact]
     public void Memory_cache_applies_column_filters_with_and_between_columns_and_or_within_one_column()
     {
         var cache = new MemoryTranslationCache();
@@ -165,6 +206,29 @@ public sealed class TranslationCacheTests
         examples.Select(item => item.SourceText).Should().Equal(
             "Same component newer",
             "Same component older",
+            "Scene fallback newest");
+    }
+
+    [Fact]
+    public void Memory_cache_prefers_same_parent_siblings_before_scene_fallback()
+    {
+        var cache = new MemoryTranslationCache();
+        var now = DateTimeOffset.Parse("2026-04-26T00:00:00Z");
+        cache.Update(SampleRow("Current", "Menu", "Canvas/Settings/Textures/QualityValue", "Text", "Current translated", now.AddMinutes(9)));
+        cache.Update(SampleRow("Same component", "Menu", "Canvas/Settings/Textures/QualityValue", "Text", "Same component translated", now.AddMinutes(2)));
+        cache.Update(SampleRow("Textures", "Menu", "Canvas/Settings/Textures/Label", "Text", "Textures translated", now.AddMinutes(3)));
+        cache.Update(SampleRow("Scene fallback newest", "Menu", "Canvas/Settings/Audio/Volume", "Text", "Scene fallback translated", now.AddMinutes(8)));
+
+        var examples = cache.GetTranslationContextExamples(
+            "Current",
+            "zh-Hans",
+            new TranslationCacheContext("Menu", "Canvas/Settings/Textures/QualityValue", "Text"),
+            maxExamples: 3,
+            maxCharacters: 1000);
+
+        examples.Select(item => item.SourceText).Should().Equal(
+            "Same component",
+            "Textures",
             "Scene fallback newest");
     }
 

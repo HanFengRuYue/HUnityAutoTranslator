@@ -1,5 +1,6 @@
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
+using HUnityAutoTranslator.Core.Prompts;
 using HUnityAutoTranslator.Core.Providers;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -36,8 +37,8 @@ public static class GlossaryExtractionService
         var request = new TranslationRequest(
             Array.Empty<string>(),
             config.TargetLanguage,
-            BuildExtractionSystemPrompt(),
-            BuildExtractionUserPrompt(rows));
+            PromptBuilder.BuildGlossaryExtractionSystemPrompt(config.PromptTemplates),
+            PromptBuilder.BuildGlossaryExtractionUserPrompt(rows, config.PromptTemplates));
         var response = await provider.TranslateAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.Succeeded || response.TranslatedTexts.Count == 0)
         {
@@ -71,26 +72,6 @@ public static class GlossaryExtractionService
         }
 
         return new GlossaryExtractionResult(imported, skipped, rows.Length);
-    }
-
-    private static string BuildExtractionSystemPrompt()
-    {
-        return """
-You extract game localization glossary terms from source and translated text pairs.
-Return only a JSON array. Each item must contain source, target, and optional note.
-Only include proper nouns, UI terms, item names, location names, skill names, or recurring world terms.
-Do not include placeholders, rich text tags, pure symbols, whole sentences, or generic grammar words.
-""";
-    }
-
-    private static string BuildExtractionUserPrompt(IReadOnlyList<TranslationCacheEntry> rows)
-    {
-        var payload = rows.Select(row => new
-        {
-            source = row.SourceText,
-            translation = row.TranslatedText
-        });
-        return JsonConvert.SerializeObject(payload, Formatting.None);
     }
 
     private static IReadOnlyList<Candidate> ParseCandidates(string text)

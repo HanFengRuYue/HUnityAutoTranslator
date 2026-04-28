@@ -55,9 +55,10 @@ public sealed class ChatCompletionsProvider : ITranslationProvider
                 }
             }
         };
-        if (_temperature.HasValue)
+        var effectiveTemperature = _temperature ?? (_profile.Kind == ProviderKind.LlamaCpp ? 0.1 : (double?)null);
+        if (effectiveTemperature.HasValue)
         {
-            body["temperature"] = _temperature.Value;
+            body["temperature"] = effectiveTemperature.Value;
         }
 
         if (_profile.Kind == ProviderKind.DeepSeek)
@@ -67,6 +68,13 @@ public sealed class ChatCompletionsProvider : ITranslationProvider
             {
                 body["reasoning_effort"] = NormalizeDeepSeekReasoningEffort(_reasoningEffort);
             }
+        }
+        else if (_profile.Kind == ProviderKind.LlamaCpp)
+        {
+            body["chat_template_kwargs"] = new JObject
+            {
+                ["enable_thinking"] = false
+            };
         }
 
         using var httpRequest = CreateRequest(body);

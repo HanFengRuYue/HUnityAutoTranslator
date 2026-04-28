@@ -820,6 +820,48 @@ textarea:hover { border-color: var(--line-strong); }
 .prompt-editor-field {
   min-height: 290px;
 }
+.prompt-editor-actions {
+  justify-content: flex-end;
+}
+.prompt-template-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.prompt-template-tab {
+  min-height: 30px;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 700;
+}
+.prompt-template-tab.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.prompt-template-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.prompt-template-meta strong {
+  color: var(--text);
+}
+.prompt-template-meta code {
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text);
+  font-size: 12px;
+}
 .utility-results {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

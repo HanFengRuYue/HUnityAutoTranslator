@@ -107,7 +107,7 @@ public sealed class ProviderRequestOptionsTests
     }
 
     [Fact]
-    public async Task ChatCompletionsProvider_sends_llamacpp_request_without_api_key_or_deepseek_options()
+    public async Task ChatCompletionsProvider_sends_llamacpp_request_without_api_key_and_disables_thinking()
     {
         var handler = new CaptureHandler("""{"choices":[{"message":{"content":"[\"Start translated\"]"}}],"usage":{"total_tokens":9}}""");
         var client = new HttpClient(handler);
@@ -126,8 +126,28 @@ public sealed class ProviderRequestOptionsTests
         body["model"]!.Value<string>().Should().Be("qwen-game-ui");
         body.ContainsKey("thinking").Should().BeFalse();
         body.ContainsKey("reasoning_effort").Should().BeFalse();
+        body["chat_template_kwargs"]!["enable_thinking"]!.Value<bool>().Should().BeFalse();
         body["temperature"]!.Value<double>().Should().Be(0.1);
         response.TotalTokens.Should().Be(9);
+    }
+
+    [Fact]
+    public async Task ChatCompletionsProvider_uses_low_default_temperature_for_llamacpp_when_unset()
+    {
+        var handler = new CaptureHandler("""{"choices":[{"message":{"content":"[\"Start translated\"]"}}]}""");
+        var client = new HttpClient(handler);
+        var profile = ProviderProfile.DefaultLlamaCpp() with { BaseUrl = "http://127.0.0.1:51234", Model = "qwen-game-ui", ApiKeyConfigured = true };
+        var provider = new ChatCompletionsProvider(client, profile, () => null, "none", "disabled", null, TimeSpan.FromSeconds(30));
+
+        await provider.TranslateAsync(new TranslationRequest(
+            new[] { "Start" },
+            "zh-Hans",
+            "system",
+            "user"), CancellationToken.None);
+
+        var body = JObject.Parse(handler.Body);
+        body["temperature"]!.Value<double>().Should().Be(0.1);
+        body["chat_template_kwargs"]!["enable_thinking"]!.Value<bool>().Should().BeFalse();
     }
 
     private sealed class CaptureHandler : HttpMessageHandler

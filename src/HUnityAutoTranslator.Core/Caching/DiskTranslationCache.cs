@@ -21,7 +21,9 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
 
     public bool TryGet(TranslationCacheKey key, TranslationCacheContext? context, out string translatedText)
     {
-        if (_items.TryGetValue(TranslationCacheLookupKey.Create(key, context), out var entry) && entry.TranslatedText != null)
+        if (_items.TryGetValue(TranslationCacheLookupKey.Create(key, context), out var entry) &&
+            entry.TranslatedText != null &&
+            string.Equals(entry.PromptPolicyVersion, key.PromptPolicyVersion, StringComparison.Ordinal))
         {
             translatedText = entry.TranslatedText;
             return true;

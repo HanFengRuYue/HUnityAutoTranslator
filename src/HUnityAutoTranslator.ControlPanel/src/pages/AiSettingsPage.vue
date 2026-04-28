@@ -7,6 +7,7 @@ import {
   FileKey,
   FolderOpen,
   Gauge,
+  Gamepad2,
   Globe2,
   KeyRound,
   Layers,
@@ -36,6 +37,7 @@ import type {
   ControlPanelState,
   LlamaCppModelPickResult,
   LlamaCppServerStatus,
+  PromptTemplateConfig,
   ProviderBalanceInfo,
   ProviderBalanceResult,
   ProviderModelsResult,
@@ -44,6 +46,97 @@ import type {
 } from "../types/api";
 
 const formKey = "ai";
+type PromptTemplateKey = keyof PromptTemplateConfig;
+
+const promptTemplateFields: Array<{
+  key: PromptTemplateKey;
+  label: string;
+  placeholders: string[];
+  required: string[];
+}> = [
+  {
+    key: "SystemPrompt",
+    label: "系统提示词",
+    placeholders: ["{TargetLanguage}", "{StyleInstruction}", "{GameTitle}", "{GameContext}", "{GlossarySystemPolicy}"],
+    required: []
+  },
+  {
+    key: "GlossarySystemPolicy",
+    label: "术语库系统约束",
+    placeholders: [],
+    required: []
+  },
+  {
+    key: "BatchUserPrompt",
+    label: "批量翻译请求",
+    placeholders: ["{PromptSections}", "{InputJson}"],
+    required: ["{InputJson}"]
+  },
+  {
+    key: "GlossaryTermsSection",
+    label: "术语库条目片段",
+    placeholders: ["{GlossaryTermsJson}"],
+    required: ["{GlossaryTermsJson}"]
+  },
+  {
+    key: "CurrentItemContextSection",
+    label: "当前文本上下文片段",
+    placeholders: ["{ItemContextsJson}"],
+    required: ["{ItemContextsJson}"]
+  },
+  {
+    key: "ItemHintsSection",
+    label: "短文本提示片段",
+    placeholders: ["{ItemHintsJson}"],
+    required: ["{ItemHintsJson}"]
+  },
+  {
+    key: "ContextExamplesSection",
+    label: "历史上下文片段",
+    placeholders: ["{ContextExamplesJson}"],
+    required: ["{ContextExamplesJson}"]
+  },
+  {
+    key: "GlossaryRepairPrompt",
+    label: "术语修复提示词",
+    placeholders: ["{SourceText}", "{InvalidTranslation}", "{FailureReason}", "{RequiredGlossaryTermsJson}", "{RequiredGlossaryTermsBlock}"],
+    required: ["{SourceText}", "{InvalidTranslation}", "{FailureReason}"]
+  },
+  {
+    key: "QualityRepairPrompt",
+    label: "质量修复提示词",
+    placeholders: ["{SourceText}", "{InvalidTranslation}", "{FailureReason}", "{RepairContextJson}", "{GameTitle}"],
+    required: ["{SourceText}", "{InvalidTranslation}", "{FailureReason}", "{RepairContextJson}"]
+  },
+  {
+    key: "GlossaryExtractionSystemPrompt",
+    label: "自动术语抽取系统",
+    placeholders: [],
+    required: []
+  },
+  {
+    key: "GlossaryExtractionUserPrompt",
+    label: "自动术语抽取请求",
+    placeholders: ["{RowsJson}"],
+    required: ["{RowsJson}"]
+  }
+];
+
+function createPromptTemplates(): PromptTemplateConfig {
+  return {
+    SystemPrompt: null,
+    GlossarySystemPolicy: null,
+    BatchUserPrompt: null,
+    GlossaryTermsSection: null,
+    CurrentItemContextSection: null,
+    ItemHintsSection: null,
+    ContextExamplesSection: null,
+    GlossaryRepairPrompt: null,
+    QualityRepairPrompt: null,
+    GlossaryExtractionSystemPrompt: null,
+    GlossaryExtractionUserPrompt: null
+  };
+}
 
 const providerNames: Record<number, string> = {
   0: "OpenAI",
@@ -92,6 +185,7 @@ const styleHints: Record<number, string> = {
 
 const form = reactive({
   TargetLanguage: "zh-Hans",
+  GameTitle: "",
   Style: 2,
   ProviderKind: 0,
   BaseUrl: "",
@@ -109,6 +203,7 @@ const form = reactive({
   DeepSeekThinkingMode: "disabled",
   Temperature: "",
   CustomPrompt: "",
+  PromptTemplates: createPromptTemplates(),
   LlamaCppModelPath: "",
   LlamaCppContextSize: 4096,
   LlamaCppGpuLayers: 999,
@@ -118,6 +213,7 @@ const form = reactive({
 const utilityBusy = ref(false);
 const llamaCppBusy = ref(false);
 const llamaCppModelPicking = ref(false);
+const activePromptTemplateKey = ref<PromptTemplateKey>("SystemPrompt");
 const formDirty = computed(() => controlPanelStore.dirtyForms.has(formKey));
 const providerOptions = computed(() => modelPresets[form.ProviderKind] ?? modelPresets[0]);
 const activeProviderName = computed(() => providerNames[form.ProviderKind] ?? "-");
@@ -125,13 +221,28 @@ const activeStyleHint = computed(() => styleHints[form.Style] ?? "");
 const isOpenAi = computed(() => form.ProviderKind === 0);
 const isDeepSeek = computed(() => form.ProviderKind === 1);
 const isLlamaCpp = computed(() => form.ProviderKind === 3);
-const canUseTemperature = computed(() => form.ProviderKind === 1 || form.ProviderKind === 2);
+const canUseTemperature = computed(() => form.ProviderKind === 1 || form.ProviderKind === 2 || form.ProviderKind === 3);
+const automaticGameTitle = computed(() => controlPanelStore.state?.AutomaticGameTitle ?? "");
 const defaultSystemPrompt = computed(() => controlPanelStore.state?.DefaultSystemPrompt ?? "");
-const promptUsesDefault = computed(() => normalizePrompt(form.CustomPrompt) === normalizePrompt(defaultSystemPrompt.value));
+const defaultPromptTemplates = computed(() => controlPanelStore.state?.DefaultPromptTemplates ?? createPromptTemplates());
+const promptUsesDefault = computed(() => promptTemplateFields.every((field) => promptTemplateUsesDefault(field.key)));
 const promptModeText = computed(() => promptUsesDefault.value ? "正在使用内置提示词" : "正在使用自定义提示词");
 const restorePromptText = computed(() => promptUsesDefault.value ? "使用内置提示词" : "恢复内置提示词");
 const llamaCppStatus = computed(() => controlPanelStore.state?.LlamaCppStatus);
 const llamaCppStatusText = computed(() => llamaCppStatus.value?.Message ?? "本地模型未启动。");
+const llamaCppIsActive = computed(() => {
+  const state = (llamaCppStatus.value?.State ?? "").toLowerCase();
+  return state === "starting" || state === "running";
+});
+const activePromptTemplate = computed(() =>
+  promptTemplateFields.find((field) => field.key === activePromptTemplateKey.value) ?? promptTemplateFields[0]);
+const activePromptTemplateText = computed({
+  get: () => form.PromptTemplates[activePromptTemplateKey.value] ?? "",
+  set: (value: string) => {
+    form.PromptTemplates[activePromptTemplateKey.value] = value;
+    markDirty();
+  }
+});
 const llamaCppInstallText = computed(() => {
   const status = llamaCppStatus.value;
   if (!status?.Installed) {
@@ -154,6 +265,48 @@ function numberValue(value: number | string): number {
 
 function normalizePrompt(value: string | null | undefined): string {
   return (value ?? "").replace(/\r\n/g, "\n").trim();
+}
+
+function promptTemplateUsesDefault(key: PromptTemplateKey): boolean {
+  return normalizePrompt(form.PromptTemplates[key]) === normalizePrompt(defaultPromptTemplates.value[key]);
+}
+
+function applyPromptTemplates(overrides: PromptTemplateConfig | null | undefined, defaults: PromptTemplateConfig | null | undefined): void {
+  const next = createPromptTemplates();
+  const defaultValues = defaults ?? createPromptTemplates();
+  for (const field of promptTemplateFields) {
+    next[field.key] = overrides?.[field.key] ?? defaultValues[field.key] ?? "";
+  }
+
+  form.PromptTemplates = next;
+  form.CustomPrompt = next.SystemPrompt ?? "";
+}
+
+function buildPromptTemplateOverrides(): PromptTemplateConfig {
+  const overrides = createPromptTemplates();
+  for (const field of promptTemplateFields) {
+    const value = form.PromptTemplates[field.key] ?? "";
+    overrides[field.key] = normalizePrompt(value) === normalizePrompt(defaultPromptTemplates.value[field.key])
+      ? null
+      : value;
+  }
+
+  return overrides;
+}
+
+function validatePromptTemplates(): boolean {
+  for (const field of promptTemplateFields) {
+    const value = form.PromptTemplates[field.key] ?? "";
+    for (const placeholder of field.required) {
+      if (!value.includes(placeholder)) {
+        activePromptTemplateKey.value = field.key;
+        showToast(`${field.label} 必须保留 ${placeholder} 占位符。`, "warn", 5200);
+        return false;
+      }
+    }
+  }
+
+  return true;
 }
 
 function normalizeDeepSeekEffort(value: unknown): string {
@@ -180,6 +333,7 @@ function applyState(state: ControlPanelState | null, force = false): void {
   }
 
   form.TargetLanguage = state.TargetLanguage;
+  form.GameTitle = state.GameTitle ?? "";
   form.Style = numberValue(state.Style);
   form.ProviderKind = numberValue(state.ProviderKind);
   form.BaseUrl = state.BaseUrl;
@@ -194,7 +348,7 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.OutputVerbosity = state.OutputVerbosity;
   form.DeepSeekThinkingMode = state.DeepSeekThinkingMode || "disabled";
   form.Temperature = state.Temperature === null || state.Temperature === undefined ? "" : String(state.Temperature);
-  form.CustomPrompt = state.CustomPrompt ?? state.DefaultSystemPrompt;
+  applyPromptTemplates(state.PromptTemplates, state.DefaultPromptTemplates);
   form.LlamaCppModelPath = state.LlamaCpp?.ModelPath ?? "";
   form.LlamaCppContextSize = state.LlamaCpp?.ContextSize ?? 4096;
   form.LlamaCppGpuLayers = state.LlamaCpp?.GpuLayers ?? 999;
@@ -210,13 +364,15 @@ function activeReasoningEffort(): string {
 
 function readConfig(): UpdateConfigRequest {
   const temperatureText = form.Temperature.trim();
+  const promptTemplateOverrides = buildPromptTemplateOverrides();
   return {
     TargetLanguage: form.TargetLanguage,
+    GameTitle: form.GameTitle.trim(),
     Style: numberValue(form.Style),
     ProviderKind: numberValue(form.ProviderKind),
     BaseUrl: form.BaseUrl,
     Endpoint: form.Endpoint,
-    Model: form.Model,
+    Model: isLlamaCpp.value ? "local-model" : form.Model,
     RequestTimeoutSeconds: numberValue(form.RequestTimeoutSeconds),
     MaxConcurrentRequests: numberValue(form.MaxConcurrentRequests),
     RequestsPerMinute: numberValue(form.RequestsPerMinute),
@@ -226,7 +382,8 @@ function readConfig(): UpdateConfigRequest {
     DeepSeekThinkingMode: form.DeepSeekThinkingMode,
     Temperature: temperatureText === "" ? null : Number(temperatureText),
     ClearTemperature: canUseTemperature.value && temperatureText === "",
-    CustomPrompt: promptUsesDefault.value ? "" : form.CustomPrompt,
+    CustomPrompt: promptTemplateOverrides.SystemPrompt ?? "",
+    PromptTemplates: promptTemplateOverrides,
     LlamaCpp: {
       ModelPath: form.LlamaCppModelPath.trim() || null,
       ContextSize: numberValue(form.LlamaCppContextSize),
@@ -237,6 +394,10 @@ function readConfig(): UpdateConfigRequest {
 }
 
 async function saveConfigOnly(): Promise<ControlPanelState | null> {
+  if (!validatePromptTemplates()) {
+    return null;
+  }
+
   const state = await saveConfig(readConfig(), formKey);
   applyState(state, true);
   return state;
@@ -259,7 +420,11 @@ async function savePendingApiKey(): Promise<boolean> {
 }
 
 async function saveAll(): Promise<void> {
-  await saveConfigOnly();
+  const state = await saveConfigOnly();
+  if (!state) {
+    return;
+  }
+
   if (isLlamaCpp.value) {
     return;
   }
@@ -279,7 +444,11 @@ async function saveKeyOnly(): Promise<void> {
 async function runProviderUtility(label: string, action: () => Promise<void>): Promise<void> {
   utilityBusy.value = true;
   try {
-    await saveConfigOnly();
+    const state = await saveConfigOnly();
+    if (!state) {
+      return;
+    }
+
     await savePendingApiKey();
     await action();
   } catch (error) {
@@ -363,7 +532,11 @@ function updateLocalLlamaStatus(status: LlamaCppServerStatus): void {
 async function startLlamaCpp(): Promise<void> {
   llamaCppBusy.value = true;
   try {
-    await saveConfigOnly();
+    const state = await saveConfigOnly();
+    if (!state) {
+      return;
+    }
+
     const status = await api<LlamaCppServerStatus>("/api/llamacpp/start", { method: "POST", body: {} });
     updateLocalLlamaStatus(status);
     showToast(status.Message, status.State === "error" ? "error" : "ok", 5200);
@@ -428,7 +601,17 @@ function applyModelPreset(): void {
 }
 
 function restoreDefaultPrompt(): void {
-  form.CustomPrompt = defaultSystemPrompt.value;
+  restoreActivePromptTemplate();
+}
+
+function restoreActivePromptTemplate(): void {
+  form.PromptTemplates[activePromptTemplateKey.value] = defaultPromptTemplates.value[activePromptTemplateKey.value] ?? defaultSystemPrompt.value;
+  form.CustomPrompt = form.PromptTemplates.SystemPrompt ?? "";
+  markDirty();
+}
+
+function restoreAllPromptTemplates(): void {
+  applyPromptTemplates(null, defaultPromptTemplates.value);
   markDirty();
 }
 
@@ -460,6 +643,7 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
             </select>
           </label>
           <label class="field"><span class="field-label"><Globe2 class="field-label-icon" />目标语言</span><input id="targetLanguage" v-model="form.TargetLanguage" autocomplete="off"></label>
+          <label class="field"><span class="field-label"><Gamepad2 class="field-label-icon" />游戏名称</span><input id="gameTitle" v-model="form.GameTitle" autocomplete="off" :placeholder="automaticGameTitle || '自动检测当前游戏'"></label>
           <label class="field"><span class="field-label"><MessageSquareText class="field-label-icon" />翻译风格</span>
             <select id="style" v-model.number="form.Style">
               <option :value="0">忠实</option>
@@ -479,15 +663,18 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
             </select>
           </label>
         </div>
-        <div class="ai-model-row" :class="{ 'ai-model-row-local': isLlamaCpp }">
+        <div v-if="!isLlamaCpp" class="ai-model-row">
           <label class="field"><span class="field-label"><Bot class="field-label-icon" />模型</span><input id="model" v-model="form.Model" autocomplete="off" @input="updateModelPresetFromInput"></label>
-          <label v-if="!isLlamaCpp" class="field"><span class="field-label"><KeyRound class="field-label-icon" />API Key</span><input id="apiKey" v-model="form.ApiKey" type="password" autocomplete="off" placeholder="留空不会覆盖已保存密钥"></label>
+          <label class="field"><span class="field-label"><KeyRound class="field-label-icon" />API Key</span><input id="apiKey" v-model="form.ApiKey" type="password" autocomplete="off" placeholder="留空不会覆盖已保存密钥"></label>
           <div class="actions inline-actions ai-provider-actions">
-            <button v-if="!isLlamaCpp" id="saveKey" class="secondary" type="button" @click="saveKeyOnly"><FileKey class="option-icon" />只保存密钥</button>
+            <button id="saveKey" class="secondary" type="button" @click="saveKeyOnly"><FileKey class="option-icon" />只保存密钥</button>
             <button id="testProvider" class="secondary" type="button" :disabled="utilityBusy" @click="testProvider"><Zap class="button-icon" />测试连接</button>
-            <button id="fetchModels" class="secondary" type="button" :disabled="utilityBusy" @click="fetchModels"><ListRestart class="button-icon" />获取模型列表</button>
-            <button v-if="!isLlamaCpp" id="fetchBalance" class="secondary" type="button" :disabled="utilityBusy" @click="fetchBalance"><WalletCards class="button-icon" />查询余额/成本</button>
+            <button v-if="!isLlamaCpp" id="fetchModels" class="secondary" type="button" :disabled="utilityBusy" @click="fetchModels"><ListRestart class="button-icon" />获取模型列表</button>
+            <button id="fetchBalance" class="secondary" type="button" :disabled="utilityBusy" @click="fetchBalance"><WalletCards class="button-icon" />查询余额/成本</button>
           </div>
+        </div>
+        <div v-else class="actions inline-actions ai-provider-actions">
+          <button id="testProvider" class="secondary" type="button" :disabled="utilityBusy" @click="testProvider"><Zap class="button-icon" />测试连接</button>
         </div>
       </SectionPanel>
 
@@ -506,7 +693,6 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
           <div class="llama-status-strip">
             <div><span>安装</span><strong>{{ llamaCppInstallText }}</strong></div>
             <div><span>状态</span><strong>{{ llamaCppStatus?.State ?? "stopped" }}</strong></div>
-            <div><span>端口</span><strong>{{ llamaCppStatus?.Port && llamaCppStatus.Port > 0 ? llamaCppStatus.Port : "随机" }}</strong></div>
             <div class="llama-result-card"><span>结果</span><strong>{{ llamaCppStatusText }}</strong></div>
           </div>
           <div class="llama-run-row">
@@ -514,17 +700,17 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
             <label class="field"><span class="field-label"><Layers class="field-label-icon" />GPU 层数</span><input id="llamaCppGpuLayers" v-model.number="form.LlamaCppGpuLayers" type="number" min="0" max="999"></label>
             <label class="field"><span class="field-label"><Gauge class="field-label-icon" />并行槽位</span><input id="llamaCppParallelSlots" v-model.number="form.LlamaCppParallelSlots" type="number" min="1" max="16"></label>
             <div class="actions inline-actions llama-run-actions">
-              <button id="startLlamaCpp" class="primary" type="button" :disabled="llamaCppBusy" @click="startLlamaCpp"><Play class="button-icon" />启动本地模型</button>
-              <button id="stopLlamaCpp" class="secondary" type="button" :disabled="llamaCppBusy" @click="stopLlamaCpp"><Square class="button-icon" />停止本地模型</button>
+              <button v-if="!llamaCppIsActive" id="startLlamaCpp" class="primary" type="button" :disabled="llamaCppBusy" @click="startLlamaCpp"><Play class="button-icon" />{{ llamaCppBusy ? "处理中..." : "启动本地模型" }}</button>
+              <button v-else id="stopLlamaCpp" class="secondary" type="button" :disabled="llamaCppBusy" @click="stopLlamaCpp"><Square class="button-icon" />{{ llamaCppBusy ? "处理中..." : "停止本地模型" }}</button>
             </div>
           </div>
         </div>
       </SectionPanel>
 
       <SectionPanel title="请求与输出" :icon="Gauge">
-        <p class="hint">在线服务商最多 100 并发；llama.cpp 使用并行槽位控制本地模型压力。</p>
+        <p class="hint">{{ isLlamaCpp ? "llama.cpp 使用并行槽位控制本地模型压力。" : "在线服务商最多 100 并发。" }}</p>
         <div class="form-grid four">
-          <label class="field"><span class="field-label"><Gauge class="field-label-icon" />在线服务并发请求</span><input id="maxConcurrentRequests" v-model.number="form.MaxConcurrentRequests" type="number" min="1" max="100"></label>
+          <label v-if="!isLlamaCpp" class="field"><span class="field-label"><Gauge class="field-label-icon" />在线服务并发请求</span><input id="maxConcurrentRequests" v-model.number="form.MaxConcurrentRequests" type="number" min="1" max="100"></label>
           <label class="field"><span class="field-label"><Clock3 class="field-label-icon" />每分钟请求</span><input id="requestsPerMinute" v-model.number="form.RequestsPerMinute" type="number" min="1"></label>
           <label class="field"><span class="field-label"><MessageSquareText class="field-label-icon" />批次字符上限</span><input id="maxBatchCharacters" v-model.number="form.MaxBatchCharacters" type="number" min="1"></label>
           <label class="field"><span class="field-label"><Clock3 class="field-label-icon" />请求超时 (秒)</span><input id="requestTimeoutSeconds" v-model.number="form.RequestTimeoutSeconds" type="number" min="5" max="180"></label>
@@ -557,16 +743,36 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
               <option value="enabled">启用</option>
             </select>
           </label>
-          <label v-if="canUseTemperature" class="field provider-option" data-providers="1,2"><span class="field-label"><Thermometer class="field-label-icon" />Temperature</span><input id="temperature" v-model="form.Temperature" type="number" min="0" max="2" step="0.1"></label>
+          <label v-if="canUseTemperature" class="field provider-option" data-providers="1,2,3"><span class="field-label"><Thermometer class="field-label-icon" />Temperature</span><input id="temperature" v-model="form.Temperature" type="number" min="0" max="2" step="0.1"></label>
         </div>
       </SectionPanel>
 
       <SectionPanel title="提示词" :icon="MessageSquareText">
         <div class="prompt-editor-head">
           <span class="prompt-mode">{{ promptModeText }}</span>
-          <button id="restoreDefaultPrompt" class="secondary" type="button" :disabled="promptUsesDefault" @click="restoreDefaultPrompt"><RotateCcw class="button-icon" />{{ restorePromptText }}</button>
+          <div class="actions inline-actions prompt-editor-actions">
+            <button id="restorePromptTemplate" class="secondary" type="button" :disabled="promptTemplateUsesDefault(activePromptTemplateKey)" @click="restoreDefaultPrompt"><RotateCcw class="button-icon" />恢复当前模板</button>
+            <button id="restoreAllPromptTemplates" class="secondary" type="button" :disabled="promptUsesDefault" @click="restoreAllPromptTemplates"><RotateCcw class="button-icon" />{{ restorePromptText }}</button>
+          </div>
         </div>
-        <textarea id="customPrompt" class="prompt-editor-field" v-model="form.CustomPrompt" rows="12" spellcheck="false"></textarea>
+        <div class="prompt-template-tabs" role="tablist" aria-label="提示词模板">
+          <button
+            v-for="field in promptTemplateFields"
+            :key="field.key"
+            class="prompt-template-tab"
+            :class="{ active: activePromptTemplateKey === field.key }"
+            type="button"
+            @click="activePromptTemplateKey = field.key">
+            {{ field.label }}
+          </button>
+        </div>
+        <div class="prompt-template-meta">
+          <strong>{{ activePromptTemplate.label }}</strong>
+          <span>占位符</span>
+          <code v-for="placeholder in activePromptTemplate.placeholders" :key="placeholder">{{ placeholder }}</code>
+          <span v-if="activePromptTemplate.placeholders.length === 0">无必需占位符</span>
+        </div>
+        <textarea id="customPrompt" class="prompt-editor-field" v-model="activePromptTemplateText" rows="12" spellcheck="false"></textarea>
       </SectionPanel>
     </div>
   </section>

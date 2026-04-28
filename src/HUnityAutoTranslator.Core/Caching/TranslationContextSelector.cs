@@ -47,6 +47,14 @@ internal static class TranslationContextSelector
                 .OrderByDescending(row => row.UpdatedUtc));
         }
 
+        var parentHierarchy = GetParentHierarchy(componentHierarchy);
+        if (parentHierarchy.Length > 0)
+        {
+            AddRows(translatedRows
+                .Where(row => IsSameParentSibling(row.ComponentHierarchy, componentHierarchy, parentHierarchy))
+                .OrderByDescending(row => row.UpdatedUtc));
+        }
+
         AddRows(translatedRows
             .OrderByDescending(row => row.UpdatedUtc));
 
@@ -83,6 +91,24 @@ internal static class TranslationContextSelector
                 usedCharacters = nextCharacters;
             }
         }
+    }
+
+    private static bool IsSameParentSibling(string? candidateHierarchy, string currentHierarchy, string currentParent)
+    {
+        var normalized = TranslationCacheLookupKey.NormalizeContextPart(candidateHierarchy);
+        if (normalized.Length == 0 ||
+            string.Equals(normalized, currentHierarchy, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        return string.Equals(GetParentHierarchy(normalized), currentParent, StringComparison.Ordinal);
+    }
+
+    private static string GetParentHierarchy(string componentHierarchy)
+    {
+        var index = componentHierarchy.LastIndexOf('/');
+        return index <= 0 ? string.Empty : componentHierarchy[..index];
     }
 }
 

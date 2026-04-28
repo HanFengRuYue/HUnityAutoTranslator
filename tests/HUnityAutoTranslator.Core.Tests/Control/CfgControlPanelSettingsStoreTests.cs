@@ -19,6 +19,8 @@ public sealed class CfgControlPanelSettingsStoreTests
         cfg.Should().Contain("# HUnityAutoTranslator 配置文件");
         cfg.Should().Contain("[基础]");
         cfg.Should().Contain("Enabled = true");
+        cfg.Should().Contain("GameTitle =");
+        cfg.Should().Contain("EnableTranslationDebugLogs = false");
         cfg.Should().Contain("ProviderKind = OpenAI");
         cfg.Should().Contain("ApiKey =");
     }
@@ -78,6 +80,7 @@ public sealed class CfgControlPanelSettingsStoreTests
             [基础]
             Enabled = false
             TargetLanguage = ja
+            GameTitle = The Glitched Attraction
             AutoOpenControlPanel = false
             HttpPort = 70000
 
@@ -100,6 +103,12 @@ public sealed class CfgControlPanelSettingsStoreTests
             Temperature = 1.25
             CustomPrompt = Line 1\nLine 2
 
+            [提示词模板]
+            SystemPrompt = System {TargetLanguage}
+            BatchUserPrompt = Batch {InputJson}
+            GlossaryTermsSection = Terms {GlossaryTermsJson}
+            QualityRepairPrompt = Quality {SourceText} {InvalidTranslation} {FailureReason} {RepairContextJson}
+
             [扫描与写回]
             MaxConcurrentRequests = 150
             RequestsPerMinute = 700
@@ -116,6 +125,7 @@ public sealed class CfgControlPanelSettingsStoreTests
 
             [缓存与上下文]
             EnableCacheLookup = false
+            EnableTranslationDebugLogs = true
             EnableTranslationContext = true
             TranslationContextMaxExamples = 99
             TranslationContextMaxCharacters = 9000
@@ -153,6 +163,7 @@ public sealed class CfgControlPanelSettingsStoreTests
 
         config.Enabled.Should().BeFalse();
         config.TargetLanguage.Should().Be("ja");
+        config.GameTitle.Should().Be("The Glitched Attraction");
         config.AutoOpenControlPanel.Should().BeFalse();
         config.HttpHost.Should().Be("127.0.0.1");
         config.HttpPort.Should().Be(65535);
@@ -171,6 +182,7 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.MaxScanTargetsPerTick.Should().Be(1);
         config.MaxWritebacksPerFrame.Should().Be(512);
         config.MaxSourceTextLength.Should().Be(20);
+        config.EnableTranslationDebugLogs.Should().BeTrue();
         config.TranslationContextMaxExamples.Should().Be(20);
         config.TranslationContextMaxCharacters.Should().Be(8000);
         config.GlossaryMaxTerms.Should().Be(100);
@@ -178,7 +190,11 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.FontSamplingPointSize.Should().Be(180);
         config.FontSizeAdjustmentMode.Should().Be(FontSizeAdjustmentMode.Points);
         config.FontSizeAdjustmentValue.Should().Be(-99);
-        config.CustomPrompt.Should().Be("Line 1\nLine 2");
+        config.CustomPrompt.Should().Be("System {TargetLanguage}");
+        config.PromptTemplates.SystemPrompt.Should().Be("System {TargetLanguage}");
+        config.PromptTemplates.BatchUserPrompt.Should().Be("Batch {InputJson}");
+        config.PromptTemplates.GlossaryTermsSection.Should().Be("Terms {GlossaryTermsJson}");
+        config.PromptTemplates.QualityRepairPrompt.Should().Be("Quality {SourceText} {InvalidTranslation} {FailureReason} {RepairContextJson}");
         config.ReplacementFontFile.Should().Be(@"C:\Fonts\NotoSansSC-Regular.otf");
         config.LlamaCpp.ModelPath.Should().Be(@"D:\Models\game-ui.gguf");
         config.LlamaCpp.ContextSize.Should().Be(512);
@@ -197,6 +213,9 @@ public sealed class CfgControlPanelSettingsStoreTests
         cfg.Should().Contain("MaxConcurrentRequests = 4");
         cfg.Should().Contain("范围：1 到 100");
         cfg.Should().Contain("llama.cpp 使用 ParallelSlots");
+        cfg.Should().Contain("[提示词模板]");
+        cfg.Should().Contain("BatchUserPrompt = ");
+        cfg.Should().Contain("{InputJson}");
     }
 
     [Fact]

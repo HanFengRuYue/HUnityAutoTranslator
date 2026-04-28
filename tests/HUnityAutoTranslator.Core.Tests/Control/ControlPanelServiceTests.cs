@@ -1,6 +1,7 @@
 using FluentAssertions;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Control;
+using HUnityAutoTranslator.Core.Prompts;
 
 namespace HUnityAutoTranslator.Core.Tests.Control;
 
@@ -65,6 +66,45 @@ public sealed class ControlPanelServiceTests
         state.TargetLanguage.Should().Be("ja");
         state.MaxConcurrentRequests.Should().Be(8);
         state.RequestsPerMinute.Should().Be(90);
+    }
+
+    [Fact]
+    public void Automatic_game_title_is_effective_without_being_persisted()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+
+        first.SetAutomaticGameTitle("The Glitched Attraction");
+        first.UpdateConfig(new UpdateConfigRequest(TargetLanguage: "ja"));
+
+        var state = first.GetState();
+        state.GameTitle.Should().BeNull();
+        state.AutomaticGameTitle.Should().Be("The Glitched Attraction");
+        state.DefaultSystemPrompt.Should().Contain("Game title: The Glitched Attraction.");
+        first.GetConfig().GameTitle.Should().Be("The Glitched Attraction");
+
+        var cfg = File.ReadAllText(path);
+        cfg.Should().Contain("GameTitle =");
+        cfg.Should().NotContain("GameTitle = The Glitched Attraction");
+
+        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+        second.GetConfig().GameTitle.Should().BeNull();
+    }
+
+    [Fact]
+    public void Manual_game_title_overrides_automatic_game_title()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        service.SetAutomaticGameTitle("The Glitched Attraction");
+        service.UpdateConfig(new UpdateConfigRequest(GameTitle: "Manual Test Game"));
+
+        var state = service.GetState();
+        state.GameTitle.Should().Be("Manual Test Game");
+        state.AutomaticGameTitle.Should().Be("The Glitched Attraction");
+        service.GetConfig().GameTitle.Should().Be("Manual Test Game");
+        state.DefaultSystemPrompt.Should().Contain("Game title: Manual Test Game.");
+        state.DefaultSystemPrompt.Should().NotContain("Game title: The Glitched Attraction.");
     }
 
     [Fact]
@@ -211,7 +251,7 @@ public sealed class ControlPanelServiceTests
         state.ApiKeyConfigured.Should().BeTrue();
         state.BaseUrl.Should().Be("http://127.0.0.1:0");
         state.Endpoint.Should().Be("/v1/chat/completions");
-        state.Model.Should().Be("qwen-game-ui");
+        state.Model.Should().Be("local-model");
         state.LlamaCpp.ModelPath.Should().Be(@"D:\Models\game-ui.gguf");
         state.LlamaCpp.ContextSize.Should().Be(8192);
         state.LlamaCpp.GpuLayers.Should().Be(80);
@@ -392,6 +432,7 @@ public sealed class ControlPanelServiceTests
             IgnoreInvisibleText: true,
             SkipNumericSymbolText: true,
             EnableCacheLookup: true,
+            EnableTranslationDebugLogs: true,
             EnableTranslationContext: true,
             TranslationContextMaxExamples: 7,
             TranslationContextMaxCharacters: 2400,
@@ -414,6 +455,7 @@ public sealed class ControlPanelServiceTests
         state.IgnoreInvisibleText.Should().BeTrue();
         state.SkipNumericSymbolText.Should().BeTrue();
         state.EnableCacheLookup.Should().BeTrue();
+        state.EnableTranslationDebugLogs.Should().BeTrue();
         state.EnableTranslationContext.Should().BeTrue();
         state.TranslationContextMaxExamples.Should().Be(7);
         state.TranslationContextMaxCharacters.Should().Be(2400);
@@ -453,6 +495,59 @@ public sealed class ControlPanelServiceTests
 
         restored.CustomPrompt.Should().BeNull();
         restored.DefaultSystemPrompt.Should().Be(defaultPrompt);
+    }
+
+    [Fact]
+    public void UpdateConfig_exposes_prompt_template_overrides_and_defaults()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        service.UpdateConfig(new UpdateConfigRequest(
+            PromptTemplates: new PromptTemplateConfig(
+                SystemPrompt: "Translate to {TargetLanguage}.",
+                BatchUserPrompt: "Use JSON {InputJson}")));
+
+        var state = service.GetState();
+
+        state.DefaultPromptTemplates.SystemPrompt.Should().Contain("{TargetLanguage}");
+        state.DefaultPromptTemplates.BatchUserPrompt.Should().Contain("{InputJson}");
+        state.PromptTemplates.SystemPrompt.Should().Be("Translate to {TargetLanguage}.");
+        state.PromptTemplates.BatchUserPrompt.Should().Be("Use JSON {InputJson}");
+        state.CustomPrompt.Should().Be("Translate to {TargetLanguage}.");
+        service.GetConfig().PromptTemplates.SystemPrompt.Should().Be("Translate to {TargetLanguage}.");
+    }
+
+    [Fact]
+    public void UpdateConfig_maps_legacy_custom_prompt_to_system_prompt_template()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        service.UpdateConfig(new UpdateConfigRequest(CustomPrompt: "Legacy {TargetLanguage}."));
+
+        var state = service.GetState();
+
+        state.CustomPrompt.Should().Be("Legacy {TargetLanguage}.");
+        state.PromptTemplates.SystemPrompt.Should().Be("Legacy {TargetLanguage}.");
+        service.GetConfig().PromptTemplates.SystemPrompt.Should().Be("Legacy {TargetLanguage}.");
+    }
+
+    [Fact]
+    public void UpdateConfig_rejects_prompt_templates_missing_required_placeholders()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        service.UpdateConfig(new UpdateConfigRequest(
+            PromptTemplates: new PromptTemplateConfig(
+                BatchUserPrompt: "Missing input json",
+                GlossaryTermsSection: "Missing glossary json",
+                QualityRepairPrompt: "Missing repair context {SourceText} {InvalidTranslation} {FailureReason}")));
+
+        var state = service.GetState();
+
+        state.PromptTemplates.BatchUserPrompt.Should().BeNull();
+        state.PromptTemplates.GlossaryTermsSection.Should().BeNull();
+        state.PromptTemplates.QualityRepairPrompt.Should().BeNull();
+        service.GetConfig().PromptTemplates.HasOverrides.Should().BeFalse();
     }
 
     [Fact]

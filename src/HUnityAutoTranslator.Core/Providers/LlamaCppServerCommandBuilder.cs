@@ -21,7 +21,7 @@ public static class LlamaCppServerCommandBuilder
             "-m",
             Quote(config.ModelPath),
             "--alias",
-            QuoteIfNeeded(string.IsNullOrWhiteSpace(profile.Model) ? "local-model" : profile.Model.Trim()),
+            "local-model",
             "-c",
             config.ContextSize.ToString(CultureInfo.InvariantCulture),
             "-ngl",

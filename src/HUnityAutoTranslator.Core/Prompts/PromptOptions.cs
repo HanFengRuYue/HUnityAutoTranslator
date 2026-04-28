@@ -4,4 +4,6 @@ public sealed record PromptOptions(
     string TargetLanguage,
     TranslationStyle Style,
     string? CustomPrompt = null,
-    bool HasGlossaryTerms = false);
+    bool HasGlossaryTerms = false,
+    string? GameTitle = null,
+    PromptTemplateConfig? Templates = null);

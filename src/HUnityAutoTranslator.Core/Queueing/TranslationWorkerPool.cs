@@ -16,6 +16,7 @@ namespace HUnityAutoTranslator.Core.Queueing;
 public sealed class TranslationWorkerPool
 {
     private static readonly TimeSpan IdleWorkerPollInterval = TimeSpan.FromMilliseconds(40);
+    private const int MaxBatchItems = 4;
 
     private readonly TranslationJobQueue _queue;
     private readonly ResultDispatcher _dispatcher;
@@ -26,6 +27,7 @@ public sealed class TranslationWorkerPool
     private readonly ControlPanelMetrics? _metrics;
     private readonly IGlossaryStore? _glossary;
     private readonly Action<string>? _failureReporter;
+    private readonly Action<TranslationRequestDebugSnapshot>? _debugReporter;
 
     public TranslationWorkerPool(
         TranslationJobQueue queue,
@@ -36,7 +38,8 @@ public sealed class TranslationWorkerPool
         ITranslationCache? cache = null,
         ControlPanelMetrics? metrics = null,
         IGlossaryStore? glossary = null,
-        Action<string>? failureReporter = null)
+        Action<string>? failureReporter = null,
+        Action<TranslationRequestDebugSnapshot>? debugReporter = null)
     {
         _queue = queue;
         _dispatcher = dispatcher;
@@ -47,6 +50,7 @@ public sealed class TranslationWorkerPool
         _metrics = metrics;
         _glossary = glossary;
         _failureReporter = failureReporter;
+        _debugReporter = debugReporter;
     }
 
     public async Task RunUntilIdleAsync(CancellationToken cancellationToken)
@@ -63,7 +67,7 @@ public sealed class TranslationWorkerPool
     {
         while (!cancellationToken.IsCancellationRequested)
         {
-            if (!_queue.TryDequeueBatch(1, _config.MaxBatchCharacters, out var batch))
+            if (!_queue.TryDequeueBatch(ResolveBatchItemLimit(), _config.MaxBatchCharacters, out var batch))
             {
                 if (_queue.InFlightCount == 0)
                 {
@@ -87,6 +91,7 @@ public sealed class TranslationWorkerPool
                 var contextExamples = BuildContextExamples(batch, targetLanguage);
                 var glossaryTerms = BuildGlossaryTerms(batch, targetLanguage);
                 var protectedTexts = batch.Select(job => PlaceholderProtector.Protect(job.SourceText)).ToArray();
+                var itemContexts = BuildItemContexts(batch);
                 var request = new TranslationRequest(
                     protectedTexts.Select(text => text.Text).ToArray(),
                     targetLanguage,
@@ -94,8 +99,23 @@ public sealed class TranslationWorkerPool
                         targetLanguage,
                         _config.Style,
                         _config.CustomPrompt,
-                        glossaryTerms.Count > 0)),
-                    PromptBuilder.BuildBatchUserPrompt(protectedTexts.Select(text => text.Text).ToArray(), contextExamples, glossaryTerms));
+                        glossaryTerms.Count > 0,
+                        _config.GameTitle,
+                        _config.PromptTemplates)),
+                    PromptBuilder.BuildBatchUserPrompt(
+                        protectedTexts.Select(text => text.Text).ToArray(),
+                        contextExamples,
+                        glossaryTerms,
+                        itemContexts,
+                        _config.GameTitle,
+                        _config.PromptTemplates));
+                ReportDebugSnapshot(
+                    "translate",
+                    batch,
+                    itemContexts,
+                    contextExamples.Count,
+                    glossaryTerms.Count,
+                    repairReason: null);
                 var stopwatch = Stopwatch.StartNew();
                 var response = await _provider.TranslateAsync(request, cancellationToken).ConfigureAwait(false);
                 stopwatch.Stop();
@@ -115,6 +135,13 @@ public sealed class TranslationWorkerPool
                             glossaryTerms,
                             targetLanguage,
                             cancellationToken).ConfigureAwait(false);
+                        restoredTexts = await RepairQualityFailuresAsync(
+                            batch,
+                            protectedTexts,
+                            restoredTexts,
+                            itemContexts,
+                            targetLanguage,
+                            cancellationToken).ConfigureAwait(false);
                         var glossaryValidation = GlossaryOutputValidator.ValidateBatch(
                             batch.Select(job => job.SourceText).ToArray(),
                             restoredTexts,
@@ -122,7 +149,18 @@ public sealed class TranslationWorkerPool
                         var finalValidation = TranslationOutputValidator.ValidateBatch(
                             batch.Select(job => job.SourceText).ToArray(),
                             restoredTexts);
-                        if (glossaryValidation.IsValid && finalValidation.IsValid)
+                        var qualityValidation = TranslationQualityValidator.ValidateBatch(
+                            batch.Select(job => job.SourceText).ToArray(),
+                            restoredTexts,
+                            itemContexts,
+                            targetLanguage,
+                            _config.GameTitle);
+                        if (finalValidation.IsValid && !qualityValidation.IsValid)
+                        {
+                            finalValidation = ValidationResult.Invalid("translation quality check failed: " + qualityValidation.Reason);
+                        }
+
+                        if (glossaryValidation.IsValid && finalValidation.IsValid && qualityValidation.IsValid)
                         {
                             completedCount = PublishResults(batch, restoredTexts, response.TotalTokens, stopwatch.Elapsed);
                         }
@@ -185,6 +223,55 @@ public sealed class TranslationWorkerPool
         }
 
         _failureReporter($"{reason}。源文本预览：{BuildSourcePreview(jobs)}");
+    }
+
+    private void ReportDebugSnapshot(
+        string phase,
+        IReadOnlyList<TranslationJob> jobs,
+        IReadOnlyList<PromptItemContext> itemContexts,
+        int contextExampleCount,
+        int glossaryTermCount,
+        string? repairReason)
+    {
+        if (_debugReporter == null)
+        {
+            return;
+        }
+
+        var contextByIndex = itemContexts.GroupBy(context => context.TextIndex)
+            .ToDictionary(group => group.Key, group => group.First());
+        var items = new List<TranslationRequestDebugItem>(jobs.Count);
+        for (var i = 0; i < jobs.Count; i++)
+        {
+            contextByIndex.TryGetValue(i, out var context);
+            var effectiveContext = context ?? new PromptItemContext(
+                i,
+                jobs[i].Context.SceneName,
+                jobs[i].Context.ComponentHierarchy,
+                jobs[i].Context.ComponentType);
+            items.Add(new TranslationRequestDebugItem(
+                i,
+                jobs[i].SourceText,
+                effectiveContext.SceneName,
+                effectiveContext.ComponentHierarchy,
+                effectiveContext.ComponentType,
+                PromptItemClassifier.BuildHints(jobs[i].SourceText, effectiveContext, _config.GameTitle)));
+        }
+
+        _debugReporter(new TranslationRequestDebugSnapshot(
+            phase,
+            TextPipeline.GetPromptPolicyVersion(_config),
+            ResolveTargetLanguage(jobs),
+            _config.GameTitle,
+            _config.Provider.Kind.ToString(),
+            _config.Provider.Model,
+            jobs.Count,
+            contextExampleCount,
+            glossaryTermCount,
+            itemContexts.Count > 0,
+            QualityRulesEnabled: true,
+            repairReason,
+            items));
     }
 
     private static string BuildSourcePreview(IReadOnlyList<TranslationJob> jobs)
@@ -295,7 +382,7 @@ public sealed class TranslationWorkerPool
                 jobs[i].SourceText,
                 ResolveTargetLanguage(jobs[i]),
                 _config.Provider,
-                TextPipeline.PromptPolicyVersion);
+                TextPipeline.GetPromptPolicyVersion(_config));
             _cache?.Set(cacheKey, translatedTexts[i], jobs[i].Context);
             if (jobs[i].PublishResult)
             {
@@ -364,9 +451,11 @@ public sealed class TranslationWorkerPool
                     targetLanguage,
                     _config.Style,
                     _config.CustomPrompt,
-                    HasGlossaryTerms: true)),
+                    HasGlossaryTerms: true,
+                    GameTitle: _config.GameTitle,
+                    Templates: _config.PromptTemplates)),
                 "The previous translation missed required glossary terms.\n" +
-                PromptBuilder.BuildRepairPrompt(jobs[i].SourceText, repaired[i], validation.Reason, terms));
+                PromptBuilder.BuildRepairPrompt(jobs[i].SourceText, repaired[i], validation.Reason, terms, _config.PromptTemplates));
             var response = await _provider.TranslateAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.Succeeded || response.TranslatedTexts.Count == 0)
             {
@@ -374,6 +463,74 @@ public sealed class TranslationWorkerPool
             }
 
             repaired[i] = protectedTexts[i].Restore(response.TranslatedTexts[0]);
+        }
+
+        return repaired;
+    }
+
+    private async Task<IReadOnlyList<string>> RepairQualityFailuresAsync(
+        IReadOnlyList<TranslationJob> jobs,
+        IReadOnlyList<ProtectedText> protectedTexts,
+        IReadOnlyList<string> translatedTexts,
+        IReadOnlyList<PromptItemContext> itemContexts,
+        string targetLanguage,
+        CancellationToken cancellationToken)
+    {
+        var failures = TranslationQualityValidator.FindFailures(
+            jobs.Select(job => job.SourceText).ToArray(),
+            translatedTexts,
+            itemContexts,
+            targetLanguage,
+            _config.GameTitle);
+        if (failures.Count == 0)
+        {
+            return translatedTexts;
+        }
+
+        var repaired = translatedTexts.ToArray();
+        var contextByIndex = itemContexts.GroupBy(context => context.TextIndex)
+            .ToDictionary(group => group.Key, group => group.First());
+        foreach (var failure in failures.GroupBy(item => item.TextIndex).Select(group => group.First()))
+        {
+            if (failure.TextIndex < 0 || failure.TextIndex >= jobs.Count || failure.TextIndex >= protectedTexts.Count)
+            {
+                continue;
+            }
+
+            contextByIndex.TryGetValue(failure.TextIndex, out var context);
+            var sameParentSourceTexts = BuildSameParentSourceTexts(jobs, itemContexts, failure.TextIndex);
+            ReportDebugSnapshot(
+                "quality-repair",
+                new[] { jobs[failure.TextIndex] },
+                context == null ? Array.Empty<PromptItemContext>() : new[] { context },
+                contextExampleCount: 0,
+                glossaryTermCount: 0,
+                failure.Reason);
+            var request = new TranslationRequest(
+                new[] { protectedTexts[failure.TextIndex].Text },
+                targetLanguage,
+                PromptBuilder.BuildSystemPrompt(new PromptOptions(
+                    targetLanguage,
+                    _config.Style,
+                    _config.CustomPrompt,
+                    HasGlossaryTerms: false,
+                    GameTitle: _config.GameTitle,
+                    Templates: _config.PromptTemplates)),
+                PromptBuilder.BuildQualityRepairPrompt(
+                    jobs[failure.TextIndex].SourceText,
+                    repaired[failure.TextIndex],
+                    failure.Reason,
+                    context,
+                    sameParentSourceTexts,
+                    _config.GameTitle,
+                    _config.PromptTemplates));
+            var response = await _provider.TranslateAsync(request, cancellationToken).ConfigureAwait(false);
+            if (!response.Succeeded || response.TranslatedTexts.Count == 0)
+            {
+                continue;
+            }
+
+            repaired[failure.TextIndex] = protectedTexts[failure.TextIndex].Restore(response.TranslatedTexts[0]);
         }
 
         return repaired;
@@ -422,6 +579,75 @@ public sealed class TranslationWorkerPool
         }
 
         return selected;
+    }
+
+    private static IReadOnlyList<string> BuildSameParentSourceTexts(
+        IReadOnlyList<TranslationJob> jobs,
+        IReadOnlyList<PromptItemContext> itemContexts,
+        int textIndex)
+    {
+        var contextByIndex = itemContexts.GroupBy(context => context.TextIndex)
+            .ToDictionary(group => group.Key, group => group.First());
+        if (!contextByIndex.TryGetValue(textIndex, out var currentContext))
+        {
+            return Array.Empty<string>();
+        }
+
+        var currentParent = PromptItemClassifier.GetParentHierarchy(currentContext.ComponentHierarchy);
+        if (currentParent == null)
+        {
+            return Array.Empty<string>();
+        }
+
+        var sources = new List<string>();
+        for (var i = 0; i < jobs.Count; i++)
+        {
+            if (!contextByIndex.TryGetValue(i, out var context) ||
+                !string.Equals(currentParent, PromptItemClassifier.GetParentHierarchy(context.ComponentHierarchy), StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            sources.Add(jobs[i].SourceText);
+        }
+
+        return sources;
+    }
+
+    private static IReadOnlyList<PromptItemContext> BuildItemContexts(IReadOnlyList<TranslationJob> jobs)
+    {
+        var contexts = new List<PromptItemContext>(jobs.Count);
+        for (var i = 0; i < jobs.Count; i++)
+        {
+            var context = jobs[i].Context;
+            if (string.IsNullOrWhiteSpace(context.SceneName) &&
+                string.IsNullOrWhiteSpace(context.ComponentHierarchy) &&
+                string.IsNullOrWhiteSpace(context.ComponentType))
+            {
+                continue;
+            }
+
+            contexts.Add(new PromptItemContext(
+                i,
+                context.SceneName,
+                context.ComponentHierarchy,
+                context.ComponentType));
+        }
+
+        return contexts;
+    }
+
+    private int ResolveBatchItemLimit()
+    {
+        var pendingCount = Math.Max(0, _queue.PendingCount);
+        var workerCount = Math.Max(1, _config.EffectiveMaxConcurrentRequests);
+        if (pendingCount <= workerCount)
+        {
+            return 1;
+        }
+
+        var balancedBatchSize = (int)Math.Ceiling((double)pendingCount / workerCount);
+        return Math.Min(MaxBatchItems, Math.Max(1, balancedBatchSize));
     }
 
     private IReadOnlyList<GlossaryPromptTerm> BuildGlossaryTerms(IReadOnlyList<TranslationJob> jobs, string targetLanguage)

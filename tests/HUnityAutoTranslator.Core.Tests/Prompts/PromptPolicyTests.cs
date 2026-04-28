@@ -1,6 +1,7 @@
 using FluentAssertions;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Glossary;
+using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Prompts;
 
 namespace HUnityAutoTranslator.Core.Tests.Prompts;
@@ -23,6 +24,49 @@ public sealed class PromptPolicyTests
     }
 
     [Fact]
+    public void Prompt_policy_version_is_v3_after_quality_rules()
+    {
+        TextPipeline.PromptPolicyVersion.Should().Be("prompt-v3");
+    }
+
+    [Fact]
+    public void BuildSystemPrompt_contains_quality_rules_for_short_ui_and_game_titles()
+    {
+        var prompt = PromptBuilder.BuildSystemPrompt(new PromptOptions(
+            "zh-Hans",
+            TranslationStyle.Localized,
+            GameTitle: "The Glitched Attraction"));
+
+        prompt.Should().Contain("For short UI text, infer the intended UI role before translating");
+        prompt.Should().Contain("If the source text is or contains the game title, preserve the exact game title");
+        prompt.Should().Contain("Accessibility and technical settings must stay distinct");
+        prompt.Should().Contain("For Simplified Chinese, do not leave ordinary English UI text untranslated");
+    }
+
+    [Fact]
+    public void BuildSystemPrompt_includes_game_title_when_available()
+    {
+        var prompt = PromptBuilder.BuildSystemPrompt(new PromptOptions(
+            "zh-Hans",
+            TranslationStyle.Localized,
+            GameTitle: "The Glitched Attraction"));
+
+        prompt.Should().Contain("Game title: The Glitched Attraction.");
+        prompt.Should().Contain("Use this game's context for character names, locations, menus, short UI labels, and horror-game text.");
+    }
+
+    [Fact]
+    public void BuildSystemPrompt_omits_game_title_when_blank()
+    {
+        var prompt = PromptBuilder.BuildSystemPrompt(new PromptOptions(
+            "zh-Hans",
+            TranslationStyle.Localized,
+            GameTitle: " "));
+
+        prompt.Should().NotContain("Game title:");
+    }
+
+    [Fact]
     public void BuildSystemPrompt_uses_full_custom_prompt_when_configured()
     {
         var prompt = PromptBuilder.BuildSystemPrompt(new PromptOptions(
@@ -31,6 +75,19 @@ public sealed class PromptPolicyTests
             CustomPrompt: "Output {TargetLanguage}. Style={StyleInstruction}"));
 
         prompt.Should().Be("Output Japanese. Style=Style: Keep UI, menu, and button text short and clear.");
+    }
+
+    [Fact]
+    public void BuildSystemPrompt_custom_prompt_can_use_game_title_variable()
+    {
+        var prompt = PromptBuilder.BuildSystemPrompt(new PromptOptions(
+            TargetLanguage: "zh-Hans",
+            Style: TranslationStyle.Localized,
+            CustomPrompt: "Translate {GameTitle} into {TargetLanguage}. {GameContext}",
+            GameTitle: "The Glitched Attraction"));
+
+        prompt.Should().Contain("Translate The Glitched Attraction into Simplified Chinese.");
+        prompt.Should().Contain("Game title: The Glitched Attraction.");
     }
 
     [Fact]
@@ -45,6 +102,25 @@ public sealed class PromptPolicyTests
         prompt.Should().StartWith("Output Japanese.");
         prompt.Should().Contain("Mandatory glossary policy");
         prompt.Should().Contain("use the glossary target term exactly");
+    }
+
+    [Fact]
+    public void BuildSystemPrompt_uses_custom_system_and_glossary_policy_templates()
+    {
+        var templates = new PromptTemplateConfig(
+            SystemPrompt: "SYS {TargetLanguage} {GameTitle} {GameContext} {StyleInstruction} {GlossarySystemPolicy}",
+            GlossarySystemPolicy: "GLOSSARY POLICY");
+
+        var prompt = PromptBuilder.BuildSystemPrompt(new PromptOptions(
+            TargetLanguage: "zh-Hans",
+            Style: TranslationStyle.UiConcise,
+            HasGlossaryTerms: true,
+            GameTitle: "The Glitched Attraction",
+            Templates: templates));
+
+        prompt.Should().Contain("SYS Simplified Chinese The Glitched Attraction Game title: The Glitched Attraction.");
+        prompt.Should().Contain("Style: Keep UI, menu, and button text short and clear.");
+        prompt.Should().Contain("GLOSSARY POLICY");
     }
 
     [Fact]
@@ -74,6 +150,48 @@ public sealed class PromptPolicyTests
     }
 
     [Fact]
+    public void BuildBatchUserPrompt_includes_current_item_context_with_text_indexes()
+    {
+        var prompt = PromptBuilder.BuildBatchUserPrompt(
+            new[] { "Ultra", "On" },
+            contextExamples: null,
+            glossaryTerms: null,
+            itemContexts: new[]
+            {
+                new PromptItemContext(0, "MainMenu", "Canvas/Settings/Textures/Quality", "TMPro.TextMeshProUGUI"),
+                new PromptItemContext(1, "MainMenu", "Canvas/Settings/Toggles/FullScreen", "UnityEngine.UI.Text")
+            },
+            gameTitle: "The Glitched Attraction");
+
+        prompt.Should().Contain("Current UI text context");
+        prompt.Should().Contain("\"text_index\":0");
+        prompt.Should().Contain("\"component_hierarchy\":\"Canvas/Settings/Textures/Quality\"");
+        prompt.Should().Contain("\"text_index\":1");
+        prompt.Should().Contain("\"scene\":\"MainMenu\"");
+        prompt.Should().Contain("Item translation hints");
+        prompt.Should().Contain("\"settings_value\"");
+        prompt.Should().Contain("\"toggle_state\"");
+        prompt.Should().Contain("""["Ultra","On"]""");
+    }
+
+    [Fact]
+    public void BuildBatchUserPrompt_marks_game_title_and_accessibility_hints()
+    {
+        var prompt = PromptBuilder.BuildBatchUserPrompt(
+            new[] { "The Glitched\nAttraction", "Tritanopia" },
+            itemContexts: new[]
+            {
+                new PromptItemContext(0, "Main Menu", "Menu/Camera/World Canvas/Panels/Main/Title", "TMPro.TextMeshProUGUI"),
+                new PromptItemContext(1, "SetSettings_FirstTime", "Canvas/Options/Tritanopia", "UnityEngine.UI.Text")
+            },
+            gameTitle: "The Glitched Attraction");
+
+        prompt.Should().Contain("\"game_title\"");
+        prompt.Should().Contain("\"accessibility_option\"");
+        prompt.Should().Contain("\"title_text\"");
+    }
+
+    [Fact]
     public void BuildBatchUserPrompt_includes_glossary_terms_before_context_examples()
     {
         var prompt = PromptBuilder.BuildBatchUserPrompt(
@@ -88,6 +206,149 @@ public sealed class PromptPolicyTests
             .Should().BeLessThan(prompt.IndexOf("Translation context examples", StringComparison.Ordinal));
         prompt.Should().Contain("Return only a JSON string array");
         prompt.Should().Contain("""["Find Freddy"]""");
+    }
+
+    [Fact]
+    public void BuildBatchUserPrompt_uses_custom_section_templates()
+    {
+        var templates = new PromptTemplateConfig(
+            BatchUserPrompt: "SECTIONS\n{PromptSections}INPUT\n{InputJson}",
+            GlossaryTermsSection: "TERMS {GlossaryTermsJson}",
+            CurrentItemContextSection: "ITEMS {ItemContextsJson}",
+            ItemHintsSection: "HINTS {ItemHintsJson}",
+            ContextExamplesSection: "EXAMPLES {ContextExamplesJson}");
+
+        var prompt = PromptBuilder.BuildBatchUserPrompt(
+            new[] { "Ultra" },
+            new[] { new TranslationContextExample("Textures", "纹理") },
+            new[] { new GlossaryPromptTerm(0, "Ultra", "极高", "画质") },
+            new[] { new PromptItemContext(0, "MainMenu", "Canvas/Settings/Textures/Quality", "TMPro.TextMeshProUGUI") },
+            "The Glitched Attraction",
+            templates);
+
+        prompt.Should().StartWith("SECTIONS");
+        prompt.Should().Contain("TERMS [{\"text_index\":0,\"source\":\"Ultra\",\"target\":\"极高\",\"note\":\"画质\"}]");
+        prompt.Should().Contain("ITEMS [{\"text_index\":0,\"scene\":\"MainMenu\"");
+        prompt.Should().Contain("HINTS [{\"text_index\":0");
+        prompt.Should().Contain("EXAMPLES [{\"source\":\"Textures\",\"translation\":\"纹理\"}]");
+        prompt.Should().Contain("INPUT\n[\"Ultra\"]");
+    }
+
+    [Fact]
+    public void Repair_prompts_use_custom_templates()
+    {
+        var templates = new PromptTemplateConfig(
+            GlossaryRepairPrompt: "GLOSSARY FIX {SourceText}|{InvalidTranslation}|{FailureReason}|{RequiredGlossaryTermsJson}",
+            QualityRepairPrompt: "QUALITY FIX {SourceText}|{InvalidTranslation}|{FailureReason}|{RepairContextJson}");
+
+        var glossaryPrompt = PromptBuilder.BuildRepairPrompt(
+            "Find Freddy",
+            "寻找弗雷德",
+            "missing term",
+            new[] { new GlossaryPromptTerm(0, "Freddy", "弗雷迪", "角色名") },
+            templates);
+        var qualityPrompt = PromptBuilder.BuildQualityRepairPrompt(
+            "Ultra",
+            "超",
+            "too short",
+            new PromptItemContext(0, "MainMenu", "Canvas/Settings/Textures/Quality", "TMPro.TextMeshProUGUI"),
+            new[] { "Low", "High" },
+            "The Glitched Attraction",
+            templates);
+
+        glossaryPrompt.Should().Be("GLOSSARY FIX Find Freddy|寻找弗雷德|missing term|[{\"source\":\"Freddy\",\"target\":\"弗雷迪\",\"note\":\"角色名\"}]");
+        qualityPrompt.Should().StartWith("QUALITY FIX Ultra|超|too short|{");
+        qualityPrompt.Should().Contain("\"same_parent_source_texts\":[\"Low\",\"High\"]");
+    }
+
+    [Fact]
+    public void Default_prompt_templates_contain_required_placeholders()
+    {
+        var defaults = PromptTemplateConfig.Default;
+        var requiredTemplates = new (string Name, string? Template, string[] Placeholders)[]
+        {
+            ("BatchUserPrompt", defaults.BatchUserPrompt, new[] { "{InputJson}" }),
+            ("GlossaryTermsSection", defaults.GlossaryTermsSection, new[] { "{GlossaryTermsJson}" }),
+            ("CurrentItemContextSection", defaults.CurrentItemContextSection, new[] { "{ItemContextsJson}" }),
+            ("ItemHintsSection", defaults.ItemHintsSection, new[] { "{ItemHintsJson}" }),
+            ("ContextExamplesSection", defaults.ContextExamplesSection, new[] { "{ContextExamplesJson}" }),
+            ("GlossaryRepairPrompt", defaults.GlossaryRepairPrompt, new[] { "{SourceText}", "{InvalidTranslation}", "{FailureReason}" }),
+            ("QualityRepairPrompt", defaults.QualityRepairPrompt, new[] { "{SourceText}", "{InvalidTranslation}", "{FailureReason}", "{RepairContextJson}" }),
+            ("GlossaryExtractionUserPrompt", defaults.GlossaryExtractionUserPrompt, new[] { "{RowsJson}" })
+        };
+
+        foreach (var (name, template, placeholders) in requiredTemplates)
+        {
+            template.Should().NotBeNullOrWhiteSpace(name);
+            foreach (var placeholder in placeholders)
+            {
+                template.Should().Contain(placeholder, name);
+            }
+        }
+    }
+
+    [Fact]
+    public void Quality_validator_rejects_observed_bad_translations()
+    {
+        var contexts = new[]
+        {
+            new PromptItemContext(0, "Main Menu", "Menu/Camera/World Canvas/Panels/Main/Title", "TMPro.TextMeshProUGUI"),
+            new PromptItemContext(1, "Main Menu", "Menu/Camera/Canvas/Settings Menu/Gameplay Panel/Textures/Text", "TMPro.TextMeshProUGUI"),
+            new PromptItemContext(2, "Main Menu", "Menu/Camera/Canvas/Settings Menu/Gameplay Panel/Shadows/Text", "TMPro.TextMeshProUGUI"),
+            new PromptItemContext(3, "Main Menu", "Menu/Camera/Canvas/Settings Menu/Gameplay Panel/Post Processing/Text", "TMPro.TextMeshProUGUI"),
+            new PromptItemContext(4, "SetSettings_FirstTime", "Canvas/Options/Tritanopia", "UnityEngine.UI.Text")
+        };
+
+        var failures = TranslationQualityValidator.FindFailures(
+            new[] { "The Glitched\nAttraction", "Ultra", "Good", "Activated", "Tritanopia" },
+            new[] { "故障吸引力", "超", "好", "已激活", "Tritanopia" },
+            contexts,
+            "zh-Hans",
+            "The Glitched Attraction");
+
+        failures.Select(failure => failure.TextIndex).Should().BeEquivalentTo(new[] { 0, 1, 2, 3, 4 });
+        failures.Should().Contain(failure => failure.Reason.Contains("game title", StringComparison.OrdinalIgnoreCase));
+        failures.Should().Contain(failure => failure.Reason.Contains("too short", StringComparison.OrdinalIgnoreCase));
+        failures.Should().Contain(failure => failure.Reason.Contains("untranslated", StringComparison.OrdinalIgnoreCase));
+        failures.Should().Contain(failure => failure.Reason.Contains("state", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Quality_validator_rejects_same_group_option_collisions()
+    {
+        var failures = TranslationQualityValidator.FindFailures(
+            new[] { "Option Alpha", "Option Beta" },
+            new[] { "相同选项", "相同选项" },
+            new[]
+            {
+                new PromptItemContext(0, "Settings", "Canvas/Options/OptionAlpha", "UnityEngine.UI.Text"),
+                new PromptItemContext(1, "Settings", "Canvas/Options/OptionBeta", "UnityEngine.UI.Text")
+            },
+            "zh-Hans",
+            "The Glitched Attraction");
+
+        failures.Should().ContainSingle();
+        failures[0].TextIndex.Should().Be(1);
+        failures[0].Reason.Should().Contain("same parent");
+    }
+
+    [Fact]
+    public void Quality_validator_rejects_vague_accessibility_option_translations()
+    {
+        var failures = TranslationQualityValidator.FindFailures(
+            new[] { "Protanopia", "Deuteranopia", "Tritanopia" },
+            new[] { "\u5168\u8272\u76f2\u6a21\u5f0f", "\u4e8c\u8272\u89c6", "\u539f\u8272\u76f2\u6a21\u5f0f" },
+            new[]
+            {
+                new PromptItemContext(0, "SetSettings_FirstTime", "Canvas/Options/Protanopia", "UnityEngine.UI.Text"),
+                new PromptItemContext(1, "SetSettings_FirstTime", "Canvas/Options/Deuteranopia", "UnityEngine.UI.Text"),
+                new PromptItemContext(2, "SetSettings_FirstTime", "Canvas/Options/Tritanopia", "UnityEngine.UI.Text")
+            },
+            "zh-Hans",
+            "The Glitched Attraction");
+
+        failures.Select(failure => failure.TextIndex).Should().BeEquivalentTo(new[] { 0, 1, 2 });
+        failures.Should().OnlyContain(failure => failure.Reason.Contains("accessibility", StringComparison.OrdinalIgnoreCase));
     }
 
     [Fact]

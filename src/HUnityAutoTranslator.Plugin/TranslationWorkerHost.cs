@@ -15,6 +15,7 @@ internal sealed class TranslationWorkerHost : IDisposable
 {
     private const int PendingResumeBatchSize = 100;
     private static readonly TimeSpan PendingResumeInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan PendingResumeQualityFailureBackoff = TimeSpan.FromMinutes(10);
 
     private readonly ControlPanelService _controlPanel;
     private readonly TranslationJobQueue _queue;
@@ -101,7 +102,8 @@ internal sealed class TranslationWorkerHost : IDisposable
                     _cache,
                     _metrics,
                     _glossary,
-                    message => _logger.LogWarning(message));
+                    ReportTranslationFailure,
+                    snapshot => ReportTranslationDebugSnapshot(config, snapshot));
 
                 await pool.RunUntilIdleAsync(cancellationToken).ConfigureAwait(false);
                 await TryExtractGlossaryAsync(provider, config, cancellationToken).ConfigureAwait(false);
@@ -139,6 +141,25 @@ internal sealed class TranslationWorkerHost : IDisposable
                 config.DeepSeekThinkingMode,
                 config.Temperature,
                 TimeSpan.FromSeconds(config.RequestTimeoutSeconds));
+    }
+
+    private void ReportTranslationDebugSnapshot(RuntimeConfig config, TranslationRequestDebugSnapshot snapshot)
+    {
+        if (!config.EnableTranslationDebugLogs)
+        {
+            return;
+        }
+
+        _logger.LogInfo("AI 翻译请求结构：" + snapshot.ToLogLine());
+    }
+
+    private void ReportTranslationFailure(string message)
+    {
+        _logger.LogWarning(message);
+        if (message.IndexOf("translation quality check failed", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            _nextPendingResumeUtc = DateTimeOffset.UtcNow + PendingResumeQualityFailureBackoff;
+        }
     }
 
     private async Task<bool> ProviderReadyAsync(RuntimeConfig config, CancellationToken cancellationToken)
@@ -181,7 +202,7 @@ internal sealed class TranslationWorkerHost : IDisposable
         _nextPendingResumeUtc = now + PendingResumeInterval;
         var pending = _cache.GetPendingTranslations(
             config.TargetLanguage,
-            TextPipeline.PromptPolicyVersion,
+            TextPipeline.GetPromptPolicyVersion(config),
             PendingResumeBatchSize);
 
         var enqueued = 0;

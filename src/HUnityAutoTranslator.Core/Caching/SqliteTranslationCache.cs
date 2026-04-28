@@ -77,11 +77,13 @@ SELECT translated_text
 FROM translations
 WHERE source_text = $source_text
   AND target_language = $target_language
+  AND prompt_policy_version = $prompt_policy_version
   AND scene_name = $scene_name
   AND component_hierarchy = $component_hierarchy
   AND translated_text IS NOT NULL;
 """;
         AddLookupParameters(command, key, context);
+        command.Parameters.AddWithValue("$prompt_policy_version", key.PromptPolicyVersion);
         var result = command.ExecuteScalar();
         if (result is string value)
         {

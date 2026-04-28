@@ -44,6 +44,7 @@ public sealed class Plugin : BaseUnityPlugin
             var glossaryPath = Path.Combine(dataDirectory, "translation-glossary.sqlite");
             _metrics = new ControlPanelMetrics();
             _controlPanel = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(settingsPath), _metrics);
+            _controlPanel.SetAutomaticGameTitle(Application.productName);
             var config = _controlPanel.GetConfig();
             _cache = new SqliteTranslationCache(cachePath);
             _glossary = new SqliteGlossaryStore(glossaryPath);

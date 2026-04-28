@@ -53,6 +53,20 @@ export interface LlamaCppModelPickResult {
   Message: string;
 }
 
+export interface PromptTemplateConfig {
+  SystemPrompt: string | null;
+  GlossarySystemPolicy: string | null;
+  BatchUserPrompt: string | null;
+  GlossaryTermsSection: string | null;
+  CurrentItemContextSection: string | null;
+  ItemHintsSection: string | null;
+  ContextExamplesSection: string | null;
+  GlossaryRepairPrompt: string | null;
+  QualityRepairPrompt: string | null;
+  GlossaryExtractionSystemPrompt: string | null;
+  GlossaryExtractionUserPrompt: string | null;
+}
+
 export interface RecentTranslationPreview {
   SourceText: string;
   TranslatedText: string;
@@ -66,6 +80,8 @@ export interface RecentTranslationPreview {
 export interface ControlPanelState {
   Enabled: boolean;
   TargetLanguage: string;
+  GameTitle: string | null;
+  AutomaticGameTitle: string | null;
   Style: number | string;
   ProviderKind: number | string;
   BaseUrl: string;
@@ -104,10 +120,13 @@ export interface ControlPanelState {
   Temperature: number | null;
   CustomPrompt: string | null;
   DefaultSystemPrompt: string;
+  PromptTemplates: PromptTemplateConfig;
+  DefaultPromptTemplates: PromptTemplateConfig;
   MaxSourceTextLength: number;
   IgnoreInvisibleText: boolean;
   SkipNumericSymbolText: boolean;
   EnableCacheLookup: boolean;
+  EnableTranslationDebugLogs: boolean;
   EnableTranslationContext: boolean;
   TranslationContextMaxExamples: number;
   TranslationContextMaxCharacters: number;
@@ -140,6 +159,7 @@ export interface ControlPanelState {
 
 export interface UpdateConfigRequest {
   TargetLanguage?: string;
+  GameTitle?: string | null;
   MaxConcurrentRequests?: number;
   RequestsPerMinute?: number;
   Enabled?: boolean;
@@ -165,10 +185,12 @@ export interface UpdateConfigRequest {
   Temperature?: number | null;
   ClearTemperature?: boolean;
   CustomPrompt?: string | null;
+  PromptTemplates?: PromptTemplateConfig;
   MaxSourceTextLength?: number;
   IgnoreInvisibleText?: boolean;
   SkipNumericSymbolText?: boolean;
   EnableCacheLookup?: boolean;
+  EnableTranslationDebugLogs?: boolean;
   EnableTranslationContext?: boolean;
   TranslationContextMaxExamples?: number;
   TranslationContextMaxCharacters?: number;

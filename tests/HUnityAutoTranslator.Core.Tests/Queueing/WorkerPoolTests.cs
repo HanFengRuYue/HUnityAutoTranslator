@@ -5,6 +5,7 @@ using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Dispatching;
 using HUnityAutoTranslator.Core.Glossary;
 using HUnityAutoTranslator.Core.Pipeline;
+using HUnityAutoTranslator.Core.Prompts;
 using HUnityAutoTranslator.Core.Providers;
 using HUnityAutoTranslator.Core.Queueing;
 
@@ -245,6 +246,218 @@ public sealed class WorkerPoolTests
         provider.LastRequest!.UserPrompt.Should().Contain("Translation context examples");
         provider.LastRequest.UserPrompt.Should().Contain("Previous line");
         provider.LastRequest.UserPrompt.Should().Contain("Previous translated");
+    }
+
+    [Fact]
+    public async Task WorkerPool_batches_short_ui_text_and_includes_per_item_context()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var provider = new CapturingProvider(new[] { "超高", "开启" });
+        var limiter = new ProviderRateLimiter(requestsPerMinute: 120);
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            MaxConcurrentRequests = 1,
+            MaxBatchCharacters = 1800,
+            GameTitle = "The Glitched Attraction"
+        };
+        var pool = new TranslationWorkerPool(queue, dispatcher, provider, limiter, config, cache);
+        var now = DateTimeOffset.UtcNow;
+        cache.Update(SampleRow("Textures", "MainMenu", "Canvas/Settings/Textures/Label", "Text", "纹理", now.AddMinutes(3)));
+        cache.Update(SampleRow("Fullscreen", "MainMenu", "Canvas/Settings/Toggles/FullscreenLabel", "Text", "全屏", now.AddMinutes(2)));
+
+        queue.Enqueue(TranslationJob.Create(
+            "ui-1",
+            "Ultra",
+            TranslationPriority.VisibleUi,
+            new TranslationCacheContext("MainMenu", "Canvas/Settings/Textures/QualityValue", "TMPro.TextMeshProUGUI")));
+        queue.Enqueue(TranslationJob.Create(
+            "ui-2",
+            "On",
+            TranslationPriority.VisibleUi,
+            new TranslationCacheContext("MainMenu", "Canvas/Settings/Toggles/FullscreenValue", "UnityEngine.UI.Text")));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        provider.Requests.Should().ContainSingle();
+        var request = provider.Requests[0];
+        request.ProtectedTexts.Should().Equal("Ultra", "On");
+        request.SystemPrompt.Should().Contain("Game title: The Glitched Attraction.");
+        request.UserPrompt.Should().Contain("\"text_index\":0");
+        request.UserPrompt.Should().Contain("\"component_hierarchy\":\"Canvas/Settings/Textures/QualityValue\"");
+        request.UserPrompt.Should().Contain("\"text_index\":1");
+        request.UserPrompt.Should().Contain("\"component_hierarchy\":\"Canvas/Settings/Toggles/FullscreenValue\"");
+        request.UserPrompt.Should().Contain("Textures");
+        request.UserPrompt.Should().Contain("纹理");
+        dispatcher.Drain(10).Select(result => result.TranslatedText).Should().Equal("超高", "开启");
+    }
+
+    [Fact]
+    public async Task WorkerPool_emits_debug_snapshot_for_quality_context()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var provider = new CapturingProvider(new[] { "超高", "开启" });
+        var snapshots = new List<TranslationRequestDebugSnapshot>();
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            MaxConcurrentRequests = 1,
+            MaxBatchCharacters = 1800,
+            GameTitle = "The Glitched Attraction"
+        };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            provider,
+            new ProviderRateLimiter(120),
+            config,
+            cache,
+            debugReporter: snapshots.Add);
+
+        queue.Enqueue(TranslationJob.Create(
+            "ui-1",
+            "Ultra",
+            TranslationPriority.VisibleUi,
+            new TranslationCacheContext("MainMenu", "Canvas/Settings/Textures/QualityValue", "TMPro.TextMeshProUGUI")));
+        queue.Enqueue(TranslationJob.Create(
+            "ui-2",
+            "On",
+            TranslationPriority.VisibleUi,
+            new TranslationCacheContext("MainMenu", "Canvas/Settings/Toggles/FullscreenValue", "UnityEngine.UI.Text")));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        snapshots.Should().ContainSingle();
+        var snapshot = snapshots[0];
+        snapshot.Phase.Should().Be("translate");
+        snapshot.PromptPolicyVersion.Should().Be("prompt-v3");
+        snapshot.GameTitle.Should().Be("The Glitched Attraction");
+        snapshot.Items.Should().HaveCount(2);
+        snapshot.Items[0].SourceText.Should().Be("Ultra");
+        snapshot.Items[0].Hints.Should().Contain("settings_value");
+        snapshot.Items[1].SourceText.Should().Be("On");
+        snapshot.Items[1].Hints.Should().Contain("toggle_state");
+        snapshot.ItemContextsIncluded.Should().BeTrue();
+        snapshot.QualityRulesEnabled.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task WorkerPool_repairs_translation_once_when_quality_rule_fails()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var provider = new SequencedProvider(new[]
+        {
+            new[] { "超" },
+            new[] { "超高" }
+        });
+        var snapshots = new List<TranslationRequestDebugSnapshot>();
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            MaxConcurrentRequests = 1,
+            GameTitle = "The Glitched Attraction"
+        };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            provider,
+            new ProviderRateLimiter(120),
+            config,
+            cache,
+            debugReporter: snapshots.Add);
+
+        var context = new TranslationCacheContext("Main Menu", "Menu/Camera/Canvas/Settings Menu/Gameplay Panel/Textures/Text", "TMPro.TextMeshProUGUI");
+        queue.Enqueue(TranslationJob.Create("ui-1", "Ultra", TranslationPriority.VisibleUi, context));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        provider.Requests.Should().HaveCount(2);
+        provider.Requests[1].UserPrompt.Should().Contain("translation quality rules");
+        provider.Requests[1].UserPrompt.Should().Contain("too short");
+        snapshots.Should().HaveCount(2);
+        snapshots[1].Phase.Should().Be("quality-repair");
+        snapshots[1].RepairReason.Should().Contain("too short");
+        var results = dispatcher.Drain(10);
+        results.Should().ContainSingle();
+        results[0].TranslatedText.Should().Be("超高");
+        var key = TranslationCacheKey.Create("Ultra", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, context, out var cached).Should().BeTrue();
+        cached.Should().Be("超高");
+    }
+
+    [Fact]
+    public async Task WorkerPool_does_not_cache_translation_when_quality_repair_fails()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var failures = new List<string>();
+        var provider = new SequencedProvider(new[]
+        {
+            new[] { "超" },
+            new[] { "超" }
+        });
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            MaxConcurrentRequests = 1,
+            GameTitle = "The Glitched Attraction"
+        };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            provider,
+            new ProviderRateLimiter(120),
+            config,
+            cache,
+            failureReporter: failures.Add);
+
+        var context = new TranslationCacheContext("Main Menu", "Menu/Camera/Canvas/Settings Menu/Gameplay Panel/Textures/Text", "TMPro.TextMeshProUGUI");
+        queue.Enqueue(TranslationJob.Create("ui-1", "Ultra", TranslationPriority.VisibleUi, context));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        provider.Requests.Should().HaveCount(2);
+        var key = TranslationCacheKey.Create("Ultra", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, context, out _).Should().BeFalse();
+        dispatcher.PendingCount.Should().Be(0);
+        failures.Should().ContainSingle(message => message.Contains("quality", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task WorkerPool_repairs_same_parent_option_collision()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var provider = new SequencedProvider(new[]
+        {
+            new[] { "相同选项", "相同选项" },
+            new[] { "第二选项" }
+        });
+        var config = RuntimeConfig.CreateDefault() with { MaxConcurrentRequests = 1 };
+        var pool = new TranslationWorkerPool(queue, dispatcher, provider, new ProviderRateLimiter(120), config, cache);
+
+        queue.Enqueue(TranslationJob.Create(
+            "ui-1",
+            "Option Alpha",
+            TranslationPriority.VisibleUi,
+            new TranslationCacheContext("Settings", "Canvas/Options/OptionAlpha", "UnityEngine.UI.Text")));
+        queue.Enqueue(TranslationJob.Create(
+            "ui-2",
+            "Option Beta",
+            TranslationPriority.VisibleUi,
+            new TranslationCacheContext("Settings", "Canvas/Options/OptionBeta", "UnityEngine.UI.Text")));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        provider.Requests.Should().HaveCount(2);
+        provider.Requests[1].UserPrompt.Should().Contain("same parent");
+        provider.Requests[1].UserPrompt.Should().Contain("Option Alpha");
+        provider.Requests[1].UserPrompt.Should().Contain("Option Beta");
+        dispatcher.Drain(10).Select(result => result.TranslatedText).Should().Equal("相同选项", "第二选项");
     }
 
     [Fact]
@@ -518,11 +731,14 @@ public sealed class WorkerPoolTests
 
         public TranslationRequest? LastRequest { get; private set; }
 
+        public List<TranslationRequest> Requests { get; } = new();
+
         public ProviderKind Kind => ProviderKind.OpenAI;
 
         public Task<TranslationResponse> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken)
         {
             LastRequest = request;
+            Requests.Add(request);
             return Task.FromResult(TranslationResponse.Success(_translations));
         }
     }

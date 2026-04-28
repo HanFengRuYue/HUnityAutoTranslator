@@ -21,7 +21,7 @@ public sealed class LlamaCppServerCommandBuilderTests
         arguments.Should().Contain("--host 127.0.0.1");
         arguments.Should().Contain("--port 51234");
         arguments.Should().Contain("-m \"D:\\Models\\game ui.gguf\"");
-        arguments.Should().Contain("--alias qwen-game-ui");
+        arguments.Should().Contain("--alias local-model");
         arguments.Should().Contain("-c 8192");
         arguments.Should().Contain("-ngl 80");
         arguments.Should().Contain("-np 2");

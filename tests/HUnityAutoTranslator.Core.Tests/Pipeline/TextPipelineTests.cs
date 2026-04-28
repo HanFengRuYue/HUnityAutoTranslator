@@ -4,6 +4,7 @@ using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Glossary;
 using HUnityAutoTranslator.Core.Pipeline;
+using HUnityAutoTranslator.Core.Prompts;
 using HUnityAutoTranslator.Core.Queueing;
 
 namespace HUnityAutoTranslator.Core.Tests.Pipeline;
@@ -28,6 +29,28 @@ public sealed class TextPipelineTests
     }
 
     [Fact]
+    public void Process_uses_custom_prompt_template_hash_in_cache_key()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var customized = config with
+        {
+            PromptTemplates = new PromptTemplateConfig(SystemPrompt: "Custom {TargetLanguage}")
+        };
+        cache.Set(
+            TranslationCacheKey.Create("Start Game", customized.TargetLanguage, customized.Provider, TextPipeline.PromptPolicyVersion),
+            "旧缓存");
+        var pipeline = new TextPipeline(cache, queue, customized);
+
+        var decision = pipeline.Process(new CapturedText("ui-1", "Start Game", isVisible: true));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.Queued);
+        TextPipeline.GetPromptPolicyVersion(customized).Should().StartWith(TextPipeline.PromptPolicyVersion + "-");
+        queue.PendingCount.Should().Be(1);
+    }
+
+    [Fact]
     public void Process_skips_cached_translation_when_required_glossary_term_is_missing()
     {
         var cache = new MemoryTranslationCache();
@@ -43,6 +66,28 @@ public sealed class TextPipelineTests
 
         decision.Kind.Should().Be(PipelineDecisionKind.Queued);
         queue.PendingCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void Process_skips_cached_translation_when_quality_rules_fail()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var key = TranslationCacheKey.Create("Ultra", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        var context = new TranslationCacheContext("Main Menu", "Menu/Camera/Canvas/Settings Menu/Gameplay Panel/Textures/Text", "TMPro.TextMeshProUGUI");
+        cache.Set(key, "\u8d85", context);
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.Process(new CapturedText("ui-1", "Ultra", isVisible: true, context));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.Queued);
+        queue.PendingCount.Should().Be(1);
+        cache.TryGet(key, context, out _).Should().BeFalse();
+        var pending = cache.GetPendingTranslations(config.TargetLanguage, TextPipeline.PromptPolicyVersion, limit: 10);
+        pending.Should().ContainSingle();
+        pending[0].TranslatedText.Should().BeNull();
+        pending[0].ProviderKind.Should().BeEmpty();
     }
 
     [Fact]

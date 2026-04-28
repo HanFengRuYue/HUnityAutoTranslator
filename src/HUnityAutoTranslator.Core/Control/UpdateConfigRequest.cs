@@ -5,6 +5,7 @@ namespace HUnityAutoTranslator.Core.Control;
 
 public sealed record UpdateConfigRequest(
     string? TargetLanguage = null,
+    string? GameTitle = null,
     int? MaxConcurrentRequests = null,
     int? RequestsPerMinute = null,
     bool? Enabled = null,
@@ -30,10 +31,12 @@ public sealed record UpdateConfigRequest(
     double? Temperature = null,
     bool? ClearTemperature = null,
     string? CustomPrompt = null,
+    PromptTemplateConfig? PromptTemplates = null,
     int? MaxSourceTextLength = null,
     bool? IgnoreInvisibleText = null,
     bool? SkipNumericSymbolText = null,
     bool? EnableCacheLookup = null,
+    bool? EnableTranslationDebugLogs = null,
     bool? EnableTranslationContext = null,
     int? TranslationContextMaxExamples = null,
     int? TranslationContextMaxCharacters = null,
