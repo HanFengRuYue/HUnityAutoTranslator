@@ -31,7 +31,7 @@ import type {
   TranslationCachePage,
   TranslationHighlightResult
 } from "../types/api";
-import { formatDateTime } from "../utils/format";
+import { formatFullDateTime } from "../utils/format";
 import {
   cellValue,
   defaultColumns,
@@ -346,7 +346,7 @@ function firstSelectedCell(): CellAddress | null {
 
 function displayCellValue(row: TranslationCacheEntry, column: TableColumn): string {
   const value = cellValue(row, column.key);
-  return column.key.endsWith("Utc") ? formatDateTime(value) : value;
+  return column.key.endsWith("Utc") ? formatFullDateTime(value) : value;
 }
 
 function updateCellValue(rowIndex: number, column: TableColumn, value: string): void {

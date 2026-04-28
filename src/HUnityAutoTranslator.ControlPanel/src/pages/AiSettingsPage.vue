@@ -48,6 +48,10 @@ import type {
 const formKey = "ai";
 type PromptTemplateKey = keyof PromptTemplateConfig;
 
+interface SaveBehavior {
+  quiet?: boolean;
+}
+
 const promptTemplateFields: Array<{
   key: PromptTemplateKey;
   label: string;
@@ -393,23 +397,23 @@ function readConfig(): UpdateConfigRequest {
   };
 }
 
-async function saveConfigOnly(): Promise<ControlPanelState | null> {
+async function saveConfigOnly(options: SaveBehavior = {}): Promise<ControlPanelState | null> {
   if (!validatePromptTemplates()) {
     return null;
   }
 
-  const state = await saveConfig(readConfig(), formKey);
+  const state = await saveConfig(readConfig(), formKey, { quiet: options.quiet });
   applyState(state, true);
   return state;
 }
 
-async function savePendingApiKey(): Promise<boolean> {
+async function savePendingApiKey(options: SaveBehavior = {}): Promise<boolean> {
   const apiKey = form.ApiKey.trim();
   if (!apiKey) {
     return false;
   }
 
-  const state = await saveApiKey(apiKey);
+  const state = await saveApiKey(apiKey, { quiet: options.quiet });
   if (state) {
     form.ApiKey = "";
     applyState(state, true);
@@ -444,12 +448,12 @@ async function saveKeyOnly(): Promise<void> {
 async function runProviderUtility(label: string, action: () => Promise<void>): Promise<void> {
   utilityBusy.value = true;
   try {
-    const state = await saveConfigOnly();
+    const state = await saveConfigOnly({ quiet: true });
     if (!state) {
       return;
     }
 
-    await savePendingApiKey();
+    await savePendingApiKey({ quiet: true });
     await action();
   } catch (error) {
     showToast(error instanceof Error ? error.message : `${label}失败`, "error");
@@ -532,7 +536,7 @@ function updateLocalLlamaStatus(status: LlamaCppServerStatus): void {
 async function startLlamaCpp(): Promise<void> {
   llamaCppBusy.value = true;
   try {
-    const state = await saveConfigOnly();
+    const state = await saveConfigOnly({ quiet: true });
     if (!state) {
       return;
     }
@@ -680,7 +684,7 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
 
       <SectionPanel v-if="isLlamaCpp" title="llama.cpp 本地模型" :icon="Server">
         <div class="llama-local-panel">
-          <div class="field">
+          <div class="field llama-model-row">
             <span class="field-label"><FolderOpen class="field-label-icon" />GGUF 模型文件</span>
             <div class="input-action-row">
               <input id="llamaCppModelPath" v-model="form.LlamaCppModelPath" autocomplete="off" placeholder="选择 .gguf 模型文件">

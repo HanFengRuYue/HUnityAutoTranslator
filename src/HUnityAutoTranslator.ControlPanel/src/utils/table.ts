@@ -24,8 +24,8 @@ export const defaultColumns: TableColumn[] = [
   { key: "ReplacementFont", label: "替换字体", sort: "replacement_font", editable: true, width: 180 },
   { key: "ProviderKind", label: "服务商", sort: "provider_kind", editable: false, width: 110 },
   { key: "ProviderModel", label: "模型", sort: "provider_model", editable: false, width: 160 },
-  { key: "CreatedUtc", label: "创建时间", sort: "created_utc", editable: false, width: 170 },
-  { key: "UpdatedUtc", label: "更新时间", sort: "updated_utc", editable: false, width: 170 }
+  { key: "CreatedUtc", label: "创建时间", sort: "created_utc", editable: false, width: 190 },
+  { key: "UpdatedUtc", label: "更新时间", sort: "updated_utc", editable: false, width: 190 }
 ];
 
 function readStringArray(key: string, fallback: string[]): string[] {

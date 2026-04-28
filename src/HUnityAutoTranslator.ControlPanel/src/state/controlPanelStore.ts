@@ -28,6 +28,10 @@ interface ControlPanelStore {
   toasts: Toast[];
 }
 
+interface SaveOptions {
+  quiet?: boolean;
+}
+
 const themeStorageKey = "hunity.controlPanel.theme";
 let nextToastId = 1;
 
@@ -132,7 +136,7 @@ export async function refreshState(options: { quiet?: boolean } = {}): Promise<C
   }
 }
 
-export async function saveConfig(request: UpdateConfigRequest, formKey?: string): Promise<ControlPanelState | null> {
+export async function saveConfig(request: UpdateConfigRequest, formKey?: string, options: SaveOptions = {}): Promise<ControlPanelState | null> {
   try {
     const state = await postJson<ControlPanelState>("/api/config", request);
     controlPanelStore.state = state;
@@ -142,7 +146,9 @@ export async function saveConfig(request: UpdateConfigRequest, formKey?: string)
     if (formKey) {
       setDirtyForm(formKey, false);
     }
-    showToast("设置已保存", "ok");
+    if (!options.quiet) {
+      showToast("设置已保存", "ok");
+    }
     return state;
   } catch (error) {
     markPanelDisconnected(error);
@@ -151,14 +157,16 @@ export async function saveConfig(request: UpdateConfigRequest, formKey?: string)
   }
 }
 
-export async function saveApiKey(apiKey: string): Promise<ControlPanelState | null> {
+export async function saveApiKey(apiKey: string, options: SaveOptions = {}): Promise<ControlPanelState | null> {
   try {
     const state = await postJson<ControlPanelState>("/api/key", { ApiKey: apiKey });
     controlPanelStore.state = state;
     controlPanelStore.connection = "online";
     controlPanelStore.lastRefreshUtc = new Date().toISOString();
     controlPanelStore.lastError = state.LastError;
-    showToast(apiKey.trim() ? "API Key 已加密保存" : "API Key 已清除", "ok");
+    if (!options.quiet) {
+      showToast(apiKey.trim() ? "API Key 已加密保存" : "API Key 已清除", "ok");
+    }
     return state;
   } catch (error) {
     markPanelDisconnected(error);

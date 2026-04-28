@@ -198,12 +198,20 @@ public sealed class ControlPanelVueSourceTests
     public void Vue_ai_settings_save_and_provider_utility_persist_pending_api_key()
     {
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var storeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "state", "controlPanelStore.ts"));
 
-        aiPageSource.Should().Contain("async function saveConfigOnly()");
-        aiPageSource.Should().Contain("async function savePendingApiKey()");
+        aiPageSource.Should().Contain("async function saveConfigOnly(options: SaveBehavior = {})");
+        aiPageSource.Should().Contain("async function savePendingApiKey(options: SaveBehavior = {})");
         aiPageSource.Should().Contain("const apiKey = form.ApiKey.trim();");
         aiPageSource.Should().Contain("await saveConfigOnly();");
         aiPageSource.Should().Contain("await savePendingApiKey();");
+        aiPageSource.Should().Contain("await saveConfigOnly({ quiet: true });");
+        aiPageSource.Should().Contain("await savePendingApiKey({ quiet: true });");
+        storeSource.Should().Contain("options: SaveOptions = {}");
+        System.Text.RegularExpressions.Regex.IsMatch(storeSource, @"if \(!options\.quiet\)\s*\{\s*showToast\(""设置已保存"", ""ok""\);\s*\}")
+            .Should().BeTrue();
+        System.Text.RegularExpressions.Regex.IsMatch(storeSource, @"if \(!options\.quiet\)\s*\{\s*showToast\(apiKey\.trim\(\) \? ""API Key 已加密保存"" : ""API Key 已清除"", ""ok""\);\s*\}")
+            .Should().BeTrue();
     }
 
     [Fact]
@@ -344,6 +352,7 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("class=\"ai-provider-grid\"");
         aiPageSource.Should().Contain("class=\"ai-model-row\"");
         aiPageSource.Should().Contain("class=\"llama-local-panel\"");
+        aiPageSource.Should().Contain("llama-model-row");
         aiPageSource.Should().Contain("class=\"llama-status-strip\"");
         aiPageSource.Should().Contain("class=\"llama-run-row\"");
         aiPageSource.Should().Contain("class=\"llama-result-card\"");
@@ -356,7 +365,10 @@ public sealed class ControlPanelVueSourceTests
         cssSource.Should().Contain(".ai-provider-grid");
         cssSource.Should().Contain(".ai-model-row");
         cssSource.Should().Contain(".llama-local-panel");
+        cssSource.Should().Contain(".llama-model-row");
         cssSource.Should().Contain(".llama-status-strip");
+        cssSource.Should().Contain("grid-template-columns: minmax(180px, 1fr) minmax(120px, 0.7fr) minmax(260px, 1.6fr);");
+        cssSource.Should().NotContain("grid-template-columns: minmax(150px, 1fr) minmax(110px, 0.7fr) minmax(100px, 0.6fr) minmax(260px, 1.55fr);");
         cssSource.Should().Contain(".llama-run-row");
         cssSource.Should().Contain(".llama-result-card");
     }
@@ -441,6 +453,23 @@ public sealed class ControlPanelVueSourceTests
         editorPageSource.Should().Contain("const columnWidths = reactive<Record<string, number>>(loadColumnWidths());");
         editorPageSource.Should().Contain("function clampColumnWidth(");
         editorPageSource.Should().Contain("saveColumnWidths(columnWidths);");
+    }
+
+    [Fact]
+    public void Vue_editor_formats_table_timestamps_with_full_datetime()
+    {
+        var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
+        var formatSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "format.ts"));
+        var tableSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "table.ts"));
+
+        formatSource.Should().Contain("export function formatFullDateTime(value: string | null | undefined): string");
+        formatSource.Should().Contain("date.getFullYear()");
+        formatSource.Should().Contain("date.getSeconds()");
+        formatSource.Should().Contain("`${year}-${month}-${day} ${hour}:${minute}:${second}`");
+        editorPageSource.Should().Contain("import { formatFullDateTime } from \"../utils/format\";");
+        editorPageSource.Should().Contain("column.key.endsWith(\"Utc\") ? formatFullDateTime(value) : value");
+        tableSource.Should().Contain("{ key: \"CreatedUtc\", label: \"创建时间\", sort: \"created_utc\", editable: false, width: 190 }");
+        tableSource.Should().Contain("{ key: \"UpdatedUtc\", label: \"更新时间\", sort: \"updated_utc\", editable: false, width: 190 }");
     }
 
     [Fact]
