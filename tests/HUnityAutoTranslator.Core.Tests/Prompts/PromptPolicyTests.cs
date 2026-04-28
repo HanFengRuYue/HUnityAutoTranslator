@@ -24,9 +24,9 @@ public sealed class PromptPolicyTests
     }
 
     [Fact]
-    public void Prompt_policy_version_is_v3_after_quality_rules()
+    public void Prompt_policy_version_is_v4_after_outer_symbol_rules()
     {
-        TextPipeline.PromptPolicyVersion.Should().Be("prompt-v3");
+        TextPipeline.PromptPolicyVersion.Should().Be("prompt-v4");
     }
 
     [Fact]
@@ -349,6 +349,40 @@ public sealed class PromptPolicyTests
 
         failures.Select(failure => failure.TextIndex).Should().BeEquivalentTo(new[] { 0, 1, 2 });
         failures.Should().OnlyContain(failure => failure.Reason.Contains("accessibility", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Quality_validator_rejects_generated_outer_symbols()
+    {
+        var failures = TranslationQualityValidator.FindFailures(
+            new[] { "Settings", "IMPORTANT" },
+            new[] { "\u0022\u8bbe\u7f6e\u0022", "\u3010\u91cd\u8981\u63d0\u793a\u3011" },
+            new[]
+            {
+                new PromptItemContext(0, "Main Menu", "Menu/Camera/Canvas/Settings Menu/Main/Title", "TMPro.TextMeshProUGUI"),
+                new PromptItemContext(1, "Disclaimer", "Canvas/Text (Legacy)", "UnityEngine.UI.Text")
+            },
+            "zh-Hans",
+            "The Glitched Attraction");
+
+        failures.Select(failure => failure.TextIndex).Should().BeEquivalentTo(new[] { 0, 1 });
+        failures.Should().OnlyContain(failure => failure.Reason.Contains("outer symbols", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Quality_validator_allows_localized_outer_symbols_when_source_has_wrapper()
+    {
+        var failures = TranslationQualityValidator.FindFailures(
+            new[] { "[IMPORTANT]" },
+            new[] { "\u3010\u91cd\u8981\u63d0\u793a\u3011" },
+            new[]
+            {
+                new PromptItemContext(0, "Disclaimer", "Canvas/Text (Legacy)", "UnityEngine.UI.Text")
+            },
+            "zh-Hans",
+            "The Glitched Attraction");
+
+        failures.Should().BeEmpty();
     }
 
     [Fact]

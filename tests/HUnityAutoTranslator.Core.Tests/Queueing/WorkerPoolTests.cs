@@ -332,7 +332,7 @@ public sealed class WorkerPoolTests
         snapshots.Should().ContainSingle();
         var snapshot = snapshots[0];
         snapshot.Phase.Should().Be("translate");
-        snapshot.PromptPolicyVersion.Should().Be("prompt-v3");
+        snapshot.PromptPolicyVersion.Should().Be("prompt-v4");
         snapshot.GameTitle.Should().Be("The Glitched Attraction");
         snapshot.Items.Should().HaveCount(2);
         snapshot.Items[0].SourceText.Should().Be("Ultra");
@@ -421,6 +421,83 @@ public sealed class WorkerPoolTests
 
         provider.Requests.Should().HaveCount(2);
         var key = TranslationCacheKey.Create("Ultra", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, context, out _).Should().BeFalse();
+        dispatcher.PendingCount.Should().Be(0);
+        failures.Should().ContainSingle(message => message.Contains("quality", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task WorkerPool_repairs_translation_once_when_generated_outer_symbols_fail_quality_rules()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var provider = new SequencedProvider(new[]
+        {
+            new[] { "\u3010\u91cd\u8981\u63d0\u793a\u3011" },
+            new[] { "\u91cd\u8981\u63d0\u793a" }
+        });
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            MaxConcurrentRequests = 1,
+            GameTitle = "The Glitched Attraction"
+        };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            provider,
+            new ProviderRateLimiter(120),
+            config,
+            cache);
+
+        var context = new TranslationCacheContext("Disclaimer", "Canvas/Text (Legacy)", "UnityEngine.UI.Text");
+        queue.Enqueue(TranslationJob.Create("ui-1", "IMPORTANT", TranslationPriority.VisibleUi, context));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        provider.Requests.Should().HaveCount(2);
+        provider.Requests[1].UserPrompt.Should().Contain("outer symbols");
+        var results = dispatcher.Drain(10);
+        results.Should().ContainSingle();
+        results[0].TranslatedText.Should().Be("\u91cd\u8981\u63d0\u793a");
+        var key = TranslationCacheKey.Create("IMPORTANT", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, context, out var cached).Should().BeTrue();
+        cached.Should().Be("\u91cd\u8981\u63d0\u793a");
+    }
+
+    [Fact]
+    public async Task WorkerPool_does_not_cache_translation_when_outer_symbol_repair_fails()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var failures = new List<string>();
+        var provider = new SequencedProvider(new[]
+        {
+            new[] { "\u3010\u91cd\u8981\u63d0\u793a\u3011" },
+            new[] { "\u3010\u91cd\u8981\u63d0\u793a\u3011" }
+        });
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            MaxConcurrentRequests = 1,
+            GameTitle = "The Glitched Attraction"
+        };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            provider,
+            new ProviderRateLimiter(120),
+            config,
+            cache,
+            failureReporter: failures.Add);
+
+        var context = new TranslationCacheContext("Disclaimer", "Canvas/Text (Legacy)", "UnityEngine.UI.Text");
+        queue.Enqueue(TranslationJob.Create("ui-1", "IMPORTANT", TranslationPriority.VisibleUi, context));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        provider.Requests.Should().HaveCount(2);
+        var key = TranslationCacheKey.Create("IMPORTANT", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
         cache.TryGet(key, context, out _).Should().BeFalse();
         dispatcher.PendingCount.Should().Be(0);
         failures.Should().ContainSingle(message => message.Contains("quality", StringComparison.OrdinalIgnoreCase));

@@ -4,6 +4,36 @@ namespace HUnityAutoTranslator.Core.Prompts;
 
 public static class TranslationQualityValidator
 {
+    private enum OuterSymbolKind
+    {
+        Quote,
+        Square,
+        Round,
+        BookTitle,
+        Corner,
+        Brace
+    }
+
+    private static readonly (string Open, string Close, OuterSymbolKind Kind)[] OuterSymbolPairs =
+    {
+        ("\"", "\"", OuterSymbolKind.Quote),
+        ("'", "'", OuterSymbolKind.Quote),
+        ("\u201c", "\u201d", OuterSymbolKind.Quote),
+        ("\u2018", "\u2019", OuterSymbolKind.Quote),
+        ("[", "]", OuterSymbolKind.Square),
+        ("\uff3b", "\uff3d", OuterSymbolKind.Square),
+        ("\u3010", "\u3011", OuterSymbolKind.Square),
+        ("\u3014", "\u3015", OuterSymbolKind.Square),
+        ("(", ")", OuterSymbolKind.Round),
+        ("\uff08", "\uff09", OuterSymbolKind.Round),
+        ("\u300a", "\u300b", OuterSymbolKind.BookTitle),
+        ("<", ">", OuterSymbolKind.BookTitle),
+        ("\u3008", "\u3009", OuterSymbolKind.BookTitle),
+        ("\u300c", "\u300d", OuterSymbolKind.Corner),
+        ("\u300e", "\u300f", OuterSymbolKind.Corner),
+        ("{", "}", OuterSymbolKind.Brace)
+    };
+
     public static ValidationResult ValidateBatch(
         IReadOnlyList<string> sourceTexts,
         IReadOnlyList<string> translatedTexts,
@@ -60,6 +90,11 @@ public static class TranslationQualityValidator
             !PromptItemClassifier.ContainsGameTitle(translatedText, gameTitle))
         {
             return new TranslationQualityFailure(index, "game title must be preserved exactly when it appears in the source text");
+        }
+
+        if (HasGeneratedOuterSymbols(sourceText, translatedText))
+        {
+            return new TranslationQualityFailure(index, "translation added outer symbols that are not present in the source text");
         }
 
         if (!isSimplifiedChinese)
@@ -228,6 +263,38 @@ public static class TranslationQualityValidator
         var source = PromptItemClassifier.NormalizeForMatch(sourceText).ToLowerInvariant();
         return source is "activated" or "active" or "enabled" &&
             (translatedText ?? string.Empty).Contains("\u6fc0\u6d3b", StringComparison.Ordinal);
+    }
+
+    private static bool HasGeneratedOuterSymbols(string sourceText, string translatedText)
+    {
+        return TryGetOuterSymbolKind(translatedText, out var translatedKind) &&
+            (!TryGetOuterSymbolKind(sourceText, out var sourceKind) || sourceKind != translatedKind);
+    }
+
+    private static bool TryGetOuterSymbolKind(string value, out OuterSymbolKind kind)
+    {
+        var trimmed = (value ?? string.Empty).Trim();
+        foreach (var pair in OuterSymbolPairs)
+        {
+            if (trimmed.Length <= pair.Open.Length + pair.Close.Length ||
+                !trimmed.StartsWith(pair.Open, StringComparison.Ordinal) ||
+                !trimmed.EndsWith(pair.Close, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var innerLength = trimmed.Length - pair.Open.Length - pair.Close.Length;
+            if (string.IsNullOrWhiteSpace(trimmed.Substring(pair.Open.Length, innerLength)))
+            {
+                continue;
+            }
+
+            kind = pair.Kind;
+            return true;
+        }
+
+        kind = default;
+        return false;
     }
 
     private static bool IsSameMeaningSource(string left, string right)

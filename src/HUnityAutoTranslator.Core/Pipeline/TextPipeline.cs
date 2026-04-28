@@ -10,7 +10,7 @@ namespace HUnityAutoTranslator.Core.Pipeline;
 
 public sealed class TextPipeline
 {
-    public const string PromptPolicyVersion = "prompt-v3";
+    public const string PromptPolicyVersion = "prompt-v4";
 
     private readonly ITranslationCache _cache;
     private readonly TranslationJobQueue _queue;
@@ -59,14 +59,14 @@ public sealed class TextPipeline
         if (config.EnableCacheLookup &&
             _cache.TryGet(key, capturedText.Context, out var translatedText))
         {
-            var qualityValidation = ValidateCachedTranslationQuality(capturedText, translatedText, config);
+            var cachedTranslationValidation = ValidateCachedTranslation(capturedText, translatedText, config);
             if (CachedTranslationSatisfiesGlossary(capturedText.SourceText, translatedText, config) &&
-                qualityValidation.IsValid)
+                cachedTranslationValidation.IsValid)
             {
                 return PipelineDecision.UseCachedTranslation(translatedText);
             }
 
-            if (!qualityValidation.IsValid)
+            if (!cachedTranslationValidation.IsValid)
             {
                 MarkCachedTranslationPending(key, capturedText.Context);
             }
@@ -109,8 +109,17 @@ public sealed class TextPipeline
             : PromptPolicyVersion + "-" + hash;
     }
 
-    private static ValidationResult ValidateCachedTranslationQuality(CapturedText capturedText, string translatedText, RuntimeConfig config)
+    private static ValidationResult ValidateCachedTranslation(CapturedText capturedText, string translatedText, RuntimeConfig config)
     {
+        var outputValidation = TranslationOutputValidator.ValidateSingle(
+            capturedText.SourceText,
+            translatedText,
+            requireSameRichTextTags: true);
+        if (!outputValidation.IsValid)
+        {
+            return outputValidation;
+        }
+
         var context = new PromptItemContext(
             0,
             capturedText.Context.SceneName,

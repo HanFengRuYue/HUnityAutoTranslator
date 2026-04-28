@@ -549,6 +549,15 @@ internal sealed class LocalHttpServer : IDisposable
             return false;
         }
 
+        var outputValidation = TranslationOutputValidator.ValidateSingle(
+            entry.SourceText,
+            entry.TranslatedText!,
+            requireSameRichTextTags: true);
+        if (!outputValidation.IsValid)
+        {
+            return true;
+        }
+
         var itemContext = new PromptItemContext(
             0,
             entry.SceneName,

@@ -33,6 +33,7 @@ For Simplified Chinese, do not leave ordinary English UI text untranslated unles
 Detect the source language automatically. Translate it into the target language.
 Output only the translated text. Do not explain, greet, add quotes, add Markdown, or add prefixes such as "Translation:".
 Do not add indexes, item numbers, source labels, list markers, or any copied batch labels to the translation.
+Do not wrap short UI labels in quotes, brackets, book-title marks, corner brackets, or emphasis symbols unless the source text already has matching outer symbols.
 Preserve placeholders, control characters, line breaks, Unity rich text tags, and TextMeshPro tags exactly.
 Use natural game localization. Keep menu and button text short; keep dialogue consistent with character voice.
 {StyleInstruction}{GlossarySystemPolicy}
@@ -55,6 +56,7 @@ The previous translation failed translation quality rules. Reason: {FailureReaso
 Translate the source again for game UI localization. Output only the repaired translation, with no explanation.
 Use the item context and same-parent source texts to keep short UI labels concise, natural, and distinct.
 If the source text is or contains the game title, preserve the exact game title.
+Do not add outer quotes, brackets, book-title marks, corner brackets, or emphasis symbols unless the source text already has matching outer symbols.
 Source text: {SourceText}
 Invalid translation: {InvalidTranslation}
 Repair context:
