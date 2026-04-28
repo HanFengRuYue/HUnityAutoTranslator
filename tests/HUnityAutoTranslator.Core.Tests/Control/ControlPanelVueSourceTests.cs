@@ -54,6 +54,8 @@ public sealed class ControlPanelVueSourceTests
         statusPageSource.Should().Contain("function formatInFlightCapacity");
         statusPageSource.Should().Contain("state.value.InFlightTranslationCount");
         statusPageSource.Should().Contain("state.value.EffectiveMaxConcurrentRequests");
+        statusPageSource.Should().Contain("当前正在占用的 AI 请求/槽位数");
+        statusPageSource.Should().Contain("同一请求可能批量包含多条文本");
         statusPageSource.Should().Contain("value-id=\"inFlightTranslationCount\"");
         statusPageSource.Should().NotContain("value-id=\"completedTranslationCount\"");
         statusPageSource.Should().NotContain("state?.CompletedTranslationCount");

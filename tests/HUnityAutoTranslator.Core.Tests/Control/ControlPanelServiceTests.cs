@@ -26,6 +26,7 @@ public sealed class ControlPanelServiceTests
             CompletedUtc: DateTimeOffset.Parse("2026-04-26T00:00:00Z")),
             totalTokens: 123,
             elapsed: TimeSpan.FromMilliseconds(250));
+        metrics.RecordTranslationRequestFinished();
 
         var state = service.GetState(queueCount: 1, cacheCount: 5, writebackQueueCount: 2);
 

@@ -47,6 +47,22 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
         return false;
     }
 
+    public IReadOnlyList<TranslationCacheEntry> GetCompletedTranslationsBySource(
+        TranslationCacheKey key,
+        int limit)
+    {
+        var take = Math.Min(500, Math.Max(1, limit));
+        return _items.Values
+            .Where(row =>
+                !string.IsNullOrWhiteSpace(row.TranslatedText) &&
+                string.Equals(row.SourceText, key.SourceText, StringComparison.Ordinal) &&
+                string.Equals(row.TargetLanguage, key.TargetLanguage, StringComparison.Ordinal) &&
+                string.Equals(row.PromptPolicyVersion, key.PromptPolicyVersion, StringComparison.Ordinal))
+            .OrderByDescending(row => row.UpdatedUtc)
+            .Take(take)
+            .ToArray();
+    }
+
     public void RecordCaptured(TranslationCacheKey key, TranslationCacheContext? context = null)
     {
         var now = DateTimeOffset.UtcNow;

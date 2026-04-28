@@ -333,7 +333,7 @@ public sealed class PromptPolicyTests
     }
 
     [Fact]
-    public void Quality_validator_rejects_vague_accessibility_option_translations()
+    public void Quality_validator_does_not_special_case_color_vision_mode_translations()
     {
         var failures = TranslationQualityValidator.FindFailures(
             new[] { "Protanopia", "Deuteranopia", "Tritanopia" },
@@ -347,8 +347,7 @@ public sealed class PromptPolicyTests
             "zh-Hans",
             "The Glitched Attraction");
 
-        failures.Select(failure => failure.TextIndex).Should().BeEquivalentTo(new[] { 0, 1, 2 });
-        failures.Should().OnlyContain(failure => failure.Reason.Contains("accessibility", StringComparison.OrdinalIgnoreCase));
+        failures.Should().BeEmpty();
     }
 
     [Fact]

@@ -8,6 +8,7 @@ using HUnityAutoTranslator.Core.Glossary;
 using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Providers;
 using HUnityAutoTranslator.Core.Queueing;
+using HUnityAutoTranslator.Core.Text;
 
 namespace HUnityAutoTranslator.Plugin;
 
@@ -70,6 +71,15 @@ internal sealed class TranslationWorkerHost : IDisposable
                     continue;
                 }
 
+                if (_queue.PendingCount == 0)
+                {
+                    var resumed = ResumePendingTranslations(config);
+                    if (resumed > 0)
+                    {
+                        _logger.LogInfo($"已从缓存恢复 {resumed} 条待翻译文本。");
+                    }
+                }
+
                 if (!await ProviderReadyAsync(config, cancellationToken).ConfigureAwait(false))
                 {
                     await Task.Delay(1000, cancellationToken).ConfigureAwait(false);
@@ -79,17 +89,9 @@ internal sealed class TranslationWorkerHost : IDisposable
                 var provider = CreateProvider(config);
                 if (_queue.PendingCount == 0)
                 {
-                    var resumed = ResumePendingTranslations(config);
-                    if (resumed > 0)
-                    {
-                        _logger.LogInfo($"已从缓存恢复 {resumed} 条待翻译文本。");
-                    }
-                    else
-                    {
-                        await TryExtractGlossaryAsync(provider, config, cancellationToken).ConfigureAwait(false);
-                        await Task.Delay(40, cancellationToken).ConfigureAwait(false);
-                        continue;
-                    }
+                    await TryExtractGlossaryAsync(provider, config, cancellationToken).ConfigureAwait(false);
+                    await Task.Delay(40, cancellationToken).ConfigureAwait(false);
+                    continue;
                 }
 
                 var pendingBefore = _queue.PendingCount;
@@ -208,11 +210,38 @@ internal sealed class TranslationWorkerHost : IDisposable
         var enqueued = 0;
         foreach (var row in pending)
         {
+            var context = new TranslationCacheContext(row.SceneName, row.ComponentHierarchy, row.ComponentType);
+            var key = TranslationCacheKey.Create(
+                row.SourceText,
+                row.TargetLanguage,
+                config.Provider,
+                TextPipeline.GetPromptPolicyVersion(config));
+            if (!TextFilter.ShouldTranslate(row.SourceText))
+            {
+                _cache.Update(row with
+                {
+                    ProviderKind = string.Empty,
+                    ProviderBaseUrl = string.Empty,
+                    ProviderEndpoint = string.Empty,
+                    ProviderModel = string.Empty,
+                    TranslatedText = row.SourceText,
+                    UpdatedUtc = DateTimeOffset.UtcNow
+                });
+                continue;
+            }
+
+            if (config.EnableCacheLookup &&
+                TranslationCacheReuse.TryGetReusableTranslation(_cache, key, context, config, _glossary, out var reusableTranslatedText))
+            {
+                _cache.Set(key, reusableTranslatedText, context);
+                continue;
+            }
+
             if (_queue.Enqueue(TranslationJob.Create(
                 "pending:" + row.SourceText,
                 row.SourceText,
                 TranslationPriority.Normal,
-                new TranslationCacheContext(row.SceneName, row.ComponentHierarchy, row.ComponentType),
+                context,
                 publishResult: false,
                 targetLanguage: row.TargetLanguage)))
             {

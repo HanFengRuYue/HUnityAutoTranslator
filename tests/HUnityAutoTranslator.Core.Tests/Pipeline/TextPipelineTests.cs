@@ -133,6 +133,49 @@ public sealed class TextPipelineTests
     }
 
     [Fact]
+    public void Process_reuses_same_source_translation_when_best_candidate_is_unambiguous()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var key = TranslationCacheKey.Create("On", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.Set(key, "\u5f00\u542f", new TranslationCacheContext("Main Menu", "Menu/Screen Panel/Reticle/Text", "UnityEngine.UI.Text"));
+        cache.Set(key, "\u5df2\u542f\u7528", new TranslationCacheContext("testRoom_1", "User/PAUSE/Settings Menu/Screen Panel/Subtitles/Text", "UnityEngine.UI.Text"));
+        cache.Set(key, "\u5df2\u542f\u7528", new TranslationCacheContext("testRoom_1", "User/PAUSE/Settings Menu/Screen Panel/V-Sync/Text", "UnityEngine.UI.Text"));
+        var captureContext = new TranslationCacheContext("testRoom_1", "User/PAUSE/Settings Menu/Screen Panel/Reticle/Text", "UnityEngine.UI.Text");
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.Process(new CapturedText("reticle-on", "On", isVisible: true, captureContext));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.UseCachedTranslation);
+        decision.TranslatedText.Should().Be("\u5df2\u542f\u7528");
+        queue.PendingCount.Should().Be(0);
+        cache.TryGet(key, captureContext, out var materialized).Should().BeTrue();
+        materialized.Should().Be("\u5df2\u542f\u7528");
+    }
+
+    [Fact]
+    public void Process_does_not_reuse_same_source_translation_when_candidates_conflict_without_context_match()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var key = TranslationCacheKey.Create("Back", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.Set(key, "\u8fd4\u56de\u83dc\u5355", new TranslationCacheContext("Main Menu", "Canvas/Menu/Back", "UnityEngine.UI.Text"));
+        cache.Set(key, "\u540e\u9000", new TranslationCacheContext("Gameplay", "Canvas/Hud/Back", "UnityEngine.UI.Text"));
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.Process(new CapturedText(
+            "credits-back",
+            "Back",
+            isVisible: true,
+            new TranslationCacheContext("Credits", "Canvas/Credits/Back", "UnityEngine.UI.Text")));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.Queued);
+        queue.PendingCount.Should().Be(1);
+    }
+
+    [Fact]
     public void Process_queues_uncached_visible_text_with_high_priority()
     {
         var queue = new TranslationJobQueue();

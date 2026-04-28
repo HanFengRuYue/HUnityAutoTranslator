@@ -123,6 +123,52 @@ WHERE source_text = $source_text
         return false;
     }
 
+    public IReadOnlyList<TranslationCacheEntry> GetCompletedTranslationsBySource(
+        TranslationCacheKey key,
+        int limit)
+    {
+        var take = Math.Min(500, Math.Max(1, limit));
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+SELECT source_text,
+       target_language,
+       provider_kind,
+       provider_base_url,
+       provider_endpoint,
+       provider_model,
+       prompt_policy_version,
+       translated_text,
+       scene_name,
+       component_hierarchy,
+       component_type,
+       replacement_font,
+       created_utc,
+       updated_utc
+FROM translations
+WHERE source_text = $source_text
+  AND target_language = $target_language
+  AND prompt_policy_version = $prompt_policy_version
+  AND translated_text IS NOT NULL
+  AND trim(translated_text) <> ''
+ORDER BY updated_utc DESC
+LIMIT $limit;
+""";
+        command.Parameters.AddWithValue("$source_text", key.SourceText);
+        command.Parameters.AddWithValue("$target_language", key.TargetLanguage);
+        command.Parameters.AddWithValue("$prompt_policy_version", key.PromptPolicyVersion);
+        command.Parameters.AddWithValue("$limit", take);
+
+        var rows = new List<TranslationCacheEntry>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            rows.Add(ReadEntry(reader));
+        }
+
+        return rows;
+    }
+
     public void RecordCaptured(TranslationCacheKey key, TranslationCacheContext? context = null)
     {
         var nowUtc = DateTime.UtcNow.ToString("O");

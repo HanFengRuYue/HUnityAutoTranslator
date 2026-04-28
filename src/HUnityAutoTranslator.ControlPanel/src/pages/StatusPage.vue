@@ -102,7 +102,7 @@ function formatInFlightCapacity(inFlight: number, max: number): string {
           value-id="inFlightTranslationCount"
           :icon="LoaderCircle"
           tone="warn"
-          help="当前正在处理的翻译数量，以及 AI 设置中的最大并发上限。"
+          help="当前正在占用的 AI 请求/槽位数，以及 AI 设置中的最大并发上限；同一请求可能批量包含多条文本。"
         />
         <MetricCard
           label="已翻译文本"

@@ -140,6 +140,46 @@ public sealed class WorkerPoolTests
     }
 
     [Fact]
+    public async Task WorkerPool_reports_in_flight_count_as_active_requests_not_batched_text_items()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var provider = new BlockingProvider(ProviderKind.LlamaCpp);
+        var limiter = new ProviderRateLimiter(requestsPerMinute: 6000);
+        var metrics = new ControlPanelMetrics();
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            Provider = ProviderProfile.DefaultLlamaCpp(),
+            MaxConcurrentRequests = 100,
+            LlamaCpp = RuntimeConfig.CreateDefault().LlamaCpp with { ParallelSlots = 1 }
+        };
+        var pool = new TranslationWorkerPool(queue, dispatcher, provider, limiter, config, metrics: metrics);
+
+        for (var i = 0; i < 4; i++)
+        {
+            queue.Enqueue(TranslationJob.Create($"target-{i}", $"Local {i:D2}", TranslationPriority.Normal));
+        }
+
+        var runTask = pool.RunUntilIdleAsync(CancellationToken.None);
+
+        try
+        {
+            await WaitUntilAsync(() => provider.StartedCount == 1, TimeSpan.FromSeconds(1));
+            provider.StartedCount.Should().Be(1);
+            provider.MaxObservedConcurrency.Should().Be(1);
+            metrics.Snapshot().InFlightTranslationCount.Should().Be(1);
+        }
+        finally
+        {
+            provider.Release();
+            await runTask;
+        }
+
+        metrics.Snapshot().InFlightTranslationCount.Should().Be(0);
+        dispatcher.PendingCount.Should().Be(4);
+    }
+
+    [Fact]
     public async Task WorkerPool_reports_provider_exceptions_without_faulting_the_pool()
     {
         var queue = new TranslationJobQueue();
@@ -424,6 +464,79 @@ public sealed class WorkerPoolTests
         cache.TryGet(key, context, out _).Should().BeFalse();
         dispatcher.PendingCount.Should().Be(0);
         failures.Should().ContainSingle(message => message.Contains("quality", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task WorkerPool_caches_valid_items_when_one_item_in_batch_fails_quality_repair()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var failures = new List<string>();
+        var provider = new SequencedProvider(new[]
+        {
+            new[] { "\u8d85", "\u5b57\u5e55" },
+            new[] { "\u8d85" }
+        });
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            MaxConcurrentRequests = 1,
+            GameTitle = "The Glitched Attraction"
+        };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            provider,
+            new ProviderRateLimiter(120),
+            config,
+            cache,
+            failureReporter: failures.Add);
+        var ultraContext = new TranslationCacheContext("Main Menu", "Menu/Camera/Canvas/Settings Menu/Gameplay Panel/Textures/Text", "TMPro.TextMeshProUGUI");
+        var subtitlesContext = new TranslationCacheContext("Main Menu", "Menu/Camera/Canvas/Settings Menu/Screen Panel/Subtitles/Name", "UnityEngine.UI.Text");
+
+        queue.Enqueue(TranslationJob.Create("ultra", "Ultra", TranslationPriority.VisibleUi, ultraContext));
+        queue.Enqueue(TranslationJob.Create("subtitles", "Subtitles", TranslationPriority.VisibleUi, subtitlesContext));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        provider.Requests.Should().HaveCount(2);
+        var ultraKey = TranslationCacheKey.Create("Ultra", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(ultraKey, ultraContext, out _).Should().BeFalse();
+        var subtitlesKey = TranslationCacheKey.Create("Subtitles", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(subtitlesKey, subtitlesContext, out var cached).Should().BeTrue();
+        cached.Should().Be("\u5b57\u5e55");
+        dispatcher.Drain(10).Select(result => result.TranslatedText).Should().Equal("\u5b57\u5e55");
+        failures.Should().ContainSingle(message => message.Contains("Ultra", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task WorkerPool_normalizes_escaped_control_characters_when_source_uses_real_line_breaks()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var provider = new SequencedProvider(new[]
+        {
+            new[] { "\u7b2c\u4e00\u884c\\n\u7b2c\u4e8c\u884c" }
+        });
+        var config = RuntimeConfig.CreateDefault() with { MaxConcurrentRequests = 1 };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            provider,
+            new ProviderRateLimiter(120),
+            config,
+            cache);
+        var source = "First line\nSecond line";
+        var context = new TranslationCacheContext("Menu", "Canvas/Description", "UnityEngine.UI.Text");
+
+        queue.Enqueue(TranslationJob.Create("description", source, TranslationPriority.VisibleUi, context));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        var key = TranslationCacheKey.Create(source, config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, context, out var cached).Should().BeTrue();
+        cached.Should().Be("\u7b2c\u4e00\u884c\n\u7b2c\u4e8c\u884c");
     }
 
     [Fact]
@@ -888,6 +1001,13 @@ public sealed class WorkerPoolTests
         {
             replacementFont = string.Empty;
             return false;
+        }
+
+        public IReadOnlyList<TranslationCacheEntry> GetCompletedTranslationsBySource(
+            TranslationCacheKey key,
+            int limit)
+        {
+            return Array.Empty<TranslationCacheEntry>();
         }
 
         public void Set(TranslationCacheKey key, string translatedText, TranslationCacheContext? context = null)

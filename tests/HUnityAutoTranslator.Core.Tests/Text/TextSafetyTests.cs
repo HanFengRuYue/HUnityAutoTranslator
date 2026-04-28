@@ -10,6 +10,9 @@ public sealed class TextSafetyTests
     [InlineData("   ")]
     [InlineData("12345")]
     [InlineData("!!!")]
+    [InlineData("1280 x 720")]
+    [InlineData("1920\u00d71080")]
+    [InlineData("60 FPS")]
     public void ShouldTranslate_rejects_nonsemantic_text(string value)
     {
         TextFilter.ShouldTranslate(value).Should().BeFalse();

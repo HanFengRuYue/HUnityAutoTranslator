@@ -6,6 +6,10 @@ public interface ITranslationCache
 
     bool TryGetReplacementFont(TranslationCacheKey key, TranslationCacheContext context, out string replacementFont);
 
+    IReadOnlyList<TranslationCacheEntry> GetCompletedTranslationsBySource(
+        TranslationCacheKey key,
+        int limit);
+
     void RecordCaptured(TranslationCacheKey key, TranslationCacheContext? context = null);
 
     void Set(TranslationCacheKey key, string translatedText, TranslationCacheContext? context = null);

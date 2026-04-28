@@ -57,8 +57,6 @@ public sealed class ControlPanelMetrics
             Interlocked.Add(ref _translatedCharacterCount, preview.SourceText.Length);
         }
 
-        DecrementInFlight();
-
         lock (_gate)
         {
             _recentTranslations.Enqueue(preview);
@@ -70,6 +68,11 @@ public sealed class ControlPanelMetrics
     }
 
     public void RecordTranslationFinishedWithoutResult()
+    {
+        RecordTranslationRequestFinished();
+    }
+
+    public void RecordTranslationRequestFinished()
     {
         DecrementInFlight();
     }

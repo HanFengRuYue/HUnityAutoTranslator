@@ -78,12 +78,7 @@ public sealed class TranslationWorkerPool
                 continue;
             }
 
-            var completedCount = 0;
-            foreach (var _ in batch)
-            {
-                _metrics?.RecordTranslationStarted();
-            }
-
+            _metrics?.RecordTranslationStarted();
             try
             {
                 await _limiter.WaitAsync(cancellationToken).ConfigureAwait(false);
@@ -121,62 +116,15 @@ public sealed class TranslationWorkerPool
                 stopwatch.Stop();
                 if (response.Succeeded)
                 {
-                    var translatedTexts = NormalizeProviderResponseShape(batch, response.TranslatedTexts);
-                    var restoredTexts = RestoreTokens(protectedTexts, translatedTexts);
-                    var validation = TranslationOutputValidator.ValidateBatch(
-                        batch.Select(job => job.SourceText).ToArray(),
-                        restoredTexts);
-                    if (validation.IsValid)
-                    {
-                        restoredTexts = await RepairGlossaryFailuresAsync(
-                            batch,
-                            protectedTexts,
-                            restoredTexts,
-                            glossaryTerms,
-                            targetLanguage,
-                            cancellationToken).ConfigureAwait(false);
-                        restoredTexts = await RepairQualityFailuresAsync(
-                            batch,
-                            protectedTexts,
-                            restoredTexts,
-                            itemContexts,
-                            targetLanguage,
-                            cancellationToken).ConfigureAwait(false);
-                        var glossaryValidation = GlossaryOutputValidator.ValidateBatch(
-                            batch.Select(job => job.SourceText).ToArray(),
-                            restoredTexts,
-                            glossaryTerms);
-                        var finalValidation = TranslationOutputValidator.ValidateBatch(
-                            batch.Select(job => job.SourceText).ToArray(),
-                            restoredTexts);
-                        var qualityValidation = TranslationQualityValidator.ValidateBatch(
-                            batch.Select(job => job.SourceText).ToArray(),
-                            restoredTexts,
-                            itemContexts,
-                            targetLanguage,
-                            _config.GameTitle);
-                        if (finalValidation.IsValid && !qualityValidation.IsValid)
-                        {
-                            finalValidation = ValidationResult.Invalid("translation quality check failed: " + qualityValidation.Reason);
-                        }
-
-                        if (glossaryValidation.IsValid && finalValidation.IsValid && qualityValidation.IsValid)
-                        {
-                            completedCount = PublishResults(batch, restoredTexts, response.TotalTokens, stopwatch.Elapsed);
-                        }
-                        else if (!glossaryValidation.IsValid)
-                        {
-                            ReportFailure(batch, $"翻译结果未通过术语检查：{glossaryValidation.Reason}");
-                        }
-                        else
-                        {
-                            ReportFailure(batch, $"术语修正后的翻译仍未通过检查：{finalValidation.Reason}");
-                        }
-                    }
-                    else
-                    {
-                        ReportFailure(batch, $"翻译结果未通过格式检查：{validation.Reason}");
-                    }
+                    await HandleSuccessfulResponseAsync(
+                        batch,
+                        protectedTexts,
+                        response,
+                        itemContexts,
+                        glossaryTerms,
+                        targetLanguage,
+                        stopwatch.Elapsed,
+                        cancellationToken).ConfigureAwait(false);
                 }
                 else
                 {
@@ -193,26 +141,160 @@ public sealed class TranslationWorkerPool
             }
             finally
             {
-                for (var i = completedCount; i < batch.Count; i++)
-                {
-                    _metrics?.RecordTranslationFinishedWithoutResult();
-                }
-
+                _metrics?.RecordTranslationRequestFinished();
                 _queue.MarkCompleted(batch);
             }
         }
     }
 
-    private static IReadOnlyList<string> RestoreTokens(IReadOnlyList<ProtectedText> protectedTexts, IReadOnlyList<string> translatedTexts)
+    private static IReadOnlyList<string> RestoreTokens(
+        IReadOnlyList<TranslationJob> jobs,
+        IReadOnlyList<ProtectedText> protectedTexts,
+        IReadOnlyList<string> translatedTexts)
     {
         var count = Math.Min(protectedTexts.Count, translatedTexts.Count);
         var restored = new List<string>(count);
         for (var i = 0; i < count; i++)
         {
-            restored.Add(protectedTexts[i].Restore(translatedTexts[i]));
+            restored.Add(RestoreTokens(jobs[i], protectedTexts[i], translatedTexts[i]));
         }
 
         return restored;
+    }
+
+    private static string RestoreTokens(TranslationJob job, ProtectedText protectedText, string translatedText)
+    {
+        return NormalizeEscapedControlCharacters(job.SourceText, protectedText.Restore(translatedText));
+    }
+
+    private static string NormalizeEscapedControlCharacters(string sourceText, string translatedText)
+    {
+        var normalized = translatedText;
+        var sourceNewLine = GetSourceNewLine(sourceText);
+        if (sourceNewLine != null)
+        {
+            normalized = normalized
+                .Replace("\\r\\n", sourceNewLine, StringComparison.Ordinal)
+                .Replace("\\n", sourceNewLine, StringComparison.Ordinal)
+                .Replace("\\r", sourceNewLine, StringComparison.Ordinal);
+        }
+
+        if (sourceText.Contains('\t'))
+        {
+            normalized = normalized.Replace("\\t", "\t", StringComparison.Ordinal);
+        }
+
+        return normalized;
+    }
+
+    private static string? GetSourceNewLine(string sourceText)
+    {
+        if (sourceText.Contains("\r\n", StringComparison.Ordinal))
+        {
+            return "\r\n";
+        }
+
+        if (sourceText.Contains('\n'))
+        {
+            return "\n";
+        }
+
+        return sourceText.Contains('\r') ? "\r" : null;
+    }
+
+    private async Task HandleSuccessfulResponseAsync(
+        IReadOnlyList<TranslationJob> jobs,
+        IReadOnlyList<ProtectedText> protectedTexts,
+        TranslationResponse response,
+        IReadOnlyList<PromptItemContext> itemContexts,
+        IReadOnlyList<GlossaryPromptTerm> glossaryTerms,
+        string targetLanguage,
+        TimeSpan elapsed,
+        CancellationToken cancellationToken)
+    {
+        var translatedTexts = NormalizeProviderResponseShape(jobs, response.TranslatedTexts);
+        if (translatedTexts.Count != jobs.Count)
+        {
+            ReportFailure(jobs, $"翻译结果未通过格式检查：批量翻译数量不匹配");
+            return;
+        }
+
+        var restoredTexts = RestoreTokens(jobs, protectedTexts, translatedTexts);
+        restoredTexts = await RepairGlossaryFailuresAsync(
+            jobs,
+            protectedTexts,
+            restoredTexts,
+            glossaryTerms,
+            targetLanguage,
+            cancellationToken).ConfigureAwait(false);
+        restoredTexts = await RepairQualityFailuresAsync(
+            jobs,
+            protectedTexts,
+            restoredTexts,
+            itemContexts,
+            targetLanguage,
+            cancellationToken).ConfigureAwait(false);
+
+        var failures = ValidateFinalTranslations(jobs, restoredTexts, itemContexts, glossaryTerms, targetLanguage);
+        var publishJobs = new List<TranslationJob>();
+        var publishTexts = new List<string>();
+        for (var i = 0; i < jobs.Count; i++)
+        {
+            if (failures.TryGetValue(i, out var reason))
+            {
+                ReportFailure(new[] { jobs[i] }, reason);
+                continue;
+            }
+
+            publishJobs.Add(jobs[i]);
+            publishTexts.Add(restoredTexts[i]);
+        }
+
+        if (publishJobs.Count > 0)
+        {
+            PublishResults(publishJobs, publishTexts, response.TotalTokens, elapsed);
+        }
+    }
+
+    private Dictionary<int, string> ValidateFinalTranslations(
+        IReadOnlyList<TranslationJob> jobs,
+        IReadOnlyList<string> translatedTexts,
+        IReadOnlyList<PromptItemContext> itemContexts,
+        IReadOnlyList<GlossaryPromptTerm> glossaryTerms,
+        string targetLanguage)
+    {
+        var failures = new Dictionary<int, string>();
+        for (var i = 0; i < jobs.Count; i++)
+        {
+            var outputValidation = TranslationOutputValidator.ValidateSingle(
+                jobs[i].SourceText,
+                translatedTexts[i],
+                requireSameRichTextTags: true);
+            if (!outputValidation.IsValid)
+            {
+                failures[i] = $"翻译结果未通过格式检查：{outputValidation.Reason}";
+                continue;
+            }
+
+            var terms = glossaryTerms.Where(term => term.TextIndex == i).ToArray();
+            var glossaryValidation = GlossaryOutputValidator.ValidateSingle(jobs[i].SourceText, translatedTexts[i], terms);
+            if (!glossaryValidation.IsValid)
+            {
+                failures[i] = $"翻译结果未通过术语检查：{glossaryValidation.Reason}";
+            }
+        }
+
+        foreach (var failure in TranslationQualityValidator.FindFailures(
+            jobs.Select(job => job.SourceText).ToArray(),
+            translatedTexts,
+            itemContexts,
+            targetLanguage,
+            _config.GameTitle))
+        {
+            failures.TryAdd(failure.TextIndex, "translation quality check failed: " + failure.Reason);
+        }
+
+        return failures;
     }
 
     private void ReportFailure(IReadOnlyList<TranslationJob> jobs, string reason)
@@ -462,7 +544,7 @@ public sealed class TranslationWorkerPool
                 continue;
             }
 
-            repaired[i] = protectedTexts[i].Restore(response.TranslatedTexts[0]);
+            repaired[i] = RestoreTokens(jobs[i], protectedTexts[i], response.TranslatedTexts[0]);
         }
 
         return repaired;
@@ -530,7 +612,10 @@ public sealed class TranslationWorkerPool
                 continue;
             }
 
-            repaired[failure.TextIndex] = protectedTexts[failure.TextIndex].Restore(response.TranslatedTexts[0]);
+            repaired[failure.TextIndex] = RestoreTokens(
+                jobs[failure.TextIndex],
+                protectedTexts[failure.TextIndex],
+                response.TranslatedTexts[0]);
         }
 
         return repaired;

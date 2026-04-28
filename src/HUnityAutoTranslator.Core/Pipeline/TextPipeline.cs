@@ -72,6 +72,19 @@ public sealed class TextPipeline
             }
         }
 
+        if (config.EnableCacheLookup &&
+            TranslationCacheReuse.TryGetReusableTranslation(
+                _cache,
+                key,
+                capturedText.Context,
+                config,
+                _glossary,
+                out var reusableTranslatedText))
+        {
+            _cache.Set(key, reusableTranslatedText, capturedText.Context);
+            return PipelineDecision.UseCachedTranslation(reusableTranslatedText);
+        }
+
         var enqueued = _queue.Enqueue(TranslationJob.Create(
             capturedText.TargetId,
             capturedText.SourceText,

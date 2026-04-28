@@ -107,11 +107,6 @@ public static class TranslationQualityValidator
             return new TranslationQualityFailure(index, "ordinary English UI text was left untranslated");
         }
 
-        if (IsSuspiciousAccessibilityTranslation(sourceText, translatedText, hints))
-        {
-            return new TranslationQualityFailure(index, "accessibility option translation is too broad or not specific enough");
-        }
-
         if (IsSuspiciousShortSettingValue(sourceText, translatedText, hints))
         {
             return new TranslationQualityFailure(index, "settings value translation is too short or incomplete");
@@ -220,36 +215,6 @@ public static class TranslationQualityValidator
         return source.Length >= 4 && CountTextElements(compactTranslation) <= 1;
     }
 
-    private static bool IsSuspiciousAccessibilityTranslation(
-        string sourceText,
-        string translatedText,
-        IReadOnlyList<string> hints)
-    {
-        if (!hints.Contains("accessibility_option"))
-        {
-            return false;
-        }
-
-        var source = PromptItemClassifier.NormalizeForMatch(sourceText).ToLowerInvariant();
-        if (!source.Contains("protanopia", StringComparison.Ordinal) &&
-            !source.Contains("deuteranopia", StringComparison.Ordinal) &&
-            !source.Contains("tritanopia", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var compactTranslation = new string((translatedText ?? string.Empty)
-            .Where(character => !char.IsWhiteSpace(character) && !char.IsPunctuation(character) && !char.IsSymbol(character))
-            .ToArray());
-        return !ContainsAny(compactTranslation, "\u8272\u76f2", "\u8272\u89c9") ||
-            ContainsAny(
-                compactTranslation,
-                "\u5168\u8272\u76f2",
-                "\u539f\u8272\u76f2",
-                "\u7ea2\u7eff\u8272\u76f2",
-                "\u4e8c\u8272\u89c6");
-    }
-
     private static bool IsLiteralStateTranslation(
         string sourceText,
         string translatedText,
@@ -332,11 +297,6 @@ public static class TranslationQualityValidator
     private static bool ContainsLatinLetter(string value)
     {
         return value.Any(character => (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z'));
-    }
-
-    private static bool ContainsAny(string value, params string[] needles)
-    {
-        return needles.Any(needle => value.IndexOf(needle, StringComparison.Ordinal) >= 0);
     }
 
     private static int CountTextElements(string value)

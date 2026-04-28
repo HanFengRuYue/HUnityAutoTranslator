@@ -1,9 +1,14 @@
 using System.Globalization;
+using System.Text.RegularExpressions;
 
 namespace HUnityAutoTranslator.Core.Text;
 
 public static class TextFilter
 {
+    private static readonly Regex ResolutionPattern = new(@"^\d{2,5}\s*(?:x|X|\u00d7|\*)\s*\d{2,5}$", RegexOptions.Compiled);
+    private static readonly Regex RatePattern = new(@"^\d+(?:\.\d+)?\s*(?:fps|hz)$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+    private static readonly Regex MultiplierPattern = new(@"^\d+(?:\.\d+)?\s*x$", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     public static bool ShouldTranslate(string? value)
     {
         if (string.IsNullOrWhiteSpace(value))
@@ -13,6 +18,11 @@ public static class TextFilter
 
         var normalized = TextNormalizer.NormalizeForCache(value);
         if (normalized.Length == 0)
+        {
+            return false;
+        }
+
+        if (IsNumericSpecification(normalized))
         {
             return false;
         }
@@ -62,5 +72,12 @@ public static class TextFilter
         }
 
         return hasLetter && hasNonSymbol && nonSymbolCount >= 2;
+    }
+
+    private static bool IsNumericSpecification(string value)
+    {
+        return ResolutionPattern.IsMatch(value) ||
+            RatePattern.IsMatch(value) ||
+            MultiplierPattern.IsMatch(value);
     }
 }
