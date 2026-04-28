@@ -62,7 +62,6 @@ public sealed record ControlPanelState(
     int GlossaryMaxCharacters,
     bool ManualEditsOverrideAi,
     bool ReapplyRememberedTranslations,
-    int CacheRetentionDays,
     bool EnableUgui,
     bool EnableTmp,
     bool EnableImgui,

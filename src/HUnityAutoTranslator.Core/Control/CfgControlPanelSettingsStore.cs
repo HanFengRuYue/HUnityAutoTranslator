@@ -106,7 +106,6 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             GlossaryMaxCharacters: ReadInt(values, GlossarySection, "GlossaryMaxCharacters"),
             ManualEditsOverrideAi: ReadBool(values, CacheSection, "ManualEditsOverrideAi"),
             ReapplyRememberedTranslations: ReadBool(values, CacheSection, "ReapplyRememberedTranslations"),
-            CacheRetentionDays: ReadInt(values, CacheSection, "CacheRetentionDays"),
             EnableUgui: ReadBool(values, ScanSection, "EnableUgui"),
             EnableTmp: ReadBool(values, ScanSection, "EnableTmp"),
             EnableImgui: ReadBool(values, ScanSection, "EnableImgui"),
@@ -254,7 +253,6 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "上下文示例最多占用多少字符。", "1200", "范围：0 到 8000。", "TranslationContextMaxCharacters", Int(config.TranslationContextMaxCharacters ?? defaults.TranslationContextMaxCharacters));
         Option(builder, "人工编辑过的翻译是否优先于 AI 结果。", "true", "true 或 false。", "ManualEditsOverrideAi", Bool(config.ManualEditsOverrideAi ?? defaults.ManualEditsOverrideAi));
         Option(builder, "切换场景或刷新时是否重新套用已记住的翻译。", "true", "true 或 false。", "ReapplyRememberedTranslations", Bool(config.ReapplyRememberedTranslations ?? defaults.ReapplyRememberedTranslations));
-        Option(builder, "缓存保留天数。", "365", "范围：1 到 3650。", "CacheRetentionDays", Int(config.CacheRetentionDays ?? defaults.CacheRetentionDays));
 
         Section(builder, GlossarySection);
         Option(builder, "是否启用术语库约束。", "true", "true 或 false。", "EnableGlossary", Bool(config.EnableGlossary ?? defaults.EnableGlossary));

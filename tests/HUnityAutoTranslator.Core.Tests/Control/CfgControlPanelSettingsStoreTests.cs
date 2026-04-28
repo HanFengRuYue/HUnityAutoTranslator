@@ -26,6 +26,17 @@ public sealed class CfgControlPanelSettingsStoreTests
     }
 
     [Fact]
+    public void CreateDefault_does_not_generate_cache_retention_setting()
+    {
+        var path = NewCfgPath();
+
+        ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+
+        var cfg = File.ReadAllText(path);
+        cfg.Should().NotContain("CacheRetentionDays");
+    }
+
+    [Fact]
     public void Save_generates_chinese_sections_comments_and_named_enums()
     {
         var path = NewCfgPath();
@@ -134,7 +145,6 @@ public sealed class CfgControlPanelSettingsStoreTests
             TranslationContextMaxCharacters = 9000
             ManualEditsOverrideAi = false
             ReapplyRememberedTranslations = false
-            CacheRetentionDays = 9999
 
             [术语库]
             EnableGlossary = false

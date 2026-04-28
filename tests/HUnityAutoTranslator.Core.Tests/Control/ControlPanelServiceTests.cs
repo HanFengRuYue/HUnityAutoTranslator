@@ -449,8 +449,7 @@ public sealed class ControlPanelServiceTests
             TranslationContextMaxExamples: 7,
             TranslationContextMaxCharacters: 2400,
             ManualEditsOverrideAi: true,
-            ReapplyRememberedTranslations: true,
-            CacheRetentionDays: 180));
+            ReapplyRememberedTranslations: true));
 
         var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
         var state = second.GetState();
@@ -473,7 +472,6 @@ public sealed class ControlPanelServiceTests
         state.TranslationContextMaxCharacters.Should().Be(2400);
         state.ManualEditsOverrideAi.Should().BeTrue();
         state.ReapplyRememberedTranslations.Should().BeTrue();
-        state.CacheRetentionDays.Should().Be(180);
     }
 
     [Fact]

@@ -46,7 +46,6 @@ public sealed record UpdateConfigRequest(
     int? GlossaryMaxCharacters = null,
     bool? ManualEditsOverrideAi = null,
     bool? ReapplyRememberedTranslations = null,
-    int? CacheRetentionDays = null,
     bool? EnableUgui = null,
     bool? EnableTmp = null,
     bool? EnableImgui = null,

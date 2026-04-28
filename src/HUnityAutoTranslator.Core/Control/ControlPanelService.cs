@@ -107,7 +107,6 @@ public sealed class ControlPanelService
                 config.GlossaryMaxCharacters,
                 config.ManualEditsOverrideAi,
                 config.ReapplyRememberedTranslations,
-                config.CacheRetentionDays,
                 config.EnableUgui,
                 config.EnableTmp,
                 config.EnableImgui,
@@ -408,9 +407,6 @@ public sealed class ControlPanelService
         var maxSourceTextLength = request.MaxSourceTextLength.HasValue
             ? Clamp(request.MaxSourceTextLength.Value, 20, 10000)
             : _config.MaxSourceTextLength;
-        var cacheRetentionDays = request.CacheRetentionDays.HasValue
-            ? Clamp(request.CacheRetentionDays.Value, 1, 3650)
-            : _config.CacheRetentionDays;
         var translationContextMaxExamples = request.TranslationContextMaxExamples.HasValue
             ? Clamp(request.TranslationContextMaxExamples.Value, 0, 20)
             : _config.TranslationContextMaxExamples;
@@ -489,7 +485,6 @@ public sealed class ControlPanelService
             GlossaryMaxCharacters = glossaryMaxCharacters,
             ManualEditsOverrideAi = request.ManualEditsOverrideAi ?? _config.ManualEditsOverrideAi,
             ReapplyRememberedTranslations = request.ReapplyRememberedTranslations ?? _config.ReapplyRememberedTranslations,
-            CacheRetentionDays = cacheRetentionDays,
             EnableUgui = request.EnableUgui ?? _config.EnableUgui,
             EnableTmp = request.EnableTmp ?? _config.EnableTmp,
             EnableImgui = request.EnableImgui ?? _config.EnableImgui,
@@ -568,7 +563,6 @@ public sealed class ControlPanelService
                 GlossaryMaxCharacters: _config.GlossaryMaxCharacters,
                 ManualEditsOverrideAi: _config.ManualEditsOverrideAi,
                 ReapplyRememberedTranslations: _config.ReapplyRememberedTranslations,
-                CacheRetentionDays: _config.CacheRetentionDays,
                 EnableUgui: _config.EnableUgui,
                 EnableTmp: _config.EnableTmp,
                 EnableImgui: _config.EnableImgui,

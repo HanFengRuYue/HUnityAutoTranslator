@@ -165,7 +165,6 @@ export interface ControlPanelState {
   GlossaryMaxCharacters: number;
   ManualEditsOverrideAi: boolean;
   ReapplyRememberedTranslations: boolean;
-  CacheRetentionDays: number;
   EnableUgui: boolean;
   EnableTmp: boolean;
   EnableImgui: boolean;
@@ -229,7 +228,6 @@ export interface UpdateConfigRequest {
   GlossaryMaxCharacters?: number;
   ManualEditsOverrideAi?: boolean;
   ReapplyRememberedTranslations?: boolean;
-  CacheRetentionDays?: number;
   EnableUgui?: boolean;
   EnableTmp?: boolean;
   EnableImgui?: boolean;

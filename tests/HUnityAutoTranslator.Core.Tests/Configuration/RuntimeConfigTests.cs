@@ -19,6 +19,14 @@ public sealed class RuntimeConfigTests
     }
 
     [Fact]
+    public void Runtime_contract_does_not_expose_cache_retention()
+    {
+        typeof(RuntimeConfig).GetProperty("CacheRetentionDays").Should().BeNull();
+        typeof(HUnityAutoTranslator.Core.Control.ControlPanelState).GetProperty("CacheRetentionDays").Should().BeNull();
+        typeof(HUnityAutoTranslator.Core.Control.UpdateConfigRequest).GetProperty("CacheRetentionDays").Should().BeNull();
+    }
+
+    [Fact]
     public void DefaultConfig_enables_font_replacement_with_automatic_cjk_fallbacks()
     {
         var config = RuntimeConfig.CreateDefault();
