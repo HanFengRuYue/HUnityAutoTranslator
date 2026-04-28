@@ -48,6 +48,27 @@ public sealed class TranslationWritebackTracker
         return true;
     }
 
+    public bool TryRestoreSourceText(
+        string targetId,
+        string? currentText,
+        string sourceText,
+        string? previousTranslatedText,
+        out string replacement)
+    {
+        if (string.IsNullOrEmpty(targetId) ||
+            string.IsNullOrEmpty(sourceText) ||
+            currentText == null ||
+            !CanRestoreSourceText(targetId, currentText, sourceText, previousTranslatedText))
+        {
+            replacement = string.Empty;
+            return false;
+        }
+
+        Forget(targetId);
+        replacement = sourceText;
+        return true;
+    }
+
     public bool TryGetReplacement(string targetId, string? currentText, out string replacement)
     {
         return TryGetDisplayText(targetId, currentText, useTranslatedText: true, out replacement);
@@ -102,6 +123,24 @@ public sealed class TranslationWritebackTracker
         return string.Equals(currentText, sourceText, StringComparison.Ordinal) ||
             string.Equals(currentText, translatedText, StringComparison.Ordinal) ||
             string.Equals(currentText, previousTranslatedText, StringComparison.Ordinal);
+    }
+
+    private bool CanRestoreSourceText(
+        string targetId,
+        string currentText,
+        string sourceText,
+        string? previousTranslatedText)
+    {
+        if (string.Equals(currentText, sourceText, StringComparison.Ordinal) ||
+            string.Equals(currentText, previousTranslatedText, StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        return _remembered.TryGetValue(targetId, out var remembered) &&
+            (string.Equals(currentText, remembered.SourceText, StringComparison.Ordinal) ||
+             string.Equals(currentText, remembered.TranslatedText, StringComparison.Ordinal) ||
+             string.Equals(currentText, remembered.PreviousTranslatedText, StringComparison.Ordinal));
     }
 
     private sealed record RememberedTranslation(

@@ -111,6 +111,12 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         }
 
         _applier.Register(target);
+        text = target.GetText();
+        if (string.IsNullOrWhiteSpace(text))
+        {
+            return;
+        }
+
         var context = new TranslationCacheContext(target.SceneName, target.HierarchyPath, target.ComponentType);
         var config = _configProvider();
         var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);

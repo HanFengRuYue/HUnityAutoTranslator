@@ -218,6 +218,11 @@ internal sealed class UnityMainThreadResultApplier
 
     private bool ApplyResultToTarget(TranslationResult result, IUnityTextTarget target)
     {
+        if (result.RestoreSourceText)
+        {
+            return ApplyRestoreSourceToTarget(result, target);
+        }
+
         var currentText = target.GetText();
         if (!_writebacks.TryRememberForCurrentText(
             target.Id,
@@ -231,6 +236,30 @@ internal sealed class UnityMainThreadResultApplier
 
         ForgetPendingComponentRefresh(result);
         return TryApplyRemembered(target);
+    }
+
+    private bool ApplyRestoreSourceToTarget(TranslationResult result, IUnityTextTarget target)
+    {
+        var currentText = target.GetText();
+        if (!_writebacks.TryRestoreSourceText(
+            target.Id,
+            currentText,
+            result.SourceText,
+            result.PreviousTranslatedText,
+            out var replacement))
+        {
+            return false;
+        }
+
+        ForgetPendingComponentRefresh(result);
+        if (!string.Equals(currentText, replacement, StringComparison.Ordinal))
+        {
+            target.SetText(replacement);
+        }
+
+        RestoreOriginalFontSize(target);
+        _loggedFontSizeAdjustmentTargets.Remove(target.Id);
+        return true;
     }
 
     private bool RememberPendingComponentRefresh(TranslationResult result)

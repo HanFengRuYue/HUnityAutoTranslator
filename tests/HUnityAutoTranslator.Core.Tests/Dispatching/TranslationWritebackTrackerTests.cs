@@ -110,4 +110,19 @@ public sealed class TranslationWritebackTrackerTests
             .Should().BeTrue();
         replacement.Should().Be("Start Game ZH");
     }
+
+    [Fact]
+    public void TryRestoreSourceText_forgets_translation_so_source_can_be_captured_again()
+    {
+        var tracker = new TranslationWritebackTracker();
+        tracker.Remember("title", "Start Game", "Start Game ZH");
+
+        tracker.TryRestoreSourceText("title", "Start Game ZH", "Start Game", "Start Game ZH", out var replacement)
+            .Should().BeTrue();
+
+        replacement.Should().Be("Start Game");
+        tracker.IsRememberedTranslation("title", "Start Game").Should().BeFalse();
+        tracker.IsRememberedTranslation("title", "Start Game ZH").Should().BeFalse();
+        tracker.TryGetReplacement("title", "Start Game", out _).Should().BeFalse();
+    }
 }

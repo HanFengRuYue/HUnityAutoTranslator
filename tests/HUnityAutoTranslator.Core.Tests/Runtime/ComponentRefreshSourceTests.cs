@@ -39,8 +39,27 @@ public sealed class ComponentRefreshSourceTests
         source.Should().Contain("PublishRestoreSourceWriteback(entry, previousTranslatedText);");
         source.Should().Contain("PublishRestoreSourceWriteback(entry, previousTranslatedText)");
         source.Should().Contain("previousTranslatedText: removedTranslatedText");
+        source.Should().Contain("restoreSourceText: true");
         source.Should().Contain("entry.SourceText,");
         source.Should().Contain("_cache.Delete(entry);");
+    }
+
+    [Fact]
+    public void Unity_applier_restores_source_text_without_remembering_source_as_translation()
+    {
+        var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));
+
+        source.Should().Contain("result.RestoreSourceText");
+        source.Should().Contain("ApplyRestoreSourceToTarget(result, target)");
+        source.Should().Contain("_writebacks.TryRestoreSourceText(");
+        source.Should().Contain("RestoreOriginalFontSize(target)");
+    }
+
+    [Fact]
+    public void Text_scanners_reread_text_after_registration_before_skip_and_pipeline()
+    {
+        AssertScannerRereadsAfterRegister(File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs")));
+        AssertScannerRereadsAfterRegister(File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs")));
     }
 
     [Fact]
@@ -91,5 +110,20 @@ public sealed class ComponentRefreshSourceTests
 
         directory.Should().NotBeNull("tests should run from inside the repository checkout");
         return Path.Combine(new[] { directory!.FullName }.Concat(relativeSegments).ToArray());
+    }
+
+    private static void AssertScannerRereadsAfterRegister(string source)
+    {
+        var registerIndex = source.IndexOf("_applier.Register(target);", StringComparison.Ordinal);
+        registerIndex.Should().BeGreaterThanOrEqualTo(0);
+
+        var rereadIndex = source.IndexOf("text = target.GetText();", registerIndex, StringComparison.Ordinal);
+        rereadIndex.Should().BeGreaterThan(registerIndex);
+
+        var rememberedCheckIndex = source.IndexOf("if (_applier.IsRememberedTranslation(target.Id, text))", StringComparison.Ordinal);
+        rememberedCheckIndex.Should().BeGreaterThan(rereadIndex);
+
+        var pipelineIndex = source.IndexOf("new CapturedText(target.Id, text, target.IsVisible, context)", StringComparison.Ordinal);
+        pipelineIndex.Should().BeGreaterThan(rereadIndex);
     }
 }

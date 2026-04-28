@@ -35,4 +35,18 @@ public sealed class TranslationResultTests
 
         result.HasComponentContext.Should().BeFalse();
     }
+    [Fact]
+    public void Translation_result_can_mark_source_restore_without_treating_source_as_translation()
+    {
+        var result = new TranslationResult(
+            "target-1",
+            "Start",
+            "Start",
+            priority: 110,
+            previousTranslatedText: "Start ZH",
+            restoreSourceText: true);
+
+        result.RestoreSourceText.Should().BeTrue();
+        result.PreviousTranslatedText.Should().Be("Start ZH");
+    }
 }

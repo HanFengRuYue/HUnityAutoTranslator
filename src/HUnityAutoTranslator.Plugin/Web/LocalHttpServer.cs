@@ -549,7 +549,8 @@ internal sealed class LocalHttpServer : IDisposable
             sceneName: entry.SceneName,
             componentHierarchy: entry.ComponentHierarchy,
             componentType: entry.ComponentType,
-            updatedUtc: entry.UpdatedUtc));
+            updatedUtc: entry.UpdatedUtc,
+            restoreSourceText: true));
         return true;
     }
 

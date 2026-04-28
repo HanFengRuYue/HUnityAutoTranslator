@@ -11,7 +11,8 @@ public sealed class TranslationResult
         string? sceneName = null,
         string? componentHierarchy = null,
         string? componentType = null,
-        DateTimeOffset? updatedUtc = null)
+        DateTimeOffset? updatedUtc = null,
+        bool restoreSourceText = false)
     {
         TargetId = targetId;
         SourceText = sourceText;
@@ -22,6 +23,7 @@ public sealed class TranslationResult
         ComponentHierarchy = componentHierarchy;
         ComponentType = componentType;
         UpdatedUtc = updatedUtc ?? DateTimeOffset.UtcNow;
+        RestoreSourceText = restoreSourceText;
     }
 
     public string TargetId { get; }
@@ -41,6 +43,8 @@ public sealed class TranslationResult
     public string? ComponentType { get; }
 
     public DateTimeOffset UpdatedUtc { get; }
+
+    public bool RestoreSourceText { get; }
 
     public bool HasComponentContext => !string.IsNullOrWhiteSpace(ComponentHierarchy);
 }
