@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from "vue";
 import {
-  FileClock,
   FileText,
   Keyboard,
   Maximize2,
@@ -9,7 +8,6 @@ import {
   RotateCcw,
   Save,
   ScanLine,
-  Sparkles,
   Timer,
   Type,
   Wand2
@@ -40,12 +38,8 @@ const form = reactive({
   SkipNumericSymbolText: true,
   EnableCacheLookup: true,
   EnableTranslationDebugLogs: false,
-  EnableTranslationContext: true,
-  TranslationContextMaxExamples: 4,
-  TranslationContextMaxCharacters: 1200,
   ManualEditsOverrideAi: true,
   ReapplyRememberedTranslations: true,
-  CacheRetentionDays: 365,
   EnableFontReplacement: true,
   ReplaceUguiFonts: true,
   ReplaceTmpFonts: true,
@@ -214,12 +208,8 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.SkipNumericSymbolText = state.SkipNumericSymbolText;
   form.EnableCacheLookup = state.EnableCacheLookup;
   form.EnableTranslationDebugLogs = state.EnableTranslationDebugLogs;
-  form.EnableTranslationContext = state.EnableTranslationContext;
-  form.TranslationContextMaxExamples = state.TranslationContextMaxExamples;
-  form.TranslationContextMaxCharacters = state.TranslationContextMaxCharacters;
   form.ManualEditsOverrideAi = state.ManualEditsOverrideAi;
   form.ReapplyRememberedTranslations = state.ReapplyRememberedTranslations;
-  form.CacheRetentionDays = state.CacheRetentionDays;
   form.EnableFontReplacement = state.EnableFontReplacement;
   form.ReplaceUguiFonts = state.ReplaceUguiFonts;
   form.ReplaceTmpFonts = state.ReplaceTmpFonts;
@@ -252,12 +242,8 @@ function readConfig(): UpdateConfigRequest {
     SkipNumericSymbolText: form.SkipNumericSymbolText,
     EnableCacheLookup: form.EnableCacheLookup,
     EnableTranslationDebugLogs: form.EnableTranslationDebugLogs,
-    EnableTranslationContext: form.EnableTranslationContext,
-    TranslationContextMaxExamples: numberValue(form.TranslationContextMaxExamples),
-    TranslationContextMaxCharacters: numberValue(form.TranslationContextMaxCharacters),
     ManualEditsOverrideAi: form.ManualEditsOverrideAi,
     ReapplyRememberedTranslations: form.ReapplyRememberedTranslations,
-    CacheRetentionDays: numberValue(form.CacheRetentionDays),
     EnableFontReplacement: form.EnableFontReplacement,
     ReplaceUguiFonts: form.ReplaceUguiFonts,
     ReplaceTmpFonts: form.ReplaceTmpFonts,
@@ -345,14 +331,8 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
           <label class="check help-target" data-help="跳过只有数字、标点或符号的文本，避免无意义请求和错误替换。"><input id="skipNumericSymbolText" v-model="form.SkipNumericSymbolText" type="checkbox">跳过数字/符号文本</label>
           <label class="check help-target" data-help="优先从本地缓存读取已有译文，命中后不会再次请求 AI。"><input id="enableCacheLookup" v-model="form.EnableCacheLookup" type="checkbox">启用缓存查找</label>
           <label class="check help-target" data-help="在 BepInEx 日志输出请求和响应细节，排查提示词或模型问题时再开启。"><input id="enableTranslationDebugLogs" v-model="form.EnableTranslationDebugLogs" type="checkbox">输出翻译请求调试日志</label>
-          <label class="check help-target" data-help="把同组件或同场景附近文本作为参考发给 AI，帮助短词和按钮翻译更准确。"><input id="enableTranslationContext" v-model="form.EnableTranslationContext" type="checkbox">启用翻译上下文</label>
           <label class="check help-target" data-help="控制面板里手动改过的译文优先于 AI 结果，避免被后续自动翻译覆盖。"><input id="manualEditsOverrideAi" v-model="form.ManualEditsOverrideAi" type="checkbox">手动编辑优先</label>
           <label class="check help-target" data-help="重新扫描时把缓存中记住的译文再次写回游戏，适合界面重建后恢复翻译。"><input id="reapplyRememberedTranslations" v-model="form.ReapplyRememberedTranslations" type="checkbox">重新应用已记住译文</label>
-        </div>
-        <div class="form-grid three">
-          <label class="field help-target" data-help="每条请求最多带入多少条历史上下文示例，过多会增加 token 消耗。"><span class="field-label"><Sparkles class="field-label-icon" />上下文示例数</span><input id="translationContextMaxExamples" v-model.number="form.TranslationContextMaxExamples" type="number" min="0"></label>
-          <label class="field help-target" data-help="限制上下文示例的总字符数，用来控制提示词长度和请求成本。"><span class="field-label"><FileText class="field-label-icon" />上下文字符数</span><input id="translationContextMaxCharacters" v-model.number="form.TranslationContextMaxCharacters" type="number" min="0"></label>
-          <label class="field help-target" data-help="本地缓存译文保留的天数，过期行可在清理时移除。"><span class="field-label"><FileClock class="field-label-icon" />缓存保留天数</span><input id="cacheRetentionDays" v-model.number="form.CacheRetentionDays" type="number" min="1"></label>
         </div>
       </SectionPanel>
 

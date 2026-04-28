@@ -74,6 +74,38 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_translation_context_controls_belong_to_ai_settings()
+    {
+        var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+
+        aiPageSource.Should().Contain("id=\"enableTranslationContext\"");
+        aiPageSource.Should().Contain("id=\"translationContextMaxExamples\"");
+        aiPageSource.Should().Contain("id=\"translationContextMaxCharacters\"");
+        aiPageSource.Should().Contain("启用翻译上下文");
+        aiPageSource.Should().Contain("上下文示例数");
+        aiPageSource.Should().Contain("上下文字符数");
+        aiPageSource.Should().Contain("EnableTranslationContext: form.EnableTranslationContext");
+        aiPageSource.Should().Contain("TranslationContextMaxExamples: numberValue(form.TranslationContextMaxExamples)");
+        aiPageSource.Should().Contain("TranslationContextMaxCharacters: numberValue(form.TranslationContextMaxCharacters)");
+
+        pluginPageSource.Should().NotContain("id=\"enableTranslationContext\"");
+        pluginPageSource.Should().NotContain("id=\"translationContextMaxExamples\"");
+        pluginPageSource.Should().NotContain("id=\"translationContextMaxCharacters\"");
+    }
+
+    [Fact]
+    public void Vue_plugin_settings_and_api_types_do_not_expose_cache_retention()
+    {
+        var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+
+        pluginPageSource.Should().NotContain("CacheRetentionDays");
+        pluginPageSource.Should().NotContain("cacheRetentionDays");
+        apiTypesSource.Should().NotContain("CacheRetentionDays");
+    }
+
+    [Fact]
     public void Vue_status_metric_help_tooltips_stack_above_neighboring_cards()
     {
         var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
@@ -111,6 +143,19 @@ public sealed class ControlPanelVueSourceTests
         glossaryPageSource.Should().Contain("class=\"check help-target\"");
         glossaryPageSource.Should().Contain("把匹配到的术语作为强制译名写入提示词，手动术语优先。");
         glossaryPageSource.Should().Contain("限制每次请求最多注入多少条术语，设为 0 等于不注入术语。");
+    }
+
+    [Fact]
+    public void Vue_section_help_tooltips_raise_panel_above_later_cards()
+    {
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+        var panelBlock = System.Text.RegularExpressions.Regex.Match(cssSource, @"\.section-panel\s*\{[^}]*\}", System.Text.RegularExpressions.RegexOptions.Singleline);
+        var hoverBlock = System.Text.RegularExpressions.Regex.Match(cssSource, @"\.section-panel:hover,\s*\.section-panel:focus-within\s*\{[^}]*\}", System.Text.RegularExpressions.RegexOptions.Singleline);
+
+        panelBlock.Success.Should().BeTrue();
+        panelBlock.Value.Should().Contain("position: relative;");
+        hoverBlock.Success.Should().BeTrue();
+        hoverBlock.Value.Should().Contain("z-index: 45;");
     }
 
     [Fact]

@@ -19,6 +19,7 @@ import {
   Save,
   Server,
   Settings2,
+  Sparkles,
   Square,
   Thermometer,
   WalletCards,
@@ -217,6 +218,9 @@ const form = reactive({
   MaxConcurrentRequests: 4,
   RequestsPerMinute: 60,
   MaxBatchCharacters: 1800,
+  EnableTranslationContext: true,
+  TranslationContextMaxExamples: 4,
+  TranslationContextMaxCharacters: 1200,
   ReasoningEffort: "none",
   DeepSeekReasoningEffort: "none",
   OutputVerbosity: "low",
@@ -368,6 +372,9 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.MaxConcurrentRequests = state.MaxConcurrentRequests;
   form.RequestsPerMinute = state.RequestsPerMinute;
   form.MaxBatchCharacters = state.MaxBatchCharacters;
+  form.EnableTranslationContext = state.EnableTranslationContext;
+  form.TranslationContextMaxExamples = state.TranslationContextMaxExamples;
+  form.TranslationContextMaxCharacters = state.TranslationContextMaxCharacters;
   form.ReasoningEffort = state.ReasoningEffort || "none";
   form.DeepSeekReasoningEffort = normalizeDeepSeekEffort(state.ReasoningEffort);
   form.OutputVerbosity = state.OutputVerbosity;
@@ -405,6 +412,9 @@ function readConfig(): UpdateConfigRequest {
     MaxConcurrentRequests: numberValue(form.MaxConcurrentRequests),
     RequestsPerMinute: numberValue(form.RequestsPerMinute),
     MaxBatchCharacters: numberValue(form.MaxBatchCharacters),
+    EnableTranslationContext: form.EnableTranslationContext,
+    TranslationContextMaxExamples: numberValue(form.TranslationContextMaxExamples),
+    TranslationContextMaxCharacters: numberValue(form.TranslationContextMaxCharacters),
     ReasoningEffort: activeReasoningEffort(),
     OutputVerbosity: form.OutputVerbosity,
     DeepSeekThinkingMode: form.DeepSeekThinkingMode,
@@ -804,10 +814,15 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
 
       <SectionPanel title="请求与输出" :icon="Gauge">
         <p class="hint">{{ isLlamaCpp ? "llama.cpp 使用并行槽位控制本地模型压力。" : "在线服务商最多 100 并发。" }}</p>
+        <div class="checks">
+          <label class="check help-target" data-help="把同组件或同场景附近文本作为参考发给 AI，帮助短词和按钮翻译更准确。"><input id="enableTranslationContext" v-model="form.EnableTranslationContext" type="checkbox">启用翻译上下文</label>
+        </div>
         <div class="form-grid four">
           <label v-if="!isLlamaCpp" class="field help-target" data-help="限制同时发送给在线服务商的翻译请求数，过高可能触发限流或增加费用。"><span class="field-label"><Gauge class="field-label-icon" />在线服务并发请求</span><input id="maxConcurrentRequests" v-model.number="form.MaxConcurrentRequests" type="number" min="1" max="100"></label>
           <label class="field help-target" data-help="限制每分钟最多发起多少次请求，用来配合服务商速率限制。"><span class="field-label"><Clock3 class="field-label-icon" />每分钟请求</span><input id="requestsPerMinute" v-model.number="form.RequestsPerMinute" type="number" min="1"></label>
           <label class="field help-target" data-help="单批翻译最多包含多少原文字符，调低可减少失败重试和响应延迟。"><span class="field-label"><MessageSquareText class="field-label-icon" />批次字符上限</span><input id="maxBatchCharacters" v-model.number="form.MaxBatchCharacters" type="number" min="1"></label>
+          <label class="field help-target" data-help="每条请求最多带入多少条历史上下文示例，过多会增加 token 消耗。"><span class="field-label"><Sparkles class="field-label-icon" />上下文示例数</span><input id="translationContextMaxExamples" v-model.number="form.TranslationContextMaxExamples" type="number" min="0"></label>
+          <label class="field help-target" data-help="限制上下文示例的总字符数，用来控制提示词长度和请求成本。"><span class="field-label"><MessageSquareText class="field-label-icon" />上下文字符数</span><input id="translationContextMaxCharacters" v-model.number="form.TranslationContextMaxCharacters" type="number" min="0"></label>
           <label class="field help-target" data-help="单次 AI 请求最长等待时间，网络慢或本地模型慢时可适当调高。"><span class="field-label"><Clock3 class="field-label-icon" />请求超时 (秒)</span><input id="requestTimeoutSeconds" v-model.number="form.RequestTimeoutSeconds" type="number" min="5" max="180"></label>
           <label v-if="isOpenAi" class="field provider-option help-target" data-help="控制 OpenAI 模型额外推理投入；翻译通常保持关闭或低档以节省成本。" data-providers="0"><span class="field-label"><Brain class="field-label-icon" />OpenAI 推理强度</span>
             <select id="reasoningEffort" v-model="form.ReasoningEffort">

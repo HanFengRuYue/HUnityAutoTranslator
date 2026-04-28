@@ -28,6 +28,15 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Generated_control_panel_does_not_expose_cache_retention_settings()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().NotContain("CacheRetentionDays");
+        htmlSource.Should().NotContain("cacheRetentionDays");
+    }
+
+    [Fact]
     public void Local_http_server_exposes_glossary_and_translation_editor_endpoints()
     {
         var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
