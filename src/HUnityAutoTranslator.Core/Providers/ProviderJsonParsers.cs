@@ -21,7 +21,7 @@ public static class ProviderJsonParsers
         return root["choices"]?.FirstOrDefault()?["message"]?["content"]?.Value<string>() ?? string.Empty;
     }
 
-    public static IReadOnlyList<string> ParseAssistantTextAsList(string assistantText)
+    public static IReadOnlyList<string> ParseAssistantTextAsList(string assistantText, int? expectedCount = null)
     {
         var trimmed = assistantText.Trim();
         if (trimmed.StartsWith("[", StringComparison.Ordinal))
@@ -34,6 +34,11 @@ public static class ProviderJsonParsers
             {
                 return new[] { assistantText };
             }
+        }
+
+        if (expectedCount == 1 && TryParseSingleJsonString(trimmed, out var singleText))
+        {
+            return new[] { singleText };
         }
 
         if (TryParseIndexedLines(trimmed, out var indexedTexts))
@@ -110,5 +115,30 @@ public static class ProviderJsonParsers
 
         indexedTexts = parsed;
         return true;
+    }
+
+    private static bool TryParseSingleJsonString(string text, out string value)
+    {
+        value = string.Empty;
+        if (!text.StartsWith("\"", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        try
+        {
+            var token = JToken.Parse(text);
+            if (token.Type != JTokenType.String)
+            {
+                return false;
+            }
+
+            value = token.Value<string>() ?? string.Empty;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
     }
 }

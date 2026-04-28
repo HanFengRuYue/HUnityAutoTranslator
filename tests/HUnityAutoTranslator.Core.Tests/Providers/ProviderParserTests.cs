@@ -56,4 +56,12 @@ public sealed class ProviderParserTests
 
         texts.Should().ContainSingle().Which.Should().Be("继续");
     }
+
+    [Fact]
+    public void AssistantTextParser_unwraps_single_json_string_when_one_item_is_expected()
+    {
+        var texts = ProviderJsonParsers.ParseAssistantTextAsList("\u0022\u8bbe\u7f6e\u0022", expectedCount: 1);
+
+        texts.Should().ContainSingle().Which.Should().Be("\u8bbe\u7f6e");
+    }
 }

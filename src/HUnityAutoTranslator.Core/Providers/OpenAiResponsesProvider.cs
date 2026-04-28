@@ -59,7 +59,7 @@ public sealed class OpenAiResponsesProvider : ITranslationProvider
 
         var text = ProviderJsonParsers.ParseOpenAiResponsesText(json);
         return TranslationResponse.Success(
-            ProviderJsonParsers.ParseAssistantTextAsList(text),
+            ProviderJsonParsers.ParseAssistantTextAsList(text, request.ProtectedTexts.Count),
             ProviderJsonParsers.ParseTotalTokens(json));
     }
 
