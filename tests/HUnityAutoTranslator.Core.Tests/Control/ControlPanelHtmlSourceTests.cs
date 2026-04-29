@@ -28,6 +28,17 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Generated_control_panel_embeds_local_brand_favicon()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("rel=\"icon\"");
+        htmlSource.Should().Contain("data:image/x-icon;base64,");
+        htmlSource.Should().NotContain("href=\"./branding/");
+        htmlSource.Should().NotContain("href=\"/branding/");
+    }
+
+    [Fact]
     public void Generated_control_panel_does_not_expose_cache_retention_settings()
     {
         var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
@@ -40,7 +51,7 @@ public sealed class ControlPanelHtmlSourceTests
     public void Local_http_server_exposes_glossary_and_translation_editor_endpoints()
     {
         var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
-        var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Plugin.cs"));
+        var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
 
         serverSource.Should().Contain("path == \"/api/glossary\"");
         serverSource.Should().Contain("path == \"/api/translations/filter-options\"");
@@ -100,6 +111,22 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Local_http_server_exposes_llamacpp_model_download_endpoints()
+    {
+        var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+        var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+
+        serverSource.Should().Contain("path == \"/api/llamacpp/model/presets\"");
+        serverSource.Should().Contain("path == \"/api/llamacpp/model/download\"");
+        serverSource.Should().Contain("path == \"/api/llamacpp/model/download/cancel\"");
+        serverSource.Should().Contain("_llamaCppModelDownloads.GetPresets()");
+        serverSource.Should().Contain("_llamaCppModelDownloads.StartDownload(");
+        serverSource.Should().Contain("_llamaCppModelDownloads.CancelDownload()");
+        pluginSource.Should().Contain("LlamaCppModelDownloadManager");
+        pluginSource.Should().Contain("Path.Combine(pluginDirectory, \"models\")");
+    }
+
+    [Fact]
     public void Translation_editor_save_publishes_manual_writeback_for_known_targets()
     {
         var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
@@ -125,6 +152,46 @@ public sealed class ControlPanelHtmlSourceTests
         serviceSource.Should().Contain("Action<string?, string?> automaticFontFallbackReporter");
         serviceSource.Should().Contain("ReportAutomaticFontFallbacks(config);");
         serviceSource.Should().Contain("ResolveFirstUsableAutomaticFontFile");
+        serviceSource.Should().Contain("FontProbeCharacters");
+        serviceSource.Should().Contain("IsUsableReplacementFont(regularFont, size)");
+        serviceSource.Should().Contain("font.RequestCharactersInTexture(new string(FontProbeCharacters), size)");
+        serviceSource.Should().Contain("font.HasCharacter(character)");
+    }
+
+    [Fact]
+    public void Tmp_font_replacement_directly_assigns_components_before_global_fallbacks()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+
+        serviceSource.Should().Contain("SetTmpFont(component, fontAsset)");
+        serviceSource.Should().Contain("AddTmpFallbackToComponentFont(component, fontAsset)");
+        serviceSource.Should().Contain("PopulateTmpFontAsset(fontAsset, component)");
+        serviceSource.Should().Contain("method.Name == \"TryAddCharacters\"");
+        serviceSource.Should().Contain("fallbackFontAssetTable");
+        serviceSource.Should().Contain("m_FallbackFontAssetTable");
+        serviceSource.Should().Contain("CollectionAdd(fallbackTable, fallbackFontAsset)");
+        serviceSource.Should().Contain("AddTmpFallback(fontAsset)");
+        serviceSource.Should().Contain("SetField(component, \"m_fontAsset\", fontAsset)");
+        serviceSource.Should().Contain("SetField(component, \"m_currentFontAsset\", fontAsset)");
+        serviceSource.Should().Contain("SetProperty(component, \"fontAsset\", fontAsset)");
+        serviceSource.Should().Contain("SetProperty(component, \"fontSharedMaterial\", material)");
+        serviceSource.Should().Contain("SetField(component, \"m_hasFontAssetChanged\", true)");
+        serviceSource.Should().Contain("InvokeMethodIfAvailable(component, \"LoadFontAsset\")");
+        serviceSource.Should().Contain("SetProperty(component, \"havePropertiesChanged\", true)");
+        serviceSource.Should().Contain("SetField(component, \"m_havePropertiesChanged\", true)");
+        serviceSource.Should().Contain("InvokeMethodIfAvailable(fontAsset, \"ReadFontAssetDefinition\")");
+        serviceSource.Should().Contain("RegisterTmpFontAsset(fontAsset)");
+        serviceSource.Should().Contain("MaterialReferenceManager");
+        serviceSource.Should().Contain("method.Name == \"AddFontAsset\"");
+        serviceSource.Should().Contain("InvokeSetter(instance, propertyName, value)");
+        serviceSource.Should().Contain("method.Name == $\"get_{propertyName}\"");
+        serviceSource.Should().Contain("method.Name == setterName");
+        serviceSource.Should().Contain("InvokeMethodIfAvailable(component, \"SetAllDirty\")");
+        serviceSource.Should().Contain("InvokeMethodIfAvailable(component, \"ForceMeshUpdate\")");
+        serviceSource.Should().Contain("AppDomain.CurrentDomain.GetAssemblies()");
+        serviceSource.Should().Contain("TMP 全局后备字体未安装");
+        serviceSource.Should().Contain("TMP 组件字体直接替换失败");
+        serviceSource.Should().Contain("TMP 组件字体后备表已挂载");
     }
 
     [Fact]
@@ -134,6 +201,7 @@ public sealed class ControlPanelHtmlSourceTests
         {
             FindRepositoryFile("src", "HUnityAutoTranslator.Core", "Queueing", "TranslationWorkerPool.cs"),
             FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Plugin.cs"),
+            FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"),
             FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "TranslationWorkerHost.cs"),
             FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "LlamaCppServerManager.cs"),
             FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "SystemBrowserLauncher.cs"),
@@ -215,10 +283,10 @@ public sealed class ControlPanelHtmlSourceTests
 
         candidateFileBlock.Should().Contain(@"C:\Windows\Fonts\NotoSansSC-VF.ttf");
         candidateFileBlock.Should().Contain(@"C:\Windows\Fonts\Deng.ttf");
-        candidateFileBlock.IndexOf(@"C:\Windows\Fonts\NotoSansSC-VF.ttf", StringComparison.Ordinal)
-            .Should().BeLessThan(candidateFileBlock.IndexOf(@"C:\Windows\Fonts\simhei.ttf", StringComparison.Ordinal));
         candidateFileBlock.IndexOf(@"C:\Windows\Fonts\simhei.ttf", StringComparison.Ordinal)
             .Should().BeLessThan(candidateFileBlock.IndexOf(@"C:\Windows\Fonts\Deng.ttf", StringComparison.Ordinal));
+        candidateFileBlock.IndexOf(@"C:\Windows\Fonts\Deng.ttf", StringComparison.Ordinal)
+            .Should().BeLessThan(candidateFileBlock.IndexOf(@"C:\Windows\Fonts\NotoSansSC-VF.ttf", StringComparison.Ordinal));
         candidateFileBlock.Should().Contain(".ttf");
         candidateFileBlock.Should().NotContain(".ttc");
         serviceSource.Should().Contain("Noto Sans SC Regular");

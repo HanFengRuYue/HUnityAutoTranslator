@@ -4,6 +4,7 @@ import {
   Bot,
   Brain,
   Clock3,
+  Download,
   FileKey,
   FolderOpen,
   Gauge,
@@ -23,6 +24,7 @@ import {
   Square,
   Thermometer,
   WalletCards,
+  X,
   Zap
 } from "lucide-vue-next";
 import { api } from "../api/client";
@@ -40,6 +42,9 @@ import type {
   LlamaCppBenchmarkCandidate,
   LlamaCppBenchmarkResult,
   LlamaCppConfig,
+  LlamaCppModelDownloadPreset,
+  LlamaCppModelDownloadRequest,
+  LlamaCppModelDownloadStatus,
   LlamaCppModelPickResult,
   LlamaCppServerStatus,
   PromptTemplateConfig,
@@ -242,6 +247,10 @@ const llamaCppBusy = ref(false);
 const llamaCppModelPicking = ref(false);
 const llamaCppBenchmarkBusy = ref(false);
 const llamaCppBenchmarkResult = ref<LlamaCppBenchmarkResult | null>(null);
+const llamaCppModelPresets = ref<LlamaCppModelDownloadPreset[]>([]);
+const llamaCppSelectedPresetId = ref("");
+const llamaCppDownloadStatus = ref<LlamaCppModelDownloadStatus | null>(null);
+const llamaCppCompletedPath = ref<string | null>(null);
 const activePromptTemplateKey = ref<PromptTemplateKey>("SystemPrompt");
 const formDirty = computed(() => controlPanelStore.dirtyForms.has(formKey));
 const providerOptions = computed(() => modelPresets[form.ProviderKind] ?? modelPresets[0]);
@@ -262,6 +271,20 @@ const llamaCppStatusText = computed(() => llamaCppStatus.value?.Message ?? "本�
 const llamaCppIsActive = computed(() => {
   const state = (llamaCppStatus.value?.State ?? "").toLowerCase();
   return state === "starting" || state === "running";
+});
+const selectedLlamaCppPreset = computed(() =>
+  llamaCppModelPresets.value.find((preset) => preset.Id === llamaCppSelectedPresetId.value) ?? llamaCppModelPresets.value[0] ?? null);
+const isLlamaCppDownloading = computed(() => llamaCppDownloadStatus.value?.State === "downloading");
+const llamaCppDownloadText = computed(() => {
+  const status = llamaCppDownloadStatus.value;
+  if (!status) {
+    return "尚未开始下载。";
+  }
+
+  const size = status.TotalBytes > 0
+    ? `${formatBytes(status.DownloadedBytes)} / ${formatBytes(status.TotalBytes)}`
+    : formatBytes(status.DownloadedBytes);
+  return `${status.Message} ${size}`;
 });
 const activePromptTemplate = computed(() =>
   promptTemplateFields.find((field) => field.key === activePromptTemplateKey.value) ?? promptTemplateFields[0]);
@@ -290,6 +313,19 @@ function markDirty(): void {
 function numberValue(value: number | string): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatBytes(value: number | null | undefined): string {
+  const bytes = Math.max(0, Number(value ?? 0));
+  if (bytes >= 1024 * 1024 * 1024) {
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(2)} GiB`;
+  }
+
+  if (bytes >= 1024 * 1024) {
+    return `${(bytes / 1024 / 1024).toFixed(1)} MiB`;
+  }
+
+  return `${Math.round(bytes / 1024)} KiB`;
 }
 
 function normalizePrompt(value: string | null | undefined): string {
@@ -622,6 +658,79 @@ async function pickLlamaCppModel(): Promise<void> {
   }
 }
 
+async function loadLlamaCppModelPresets(): Promise<void> {
+  try {
+    const presets = await api<LlamaCppModelDownloadPreset[]>("/api/llamacpp/model/presets");
+    llamaCppModelPresets.value = presets;
+    if (!llamaCppSelectedPresetId.value && presets.length) {
+      llamaCppSelectedPresetId.value = presets[0].Id;
+    }
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "读取魔塔模型预设失败。", "warn");
+  }
+}
+
+function applyLlamaCppDownloadStatus(status: LlamaCppModelDownloadStatus): void {
+  llamaCppDownloadStatus.value = status;
+  if (status.State === "completed" && status.LocalPath && status.LocalPath !== llamaCppCompletedPath.value) {
+    form.LlamaCppModelPath = status.LocalPath;
+    llamaCppCompletedPath.value = status.LocalPath;
+    markDirty();
+    showToast("已下载并填入模型路径，请保存 AI 设置。", "ok", 5600);
+    return;
+  }
+
+  if (status.State === "error") {
+    showToast(status.Message || "模型下载失败。", "error", 6200);
+  }
+}
+
+async function pollLlamaCppDownloadStatus(): Promise<void> {
+  try {
+    const status = await api<LlamaCppModelDownloadStatus>("/api/llamacpp/model/download");
+    applyLlamaCppDownloadStatus(status);
+    if (status.State === "downloading") {
+      window.setTimeout(() => void pollLlamaCppDownloadStatus(), 1000);
+    }
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "刷新模型下载进度失败。", "warn");
+  }
+}
+
+async function downloadLlamaCppPreset(): Promise<void> {
+  const preset = selectedLlamaCppPreset.value;
+  if (!preset) {
+    showToast("请先选择一个魔塔模型预设。", "warn");
+    return;
+  }
+
+  try {
+    llamaCppCompletedPath.value = null;
+    const request: LlamaCppModelDownloadRequest = { PresetId: preset.Id };
+    const status = await api<LlamaCppModelDownloadStatus>("/api/llamacpp/model/download", {
+      method: "POST",
+      body: request
+    });
+    applyLlamaCppDownloadStatus(status);
+    if (status.State === "downloading") {
+      showToast("已开始从魔塔下载模型。", "info", 2800);
+      window.setTimeout(() => void pollLlamaCppDownloadStatus(), 1000);
+    }
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "启动模型下载失败。", "error");
+  }
+}
+
+async function cancelLlamaCppDownload(): Promise<void> {
+  try {
+    const status = await api<LlamaCppModelDownloadStatus>("/api/llamacpp/model/download/cancel", { method: "POST", body: {} });
+    applyLlamaCppDownloadStatus(status);
+    showToast(status.Message || "已取消模型下载。", "info");
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "取消模型下载失败。", "error");
+  }
+}
+
 function formatBenchmarkRate(value: number | null | undefined): string {
   return value === null || value === undefined ? "-" : `${value.toFixed(1)} t/s`;
 }
@@ -695,6 +804,13 @@ function restoreAllPromptTemplates(): void {
   applyPromptTemplates(null, defaultPromptTemplates.value);
   markDirty();
 }
+
+watch(isLlamaCpp, (active) => {
+  if (active && llamaCppModelPresets.value.length === 0) {
+    void loadLlamaCppModelPresets();
+    void pollLlamaCppDownloadStatus();
+  }
+}, { immediate: true });
 
 watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: true });
 </script>
@@ -770,6 +886,30 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
                 {{ llamaCppModelPicking ? "选择中..." : "选择模型" }}
               </button>
             </div>
+          </div>
+          <div class="llama-preset-row">
+            <label class="field help-target" data-help="从常用魔塔 GGUF 预设中选择，下载完成后会填入上方模型路径，保存后生效。">
+              <span class="field-label"><Download class="field-label-icon" />魔塔预设下载</span>
+              <select id="llamaCppPreset" v-model="llamaCppSelectedPresetId" :disabled="isLlamaCppDownloading">
+                <option v-for="preset in llamaCppModelPresets" :key="preset.Id" :value="preset.Id">
+                  {{ preset.Label }} · {{ formatBytes(preset.FileSizeBytes) }} · {{ preset.License }}
+                </option>
+              </select>
+            </label>
+            <div class="llama-preset-meta">
+              <span>{{ selectedLlamaCppPreset?.UseCase ?? "读取预设中..." }}</span>
+              <strong>{{ selectedLlamaCppPreset?.ModelScopeModelId ?? "-" }} · {{ selectedLlamaCppPreset?.Quantization ?? "-" }}</strong>
+              <span>日翻中特化预设会标注 CC-BY-NC-SA-4.0 / 非商用。</span>
+            </div>
+            <div class="actions inline-actions llama-run-actions">
+              <button id="downloadLlamaCppPreset" class="secondary help-target" data-help="由插件进程从魔塔下载 GGUF 文件；不会覆盖校验不匹配的同名文件。" type="button" :disabled="isLlamaCppDownloading || !selectedLlamaCppPreset" @click="downloadLlamaCppPreset"><Download class="button-icon" />{{ isLlamaCppDownloading ? "下载中..." : "下载预设" }}</button>
+              <button id="cancelLlamaCppDownload" class="secondary help-target" data-help="取消当前模型下载，并删除未完成的 .part 临时文件。" type="button" :disabled="!isLlamaCppDownloading" @click="cancelLlamaCppDownload"><X class="button-icon" />取消下载</button>
+            </div>
+          </div>
+          <div v-if="llamaCppDownloadStatus" class="llama-download-progress">
+            <div><span>下载</span><strong>{{ llamaCppDownloadStatus.State }}</strong></div>
+            <div class="llama-download-bar"><span :style="{ width: `${Math.max(0, Math.min(100, llamaCppDownloadStatus.ProgressPercent))}%` }"></span></div>
+            <strong>{{ llamaCppDownloadText }}</strong>
           </div>
           <div class="llama-status-strip">
             <div><span>安装</span><strong>{{ llamaCppInstallText }}</strong></div>

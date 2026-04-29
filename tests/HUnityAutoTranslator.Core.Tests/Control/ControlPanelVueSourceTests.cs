@@ -200,7 +200,7 @@ public sealed class ControlPanelVueSourceTests
         sidebarSource.Should().Contain("nav-icon");
         sidebarSource.Should().Contain(":title=\"page.label\"");
         sidebarSource.Should().Contain("<strong>HUnity</strong>");
-        sidebarSource.Should().Contain("<span v-if=\"!collapsed\">控制面板</span>");
+        sidebarSource.Should().Contain("class=\"brand-copy\"");
         sidebarSource.Should().NotContain("HUnityAutoTranslator</strong>");
         sidebarSource.Should().NotContain("本机控制面板");
         sidebarSource.Should().NotContain("caption:");
@@ -210,6 +210,35 @@ public sealed class ControlPanelVueSourceTests
         cssSource.Should().Contain("grid-template-columns: 64px minmax(0, 1fr);");
         cssSource.Should().Contain(".sidebar-collapse");
         cssSource.Should().Contain(".nav-icon");
+    }
+
+    [Fact]
+    public void Vue_sidebar_uses_blue_white_brand_icon_and_keeps_white_blue_asset()
+    {
+        var sidebarSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "components", "AppSidebar.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+        var indexSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "index.html"));
+        var root = FindRepositoryRoot();
+        var brandingRoot = Path.Combine(root, "src", "HUnityAutoTranslator.ControlPanel", "public", "branding");
+
+        sidebarSource.Should().Contain("hunityIconBlueWhite");
+        sidebarSource.Should().Contain("const brandIcon = hunityIconBlueWhite;");
+        sidebarSource.Should().NotContain("hunityIconWhiteBlue");
+        sidebarSource.Should().NotContain("effectiveTheme");
+        sidebarSource.Should().Contain("class=\"brand-logo\"");
+        cssSource.Should().Contain(".brand-logo");
+        cssSource.Should().Contain(".sidebar.collapsed .brand");
+        indexSource.Should().Contain("rel=\"icon\"");
+        indexSource.Should().Contain("./branding/hunity-icon-blue-white.ico");
+
+        File.Exists(Path.Combine(root, "src", "HUnityAutoTranslator.ControlPanel", "scripts", "branding-preview-source.png")).Should().BeTrue();
+        File.Exists(Path.Combine(root, "src", "HUnityAutoTranslator.ControlPanel", "scripts", "generate_brand_icons.py")).Should().BeTrue();
+        File.Exists(Path.Combine(brandingRoot, "hunity-icon-blue-white.ico")).Should().BeTrue();
+        File.Exists(Path.Combine(brandingRoot, "hunity-icon-white-blue.ico")).Should().BeTrue();
+        File.Exists(Path.Combine(brandingRoot, "hunity-icon-blue-white.png")).Should().BeTrue();
+        File.Exists(Path.Combine(brandingRoot, "hunity-icon-white-blue.png")).Should().BeTrue();
+        Directory.GetFiles(brandingRoot, "hunity-icon-blue-white-*.png").Should().HaveCount(8);
+        Directory.GetFiles(brandingRoot, "hunity-icon-white-blue-*.png").Should().HaveCount(8);
     }
 
     [Fact]
@@ -414,6 +443,35 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("/api/llamacpp/model/pick");
         aiPageSource.Should().NotContain("id=\"llamaCppPort\"");
         aiPageSource.Should().NotContain("<div><span>端口</span>");
+    }
+
+    [Fact]
+    public void Vue_ai_settings_exposes_llamacpp_model_preset_downloads()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        apiTypesSource.Should().Contain("export interface LlamaCppModelDownloadPreset");
+        apiTypesSource.Should().Contain("export interface LlamaCppModelDownloadStatus");
+        apiTypesSource.Should().Contain("PresetId: string;");
+        apiTypesSource.Should().Contain("ProgressPercent: number;");
+        aiPageSource.Should().Contain("llamaCppModelPresets");
+        aiPageSource.Should().Contain("llamaCppSelectedPresetId");
+        aiPageSource.Should().Contain("async function loadLlamaCppModelPresets()");
+        aiPageSource.Should().Contain("async function downloadLlamaCppPreset()");
+        aiPageSource.Should().Contain("async function cancelLlamaCppDownload()");
+        aiPageSource.Should().Contain("id=\"llamaCppPreset\"");
+        aiPageSource.Should().Contain("id=\"downloadLlamaCppPreset\"");
+        aiPageSource.Should().Contain("id=\"cancelLlamaCppDownload\"");
+        aiPageSource.Should().Contain("/api/llamacpp/model/presets");
+        aiPageSource.Should().Contain("/api/llamacpp/model/download");
+        aiPageSource.Should().Contain("/api/llamacpp/model/download/cancel");
+        aiPageSource.Should().Contain("form.LlamaCppModelPath = status.LocalPath;");
+        aiPageSource.Should().Contain("已下载并填入模型路径");
+        aiPageSource.Should().Contain("CC-BY-NC-SA-4.0 / 非商用");
+        cssSource.Should().Contain(".llama-preset-row");
+        cssSource.Should().Contain(".llama-download-progress");
     }
 
     [Fact]
@@ -737,5 +795,17 @@ public sealed class ControlPanelVueSourceTests
 
         directory.Should().NotBeNull("tests should run from inside the repository checkout");
         return Path.Combine(new[] { directory!.FullName }.Concat(relativeSegments).ToArray());
+    }
+
+    private static string FindRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "HUnityAutoTranslator.sln")))
+        {
+            directory = directory.Parent;
+        }
+
+        directory.Should().NotBeNull("tests should run from inside the repository checkout");
+        return directory!.FullName;
     }
 }

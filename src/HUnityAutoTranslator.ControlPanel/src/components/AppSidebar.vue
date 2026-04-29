@@ -14,6 +14,7 @@ import {
   Plug,
   Sun
 } from "lucide-vue-next";
+import hunityIconBlueWhite from "../assets/branding/hunity-icon-blue-white-128.png";
 import { controlPanelStore, cycleTheme, setActivePage } from "../state/controlPanelStore";
 import type { PageKey } from "../types/api";
 
@@ -34,6 +35,8 @@ const pages: Array<{ key: PageKey; label: string; icon: typeof Activity }> = [
 ];
 
 const collapsed = ref(localStorage.getItem(collapsedStorageKey) === "true");
+
+const brandIcon = hunityIconBlueWhite;
 
 const connectionText = computed(() => {
   if (controlPanelStore.connection === "online") {
@@ -84,8 +87,11 @@ watch(collapsed, (value) => {
 <template>
   <aside class="sidebar" :class="{ collapsed }" :style="`--collapsed-control-size: ${collapsedControlSize}px`">
     <div class="brand">
-      <strong>HUnity</strong>
-      <span v-if="!collapsed">控制面板</span>
+      <img class="brand-logo" :src="brandIcon" alt="HUnity" width="36" height="36">
+      <div v-if="!collapsed" class="brand-copy">
+        <strong>HUnity</strong>
+        <span>控制面板</span>
+      </div>
     </div>
     <button
       class="sidebar-collapse"

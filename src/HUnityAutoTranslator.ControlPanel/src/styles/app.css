@@ -84,9 +84,23 @@ button:disabled {
   padding-right: 8px;
 }
 .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 2px 2px 14px;
+}
+.brand-logo {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 8px;
+  display: block;
+}
+.brand-copy {
   display: grid;
-  gap: 5px;
-  padding: 4px 2px 14px;
+  gap: 4px;
+  min-width: 0;
 }
 .brand strong {
   max-width: 100%;
@@ -100,11 +114,11 @@ button:disabled {
   font-size: 12px;
 }
 .sidebar.collapsed .brand {
-  min-height: 24px;
+  min-height: 36px;
+  justify-content: center;
   padding-bottom: 2px;
 }
-.sidebar.collapsed .brand strong,
-.sidebar.collapsed .brand span {
+.sidebar.collapsed .brand-copy {
   display: none;
 }
 .sidebar-collapse {
@@ -687,6 +701,59 @@ button:disabled {
 }
 .llama-model-row {
   max-width: none;
+}
+.llama-preset-row {
+  display: grid;
+  grid-template-columns: minmax(260px, 1.4fr) minmax(260px, 1.2fr) auto;
+  align-items: end;
+  gap: 12px;
+}
+.llama-preset-meta {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.llama-preset-meta span {
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.llama-preset-meta strong {
+  font-size: 12px;
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+.llama-download-progress {
+  display: grid;
+  grid-template-columns: minmax(90px, 0.3fr) minmax(180px, 1fr) minmax(220px, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.llama-download-progress span {
+  color: var(--muted);
+  font-size: 12px;
+}
+.llama-download-progress strong {
+  overflow-wrap: anywhere;
+}
+.llama-download-bar {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--surface-3);
+}
+.llama-download-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
 }
 .llama-status-strip {
   display: grid;
@@ -1366,6 +1433,8 @@ input.compact-check {
   .status-command { grid-template-columns: 1fr; }
   .ai-model-row,
   .ai-model-row-local,
+  .llama-preset-row,
+  .llama-download-progress,
   .llama-run-row,
   .llama-tune-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -1401,6 +1470,8 @@ input.compact-check {
   .ai-endpoint-grid,
   .ai-model-row,
   .ai-model-row-local,
+  .llama-preset-row,
+  .llama-download-progress,
   .llama-status-strip,
   .llama-run-row,
   .llama-tune-row,

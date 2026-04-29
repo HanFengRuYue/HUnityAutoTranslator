@@ -56,6 +56,39 @@ export interface LlamaCppModelPickResult {
   Message: string;
 }
 
+export interface LlamaCppModelDownloadPreset {
+  Id: string;
+  Label: string;
+  ModelScopeModelId: string;
+  FileName: string;
+  FileSizeBytes: number;
+  Sha256: string;
+  Quantization: string;
+  UseCase: string;
+  License: string;
+  Notes: string;
+  DownloadUrl: string;
+}
+
+export interface LlamaCppModelDownloadRequest {
+  PresetId: string;
+}
+
+export interface LlamaCppModelDownloadStatus {
+  State: string;
+  PresetId: string | null;
+  PresetLabel: string | null;
+  FileName: string | null;
+  LocalPath: string | null;
+  DownloadedBytes: number;
+  TotalBytes: number;
+  ProgressPercent: number;
+  Message: string;
+  Error: string | null;
+  StartedUtc: string | null;
+  CompletedUtc: string | null;
+}
+
 export interface LlamaCppBenchmarkCandidate {
   Tool: string;
   BatchSize: number;
