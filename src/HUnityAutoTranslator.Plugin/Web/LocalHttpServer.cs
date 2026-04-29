@@ -28,6 +28,7 @@ internal sealed class LocalHttpServer : IDisposable
     private readonly ResultDispatcher _dispatcher;
     private readonly UnityTextHighlighter? _highlighter;
     private readonly LlamaCppServerManager? _llamaCppServer;
+    private readonly LlamaCppModelDownloadManager _llamaCppModelDownloads;
     private readonly HttpClient _httpClient = new();
     private readonly ProviderUtilityClient _providerUtilityClient;
     private readonly ManualLogSource _logger;
@@ -44,6 +45,7 @@ internal sealed class LocalHttpServer : IDisposable
         ResultDispatcher dispatcher,
         UnityTextHighlighter? highlighter,
         LlamaCppServerManager? llamaCppServer,
+        LlamaCppModelDownloadManager llamaCppModelDownloads,
         ManualLogSource logger)
     {
         _controlPanel = controlPanel;
@@ -53,6 +55,7 @@ internal sealed class LocalHttpServer : IDisposable
         _dispatcher = dispatcher;
         _highlighter = highlighter;
         _llamaCppServer = llamaCppServer;
+        _llamaCppModelDownloads = llamaCppModelDownloads;
         _providerUtilityClient = new ProviderUtilityClient(_httpClient, _controlPanel.GetApiKey);
         _logger = logger;
     }
@@ -147,6 +150,29 @@ internal sealed class LocalHttpServer : IDisposable
             else if (context.Request.HttpMethod == "POST" && path == "/api/llamacpp/model/pick")
             {
                 await WriteJsonAsync(context.Response, WindowsLlamaCppModelFilePicker.PickModelFile()).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "GET" && path == "/api/llamacpp/model/presets")
+            {
+                await WriteJsonAsync(
+                    context.Response,
+                    _llamaCppModelDownloads.GetPresets()).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/llamacpp/model/download")
+            {
+                var request = await ReadJsonAsync<LlamaCppModelDownloadRequest>(context.Request).ConfigureAwait(false);
+                var status = _llamaCppModelDownloads.StartDownload(request?.PresetId);
+                await WriteJsonAsync(context.Response, status).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "GET" && path == "/api/llamacpp/model/download")
+            {
+                await WriteJsonAsync(
+                    context.Response,
+                    _llamaCppModelDownloads.GetStatus()).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/llamacpp/model/download/cancel")
+            {
+                var status = _llamaCppModelDownloads.CancelDownload();
+                await WriteJsonAsync(context.Response, status).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/llamacpp/start")
             {

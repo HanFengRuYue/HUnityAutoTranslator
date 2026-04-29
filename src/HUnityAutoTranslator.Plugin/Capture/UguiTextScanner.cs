@@ -68,7 +68,7 @@ internal sealed class UguiTextScanner : ITextCaptureModule
 
         try
         {
-            var objects = UnityEngine.Object.FindObjectsOfType(_textType);
+            var objects = UnityObjectFinder.FindObjects(_textType);
             var maxTargets = forceFullScan ? objects.Length : _configProvider().MaxScanTargetsPerTick;
             foreach (var component in _scanCursor.TakeWindow(objects, maxTargets))
             {

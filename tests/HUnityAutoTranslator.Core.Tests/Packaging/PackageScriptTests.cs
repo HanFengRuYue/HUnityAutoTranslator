@@ -12,7 +12,23 @@ public sealed class PackageScriptTests
         script.Should().Contain("$outputRoot = Resolve-Path -LiteralPath $PSScriptRoot");
         script.Should().Contain("$packageRoot = Join-Path $outputRoot \"HUnityAutoTranslator\"");
         script.Should().Contain("$zipPath = Join-Path $outputRoot \"HUnityAutoTranslator-0.1.0.zip\"");
+        script.Should().Contain("$il2CppZipPath = Join-Path $outputRoot \"HUnityAutoTranslator-0.1.0-il2cpp.zip\"");
         script.Should().NotContain("Join-Path $root \"artifacts\"");
+    }
+
+    [Fact]
+    public void Package_script_builds_separate_mono_and_il2cpp_plugin_packages()
+    {
+        var script = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "build", "package.ps1"));
+
+        script.Should().Contain("[ValidateSet(\"Mono\", \"IL2CPP\", \"All\")]");
+        script.Should().Contain("[string]$Runtime = \"All\"");
+        script.Should().Contain("function Build-PluginPackage");
+        script.Should().Contain("Get-PluginRuntimeBuilds -Runtime $Runtime");
+        script.Should().Contain("TargetFramework = \"netstandard2.1\"");
+        script.Should().Contain("TargetFramework = \"net6.0\"");
+        script.Should().Contain("HUnityAutoTranslator.Plugin.IL2CPP.dll");
+        script.Should().Contain("HUnityAutoTranslator-0.1.0-il2cpp.zip");
     }
 
     [Fact]
@@ -22,10 +38,40 @@ public sealed class PackageScriptTests
         var script = File.ReadAllText(Path.Combine(root, "build", "package.ps1"));
 
         script.Should().Contain("[switch]$GeneratePanelOnly");
+        script.Should().Contain("[switch]$SkipNpmInstall");
         script.Should().Contain("function Write-ControlPanelHtml");
+        script.Should().Contain("$controlPanelBuildRoot = Join-Path $outputRoot \".control-panel-build\"");
+        script.Should().Contain("function Copy-ControlPanelSource");
+        script.Should().Contain("node_modules");
         script.Should().Contain("if ($GeneratePanelOnly)");
         script.Should().NotContain("generate-control-panel.ps1");
         File.Exists(Path.Combine(root, "build", "generate-control-panel.ps1")).Should().BeFalse();
+    }
+
+    [Fact]
+    public void Package_script_checks_native_command_exit_codes()
+    {
+        var script = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "build", "package.ps1"));
+
+        script.Should().Contain("function Invoke-CheckedNative");
+        script.Should().Contain("if ($LASTEXITCODE -ne 0)");
+        script.Should().Contain("Invoke-CheckedNative \"npm\" @(\"ci\")");
+        script.Should().Contain("Invoke-CheckedNative \"npm\" @(\"run\", \"build\")");
+        script.Should().Contain("Invoke-CheckedNative \"dotnet\" @(\"build\"");
+        script.Should().Contain("if (-not $SkipNpmInstall)");
+    }
+
+    [Fact]
+    public void Package_script_embeds_favicon_and_copies_branding_assets()
+    {
+        var script = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "build", "package.ps1"));
+
+        script.Should().Contain("Convert-LocalIconLinksToDataUris");
+        script.Should().Contain("data:image/x-icon;base64,");
+        script.Should().Contain("$brandingSource = Join-Path $controlPanelRoot \"public\\branding\"");
+        script.Should().Contain("function Copy-BrandingAssets");
+        script.Should().Contain("$brandingTarget = Join-Path $TargetRoot \"assets\\branding\"");
+        script.Should().Contain("Get-ChildItem -LiteralPath $brandingSource -File | Copy-Item -Destination $brandingTarget -Force");
     }
 
     [Fact]

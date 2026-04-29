@@ -9,16 +9,25 @@ public sealed class BoundedRuntimeLoopSourceTests
     {
         var tmpSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs"));
         var uguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs"));
+        var finderSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityObjectFinder.cs"));
 
         tmpSource.Should().Contain("RoundRobinCursor");
         tmpSource.Should().Contain("var maxTargets = forceFullScan ? objects.Length : _configProvider().MaxScanTargetsPerTick");
         tmpSource.Should().Contain("_scanCursor.TakeWindow(objects, maxTargets)");
+        tmpSource.Should().Contain("UnityObjectFinder.FindObjects(_textType)");
         tmpSource.Should().NotContain("for (var i = 0; i < count; i++)");
+        tmpSource.Should().NotContain("FindObjectsOfType(_textType)");
 
         uguiSource.Should().Contain("RoundRobinCursor");
         uguiSource.Should().Contain("var maxTargets = forceFullScan ? objects.Length : _configProvider().MaxScanTargetsPerTick");
         uguiSource.Should().Contain("_scanCursor.TakeWindow(objects, maxTargets)");
+        uguiSource.Should().Contain("UnityObjectFinder.FindObjects(_textType)");
         uguiSource.Should().NotContain("for (var i = 0; i < count; i++)");
+        uguiSource.Should().NotContain("FindObjectsOfType(_textType)");
+
+        finderSource.Should().Contain("#if HUNITY_IL2CPP");
+        finderSource.Should().Contain("MakeGenericMethod(type)");
+        finderSource.Should().Contain("UnityEngine.Object.FindObjectsOfType(type)");
     }
 
     [Fact]
@@ -35,7 +44,7 @@ public sealed class BoundedRuntimeLoopSourceTests
     [Fact]
     public void Plugin_honors_reapply_remembered_translations_setting()
     {
-        var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Plugin.cs"));
+        var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
 
         pluginSource.Should().Contain("if (config.ReapplyRememberedTranslations)");
         pluginSource.Should().Contain("_resultApplier.ReapplyRemembered(int.MaxValue)");
@@ -45,7 +54,7 @@ public sealed class BoundedRuntimeLoopSourceTests
     [Fact]
     public void Runtime_hotkeys_are_wired_to_plugin_actions()
     {
-        var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Plugin.cs"));
+        var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
         var hotkeySource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Hotkeys", "RuntimeHotkeyController.cs"));
 
         pluginSource.Should().Contain("RuntimeHotkeyController");

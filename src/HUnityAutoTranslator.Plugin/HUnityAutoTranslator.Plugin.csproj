@@ -1,8 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.1</TargetFramework>
-    <AssemblyName>HUnityAutoTranslator.Plugin</AssemblyName>
+    <TargetFrameworks>netstandard2.1;net6.0</TargetFrameworks>
+    <AssemblyName Condition="'$(TargetFramework)' != 'net6.0'">HUnityAutoTranslator.Plugin</AssemblyName>
+    <AssemblyName Condition="'$(TargetFramework)' == 'net6.0'">HUnityAutoTranslator.Plugin.IL2CPP</AssemblyName>
     <Product>HUnityAutoTranslator</Product>
     <Version>0.1.0</Version>
     <BepInExPluginGuid>com.hanfeng.hunityautotranslator</BepInExPluginGuid>
@@ -18,14 +19,16 @@
     </RestoreAdditionalProjectSources>
     <RootNamespace>HUnityAutoTranslator.Plugin</RootNamespace>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <DefineConstants Condition="'$(TargetFramework)' == 'net6.0'">$(DefineConstants);HUNITY_IL2CPP</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all" />
-    <PackageReference Include="BepInEx.Unity.Mono" Version="6.0.0-be.*" IncludeAssets="compile" />
+    <PackageReference Include="BepInEx.Unity.Mono" Version="6.0.0-be.*" IncludeAssets="compile" Condition="'$(TargetFramework)' == 'netstandard2.1'" />
+    <PackageReference Include="BepInEx.Unity.IL2CPP" Version="6.0.0-be.*" IncludeAssets="compile" Condition="'$(TargetFramework)' == 'net6.0'" />
     <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
-	<PackageReference Include="UnityEngine.Modules" Version="2021.3.0" IncludeAssets="compile" />
+    <PackageReference Include="UnityEngine.Modules" Version="2021.3.0" IncludeAssets="compile" />
   </ItemGroup>
 
   <ItemGroup Condition="'$(TargetFramework.TrimEnd(`0123456789`))' == 'net'">
