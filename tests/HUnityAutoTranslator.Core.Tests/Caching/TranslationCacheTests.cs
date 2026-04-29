@@ -1065,6 +1065,63 @@ VALUES ('legacy-cache-key', 'legacy translated', '2026-04-25T00:00:00Z');
     }
 
     [Fact]
+    public void Sqlite_cache_exports_csv_with_editor_columns_first_and_internal_fields_last()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        using var cache = new SqliteTranslationCache(path);
+        cache.Update(new TranslationCacheEntry(
+            SourceText: "Start Game",
+            TargetLanguage: "zh-Hans",
+            ProviderKind: "OpenAI",
+            ProviderBaseUrl: "https://api.openai.com",
+            ProviderEndpoint: "/v1/responses",
+            ProviderModel: "gpt-5.5",
+            PromptPolicyVersion: "prompt-v4",
+            TranslatedText: "Start translated",
+            SceneName: "Menu",
+            ComponentHierarchy: "Canvas/Start",
+            ComponentType: "UnityEngine.UI.Text",
+            ReplacementFont: @"C:\Fonts\NotoSansSC-Regular.otf",
+            CreatedUtc: DateTimeOffset.Parse("2026-04-29T01:02:03Z"),
+            UpdatedUtc: DateTimeOffset.Parse("2026-04-29T04:05:06Z")));
+
+        var header = cache.Export("csv")
+            .Split(new[] { "\r\n", "\n" }, StringSplitOptions.None)
+            .First();
+
+        header.Should().Be(
+            "source_text,translated_text,target_language,scene_name,component_hierarchy,component_type,replacement_font,provider_kind,provider_model,created_utc,updated_utc,provider_base_url,provider_endpoint,prompt_policy_version");
+    }
+
+    [Fact]
+    public void Sqlite_cache_imports_legacy_and_editor_ordered_csv_without_losing_internal_fields()
+    {
+        const string legacyCsv = """
+source_text,target_language,provider_kind,provider_base_url,provider_endpoint,provider_model,prompt_policy_version,translated_text,scene_name,component_hierarchy,component_type,replacement_font,created_utc,updated_utc
+Legacy Start,zh-Hans,OpenAI,https://legacy.example,/v1/responses,gpt-legacy,prompt-v1,Legacy translated,Menu,Canvas/Legacy,Text,,2026-04-29T01:02:03Z,2026-04-29T04:05:06Z
+""";
+        const string editorOrderedCsv = """
+source_text,translated_text,target_language,scene_name,component_hierarchy,component_type,replacement_font,provider_kind,provider_model,created_utc,updated_utc,provider_base_url,provider_endpoint,prompt_policy_version
+Editor Start,Editor translated,zh-Hans,Menu,Canvas/Editor,Text,C:\Fonts\NotoSansSC-Regular.otf,DeepSeek,deepseek-chat,2026-04-29T01:02:03Z,2026-04-29T04:05:06Z,https://editor.example,/chat/completions,prompt-v4-custom
+""";
+
+        AssertCsvImportPreservesInternalFields(
+            legacyCsv,
+            "Legacy Start",
+            "Legacy translated",
+            "https://legacy.example",
+            "/v1/responses",
+            "prompt-v1");
+        AssertCsvImportPreservesInternalFields(
+            editorOrderedCsv,
+            "Editor Start",
+            "Editor translated",
+            "https://editor.example",
+            "/chat/completions",
+            "prompt-v4-custom");
+    }
+
+    [Fact]
     public void Cache_rows_store_component_font_override_and_match_exact_context()
     {
         var memory = new MemoryTranslationCache();
@@ -1128,6 +1185,29 @@ VALUES ('legacy-cache-key', 'legacy translated', '2026-04-25T00:00:00Z');
             .Items[0].ReplacementFont.Should().Be(@"C:\Fonts\NotoSansSC-Regular.otf");
         reopened.Export("json").Should().Contain("ReplacementFont");
         reopened.Export("csv").Should().Contain("replacement_font");
+    }
+
+    private static void AssertCsvImportPreservesInternalFields(
+        string csv,
+        string sourceText,
+        string translatedText,
+        string providerBaseUrl,
+        string providerEndpoint,
+        string promptPolicyVersion)
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        using var cache = new SqliteTranslationCache(path);
+
+        var result = cache.Import(csv, "csv");
+
+        result.ImportedCount.Should().Be(1);
+        result.Errors.Should().BeEmpty();
+        var row = cache.Query(new TranslationCacheQuery(sourceText, "source_text", false, 0, 10)).Items[0];
+        row.SourceText.Should().Be(sourceText);
+        row.TranslatedText.Should().Be(translatedText);
+        row.ProviderBaseUrl.Should().Be(providerBaseUrl);
+        row.ProviderEndpoint.Should().Be(providerEndpoint);
+        row.PromptPolicyVersion.Should().Be(promptPolicyVersion);
     }
 
     private static TranslationCacheEntry SampleRow(

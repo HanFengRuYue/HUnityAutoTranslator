@@ -7,19 +7,19 @@ internal static class CsvTranslationCacheFormat
     private static readonly string[] Header =
     {
         "source_text",
-        "target_language",
-        "provider_kind",
-        "provider_base_url",
-        "provider_endpoint",
-        "provider_model",
-        "prompt_policy_version",
         "translated_text",
+        "target_language",
         "scene_name",
         "component_hierarchy",
         "component_type",
         "replacement_font",
+        "provider_kind",
+        "provider_model",
         "created_utc",
-        "updated_utc"
+        "updated_utc",
+        "provider_base_url",
+        "provider_endpoint",
+        "prompt_policy_version"
     };
 
     public static string Write(IEnumerable<TranslationCacheEntry> rows)
@@ -31,19 +31,19 @@ internal static class CsvTranslationCacheFormat
             builder.AppendLine(string.Join(",", new[]
             {
                 Escape(row.SourceText),
-                Escape(row.TargetLanguage),
-                Escape(row.ProviderKind),
-                Escape(row.ProviderBaseUrl),
-                Escape(row.ProviderEndpoint),
-                Escape(row.ProviderModel),
-                Escape(row.PromptPolicyVersion),
                 Escape(row.TranslatedText),
+                Escape(row.TargetLanguage),
                 Escape(row.SceneName),
                 Escape(row.ComponentHierarchy),
                 Escape(row.ComponentType),
                 Escape(row.ReplacementFont),
+                Escape(row.ProviderKind),
+                Escape(row.ProviderModel),
                 Escape(row.CreatedUtc.ToString("O")),
-                Escape(row.UpdatedUtc.ToString("O"))
+                Escape(row.UpdatedUtc.ToString("O")),
+                Escape(row.ProviderBaseUrl),
+                Escape(row.ProviderEndpoint),
+                Escape(row.PromptPolicyVersion)
             }));
         }
 
@@ -62,32 +62,25 @@ internal static class CsvTranslationCacheFormat
         }
 
         var rows = new List<TranslationCacheEntry>();
+        var indexes = BuildHeaderIndexes(ParseLine(lines[0]));
         foreach (var line in lines.Skip(1))
         {
             var values = ParseLine(line);
-            if (values.Count < Header.Length - 1)
-            {
-                throw new FormatException("CSV row has too few columns.");
-            }
-
-            var hasReplacementFont = values.Count >= Header.Length;
-            var createdUtcIndex = hasReplacementFont ? 12 : 11;
-            var updatedUtcIndex = hasReplacementFont ? 13 : 12;
             rows.Add(new TranslationCacheEntry(
-                values[0],
-                values[1],
-                values[2],
-                values[3],
-                values[4],
-                values[5],
-                values[6],
-                EmptyToNull(values[7]),
-                EmptyToNull(values[8]),
-                EmptyToNull(values[9]),
-                EmptyToNull(values[10]),
-                hasReplacementFont ? EmptyToNull(values[11]) : null,
-                ParseDate(values[createdUtcIndex]),
-                ParseDate(values[updatedUtcIndex])));
+                Required(values, indexes, "source_text"),
+                Required(values, indexes, "target_language"),
+                Optional(values, indexes, "provider_kind") ?? string.Empty,
+                Optional(values, indexes, "provider_base_url") ?? string.Empty,
+                Optional(values, indexes, "provider_endpoint") ?? string.Empty,
+                Optional(values, indexes, "provider_model") ?? string.Empty,
+                Required(values, indexes, "prompt_policy_version"),
+                Optional(values, indexes, "translated_text"),
+                Optional(values, indexes, "scene_name"),
+                Optional(values, indexes, "component_hierarchy"),
+                Optional(values, indexes, "component_type"),
+                Optional(values, indexes, "replacement_font"),
+                ParseDate(ValueOrEmpty(values, indexes, "created_utc")),
+                ParseDate(ValueOrEmpty(values, indexes, "updated_utc"))));
         }
 
         return rows;
@@ -142,6 +135,47 @@ internal static class CsvTranslationCacheFormat
 
         values.Add(builder.ToString());
         return values;
+    }
+
+    private static Dictionary<string, int> BuildHeaderIndexes(IReadOnlyList<string> header)
+    {
+        var indexes = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < header.Count; i++)
+        {
+            var name = header[i].Trim();
+            if (name.Length > 0 && !indexes.ContainsKey(name))
+            {
+                indexes.Add(name, i);
+            }
+        }
+
+        return indexes;
+    }
+
+    private static string Required(IReadOnlyList<string> values, IReadOnlyDictionary<string, int> indexes, string name)
+    {
+        var value = ValueOrEmpty(values, indexes, name);
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            throw new FormatException($"Missing required CSV column value: {name}");
+        }
+
+        return value;
+    }
+
+    private static string? Optional(IReadOnlyList<string> values, IReadOnlyDictionary<string, int> indexes, string name)
+    {
+        return EmptyToNull(ValueOrEmpty(values, indexes, name));
+    }
+
+    private static string ValueOrEmpty(IReadOnlyList<string> values, IReadOnlyDictionary<string, int> indexes, string name)
+    {
+        if (!indexes.TryGetValue(name, out var index))
+        {
+            return string.Empty;
+        }
+
+        return index < values.Count ? values[index] : string.Empty;
     }
 
     private static string? EmptyToNull(string value)
