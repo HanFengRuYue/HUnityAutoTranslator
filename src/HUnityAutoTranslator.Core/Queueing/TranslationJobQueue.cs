@@ -6,9 +6,11 @@ public sealed class TranslationJobQueue
 {
     private readonly object _gate = new();
     private readonly Dictionary<string, TranslationJob> _pendingBySource = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TranslationJob> _deferredBySource = new(StringComparer.Ordinal);
     private readonly HashSet<string> _inFlightSources = new(StringComparer.Ordinal);
     private long _sequence;
     private readonly Dictionary<string, long> _sequences = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, long> _deferredSequences = new(StringComparer.Ordinal);
 
     public int PendingCount
     {
@@ -17,6 +19,17 @@ public sealed class TranslationJobQueue
             lock (_gate)
             {
                 return _pendingBySource.Count;
+            }
+        }
+    }
+
+    public int DeferredCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _deferredBySource.Count;
             }
         }
     }
@@ -47,6 +60,16 @@ public sealed class TranslationJobQueue
                 return false;
             }
 
+            if (_deferredBySource.TryGetValue(key, out var deferred))
+            {
+                if (job.Priority > deferred.Priority)
+                {
+                    _deferredBySource[key] = job;
+                }
+
+                return false;
+            }
+
             if (_pendingBySource.TryGetValue(key, out var existing))
             {
                 if (job.Priority > existing.Priority)
@@ -60,6 +83,72 @@ public sealed class TranslationJobQueue
             _pendingBySource[key] = job;
             _sequences[key] = _sequence++;
             return true;
+        }
+    }
+
+    public bool EnqueueDeferred(TranslationJob job)
+    {
+        var key = CreateQueueKey(job);
+        if (string.IsNullOrEmpty(key))
+        {
+            return false;
+        }
+
+        lock (_gate)
+        {
+            if (_pendingBySource.ContainsKey(key))
+            {
+                return false;
+            }
+
+            if (_deferredBySource.TryGetValue(key, out var existing))
+            {
+                if (job.Priority > existing.Priority)
+                {
+                    _deferredBySource[key] = job;
+                }
+
+                return false;
+            }
+
+            _deferredBySource[key] = job;
+            _deferredSequences[key] = _sequence++;
+            return true;
+        }
+    }
+
+    public int PromoteDeferred()
+    {
+        lock (_gate)
+        {
+            var promoted = 0;
+            var removeDeferred = new List<string>();
+
+            foreach (var item in _deferredBySource
+                .OrderBy(item => _deferredSequences[item.Key]))
+            {
+                if (_inFlightSources.Contains(item.Key))
+                {
+                    continue;
+                }
+
+                if (!_pendingBySource.ContainsKey(item.Key))
+                {
+                    _pendingBySource[item.Key] = item.Value;
+                    _sequences[item.Key] = _sequence++;
+                    promoted++;
+                }
+
+                removeDeferred.Add(item.Key);
+            }
+
+            foreach (var key in removeDeferred)
+            {
+                _deferredBySource.Remove(key);
+                _deferredSequences.Remove(key);
+            }
+
+            return promoted;
         }
     }
 

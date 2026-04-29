@@ -17,6 +17,7 @@ public sealed class TranslationWorkerPool
 {
     private static readonly TimeSpan IdleWorkerPollInterval = TimeSpan.FromMilliseconds(40);
     private const int MaxBatchItems = 4;
+    private const int MaxQualityRetryCount = 3;
 
     private readonly TranslationJobQueue _queue;
     private readonly ResultDispatcher _dispatcher;
@@ -27,6 +28,7 @@ public sealed class TranslationWorkerPool
     private readonly ControlPanelMetrics? _metrics;
     private readonly IGlossaryStore? _glossary;
     private readonly Action<string>? _failureReporter;
+    private readonly Action<TranslationJob>? _qualityRetryLimitReporter;
     private readonly Action<TranslationRequestDebugSnapshot>? _debugReporter;
 
     public TranslationWorkerPool(
@@ -39,6 +41,7 @@ public sealed class TranslationWorkerPool
         ControlPanelMetrics? metrics = null,
         IGlossaryStore? glossary = null,
         Action<string>? failureReporter = null,
+        Action<TranslationJob>? qualityRetryLimitReporter = null,
         Action<TranslationRequestDebugSnapshot>? debugReporter = null)
     {
         _queue = queue;
@@ -50,6 +53,7 @@ public sealed class TranslationWorkerPool
         _metrics = metrics;
         _glossary = glossary;
         _failureReporter = failureReporter;
+        _qualityRetryLimitReporter = qualityRetryLimitReporter;
         _debugReporter = debugReporter;
     }
 
@@ -78,6 +82,7 @@ public sealed class TranslationWorkerPool
                 continue;
             }
 
+            IReadOnlyList<TranslationJob> retryJobs = Array.Empty<TranslationJob>();
             _metrics?.RecordTranslationStarted();
             try
             {
@@ -116,7 +121,7 @@ public sealed class TranslationWorkerPool
                 stopwatch.Stop();
                 if (response.Succeeded)
                 {
-                    await HandleSuccessfulResponseAsync(
+                    retryJobs = await HandleSuccessfulResponseAsync(
                         batch,
                         protectedTexts,
                         response,
@@ -143,6 +148,10 @@ public sealed class TranslationWorkerPool
             {
                 _metrics?.RecordTranslationRequestFinished();
                 _queue.MarkCompleted(batch);
+                foreach (var retryJob in retryJobs)
+                {
+                    _queue.EnqueueDeferred(retryJob);
+                }
             }
         }
     }
@@ -202,7 +211,7 @@ public sealed class TranslationWorkerPool
         return sourceText.Contains('\r') ? "\r" : null;
     }
 
-    private async Task HandleSuccessfulResponseAsync(
+    private async Task<IReadOnlyList<TranslationJob>> HandleSuccessfulResponseAsync(
         IReadOnlyList<TranslationJob> jobs,
         IReadOnlyList<ProtectedText> protectedTexts,
         TranslationResponse response,
@@ -216,7 +225,7 @@ public sealed class TranslationWorkerPool
         if (translatedTexts.Count != jobs.Count)
         {
             ReportFailure(jobs, $"翻译结果未通过格式检查：批量翻译数量不匹配");
-            return;
+            return Array.Empty<TranslationJob>();
         }
 
         var restoredTexts = RestoreTokens(jobs, protectedTexts, translatedTexts);
@@ -238,11 +247,33 @@ public sealed class TranslationWorkerPool
         var failures = ValidateFinalTranslations(jobs, restoredTexts, itemContexts, glossaryTerms, targetLanguage);
         var publishJobs = new List<TranslationJob>();
         var publishTexts = new List<string>();
+        var retryJobs = new List<TranslationJob>();
         for (var i = 0; i < jobs.Count; i++)
         {
-            if (failures.TryGetValue(i, out var reason))
+            if (failures.TryGetValue(i, out var failure))
             {
-                ReportFailure(new[] { jobs[i] }, reason);
+                if (failure.IsQualityFailure && jobs[i].QualityRetryCount < MaxQualityRetryCount)
+                {
+                    var retryJob = jobs[i] with { QualityRetryCount = jobs[i].QualityRetryCount + 1 };
+                    retryJobs.Add(retryJob);
+                    ReportFinalFailure(
+                        jobs[i],
+                        failure,
+                        $"重试：{retryJob.QualityRetryCount}/{MaxQualityRetryCount}，已加入等待翻译队列。");
+                }
+                else
+                {
+                    if (failure.IsQualityFailure)
+                    {
+                        _qualityRetryLimitReporter?.Invoke(jobs[i]);
+                    }
+
+                    var retryStatus = failure.IsQualityFailure
+                        ? $"重试：{jobs[i].QualityRetryCount}/{MaxQualityRetryCount}，已达上限，保留为待翻译。"
+                        : null;
+                    ReportFinalFailure(jobs[i], failure, retryStatus);
+                }
+
                 continue;
             }
 
@@ -254,16 +285,20 @@ public sealed class TranslationWorkerPool
         {
             PublishResults(publishJobs, publishTexts, response.TotalTokens, elapsed);
         }
+
+        return retryJobs;
     }
 
-    private Dictionary<int, string> ValidateFinalTranslations(
+    private Dictionary<int, TranslationFinalFailure> ValidateFinalTranslations(
         IReadOnlyList<TranslationJob> jobs,
         IReadOnlyList<string> translatedTexts,
         IReadOnlyList<PromptItemContext> itemContexts,
         IReadOnlyList<GlossaryPromptTerm> glossaryTerms,
         string targetLanguage)
     {
-        var failures = new Dictionary<int, string>();
+        var failures = new Dictionary<int, TranslationFinalFailure>();
+        var contextByIndex = itemContexts.GroupBy(context => context.TextIndex)
+            .ToDictionary(group => group.Key, group => group.First());
         for (var i = 0; i < jobs.Count; i++)
         {
             var outputValidation = TranslationOutputValidator.ValidateSingle(
@@ -272,7 +307,12 @@ public sealed class TranslationWorkerPool
                 requireSameRichTextTags: true);
             if (!outputValidation.IsValid)
             {
-                failures[i] = $"翻译结果未通过格式检查：{outputValidation.Reason}";
+                failures[i] = CreateFinalFailure(
+                    jobs,
+                    translatedTexts,
+                    contextByIndex,
+                    i,
+                    $"翻译结果未通过格式检查：{outputValidation.Reason}");
                 continue;
             }
 
@@ -280,7 +320,12 @@ public sealed class TranslationWorkerPool
             var glossaryValidation = GlossaryOutputValidator.ValidateSingle(jobs[i].SourceText, translatedTexts[i], terms);
             if (!glossaryValidation.IsValid)
             {
-                failures[i] = $"翻译结果未通过术语检查：{glossaryValidation.Reason}";
+                failures[i] = CreateFinalFailure(
+                    jobs,
+                    translatedTexts,
+                    contextByIndex,
+                    i,
+                    $"翻译结果未通过术语检查：{glossaryValidation.Reason}");
             }
         }
 
@@ -291,10 +336,32 @@ public sealed class TranslationWorkerPool
             targetLanguage,
             _config.GameTitle))
         {
-            failures.TryAdd(failure.TextIndex, "translation quality check failed: " + failure.Reason);
+            failures.TryAdd(
+                failure.TextIndex,
+                CreateFinalFailure(
+                    jobs,
+                    translatedTexts,
+                    contextByIndex,
+                    failure.TextIndex,
+                    "translation quality check failed: " + failure.Reason));
         }
 
         return failures;
+    }
+
+    private TranslationFinalFailure CreateFinalFailure(
+        IReadOnlyList<TranslationJob> jobs,
+        IReadOnlyList<string> translatedTexts,
+        IReadOnlyDictionary<int, PromptItemContext> contextByIndex,
+        int index,
+        string reason)
+    {
+        var context = ResolveItemContext(jobs[index], index, contextByIndex);
+        return new TranslationFinalFailure(
+            reason,
+            translatedTexts[index],
+            context,
+            PromptItemClassifier.BuildHints(jobs[index].SourceText, context, _config.GameTitle));
     }
 
     private void ReportFailure(IReadOnlyList<TranslationJob> jobs, string reason)
@@ -307,13 +374,30 @@ public sealed class TranslationWorkerPool
         _failureReporter($"{reason}。源文本预览：{BuildSourcePreview(jobs)}");
     }
 
+    private void ReportFinalFailure(TranslationJob job, TranslationFinalFailure failure, string? retryStatus)
+    {
+        if (_failureReporter == null)
+        {
+            return;
+        }
+
+        var retryText = string.IsNullOrWhiteSpace(retryStatus) ? string.Empty : "。" + retryStatus;
+        _failureReporter(
+            $"质量失败：{LocalizeFailureReason(failure.Reason)}。" +
+            $"原文：{BuildTextPreview(job.SourceText)}。" +
+            $"译文：{BuildTextPreview(failure.CandidateTranslation)}" +
+            retryText);
+    }
+
     private void ReportDebugSnapshot(
         string phase,
         IReadOnlyList<TranslationJob> jobs,
         IReadOnlyList<PromptItemContext> itemContexts,
         int contextExampleCount,
         int glossaryTermCount,
-        string? repairReason)
+        string? repairReason,
+        IReadOnlyList<string>? candidateTranslations = null,
+        IReadOnlyDictionary<int, string>? qualityFailureReasons = null)
     {
         if (_debugReporter == null)
         {
@@ -325,19 +409,19 @@ public sealed class TranslationWorkerPool
         var items = new List<TranslationRequestDebugItem>(jobs.Count);
         for (var i = 0; i < jobs.Count; i++)
         {
-            contextByIndex.TryGetValue(i, out var context);
-            var effectiveContext = context ?? new PromptItemContext(
-                i,
-                jobs[i].Context.SceneName,
-                jobs[i].Context.ComponentHierarchy,
-                jobs[i].Context.ComponentType);
+            var effectiveContext = ResolveItemContext(jobs[i], i, contextByIndex);
+            string? qualityFailureReason = null;
+            qualityFailureReasons?.TryGetValue(i, out qualityFailureReason);
             items.Add(new TranslationRequestDebugItem(
                 i,
                 jobs[i].SourceText,
                 effectiveContext.SceneName,
                 effectiveContext.ComponentHierarchy,
                 effectiveContext.ComponentType,
-                PromptItemClassifier.BuildHints(jobs[i].SourceText, effectiveContext, _config.GameTitle)));
+                PromptItemClassifier.BuildHints(jobs[i].SourceText, effectiveContext, _config.GameTitle),
+                candidateTranslations != null && i < candidateTranslations.Count ? candidateTranslations[i] : null,
+                qualityFailureReason,
+                jobs[i].QualityRetryCount));
         }
 
         _debugReporter(new TranslationRequestDebugSnapshot(
@@ -356,6 +440,20 @@ public sealed class TranslationWorkerPool
             items));
     }
 
+    private static PromptItemContext ResolveItemContext(
+        TranslationJob job,
+        int index,
+        IReadOnlyDictionary<int, PromptItemContext> contextByIndex)
+    {
+        return contextByIndex.TryGetValue(index, out var context)
+            ? context
+            : new PromptItemContext(
+                index,
+                job.Context.SceneName,
+                job.Context.ComponentHierarchy,
+                job.Context.ComponentType);
+    }
+
     private static string BuildSourcePreview(IReadOnlyList<TranslationJob> jobs)
     {
         if (jobs.Count == 0)
@@ -367,6 +465,43 @@ public sealed class TranslationWorkerPool
             .Replace("\r", "\\r", StringComparison.Ordinal)
             .Replace("\n", "\\n", StringComparison.Ordinal);
         return source.Length <= 160 ? source : source[..160] + "...";
+    }
+
+    private static string BuildTextPreview(string? value)
+    {
+        var preview = (value ?? string.Empty)
+            .Replace("\r", "\\r", StringComparison.Ordinal)
+            .Replace("\n", "\\n", StringComparison.Ordinal);
+        return preview.Length <= 160 ? preview : preview[..160] + "...";
+    }
+
+    private static string LocalizeFailureReason(string reason)
+    {
+        const string qualityPrefix = "translation quality check failed: ";
+        var normalized = reason.StartsWith(qualityPrefix, StringComparison.OrdinalIgnoreCase)
+            ? reason[qualityPrefix.Length..]
+            : reason;
+        return normalized switch
+        {
+            "game title must be preserved exactly when it appears in the source text" => "游戏标题未按原文保留",
+            "translation added outer symbols that are not present in the source text" => "译文添加了原文没有的外层符号",
+            "ordinary English UI text was left untranslated" => "普通英文 UI 文本未翻译",
+            "settings value translation is too short or incomplete" => "设置值译文过短或不完整",
+            "state text is too literal for a game UI setting" => "状态文本直译不适合游戏 UI",
+            "different option texts under the same parent produced the same translation" => "同一父级下的不同选项被翻成了相同文本",
+            "translation quality check could not match source and result counts" => "源文本和译文数量不一致",
+            _ => reason
+        };
+    }
+
+    private sealed record TranslationFinalFailure(
+        string Reason,
+        string CandidateTranslation,
+        PromptItemContext Context,
+        IReadOnlyList<string> Hints)
+    {
+        public bool IsQualityFailure =>
+            Reason.StartsWith("translation quality check failed:", StringComparison.OrdinalIgnoreCase);
     }
 
     private static IReadOnlyList<string> NormalizeProviderResponseShape(
@@ -584,10 +719,14 @@ public sealed class TranslationWorkerPool
             ReportDebugSnapshot(
                 "quality-repair",
                 new[] { jobs[failure.TextIndex] },
-                context == null ? Array.Empty<PromptItemContext>() : new[] { context },
+                context == null
+                    ? Array.Empty<PromptItemContext>()
+                    : new[] { new PromptItemContext(0, context.SceneName, context.ComponentHierarchy, context.ComponentType) },
                 contextExampleCount: 0,
                 glossaryTermCount: 0,
-                failure.Reason);
+                LocalizeFailureReason(failure.Reason),
+                new[] { repaired[failure.TextIndex] },
+                new Dictionary<int, string> { [0] = LocalizeFailureReason(failure.Reason) });
             var request = new TranslationRequest(
                 new[] { protectedTexts[failure.TextIndex].Text },
                 targetLanguage,

@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using FluentAssertions;
 
 namespace HUnityAutoTranslator.Core.Tests.Control;
@@ -578,6 +579,11 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("已下载并填入模型路径");
         aiPageSource.Should().Contain("模型下载");
         aiPageSource.Should().Contain("<div v-if=\"isLlamaCppDownloading\" class=\"llama-download-progress\">");
+        aiPageSource.Should().Contain("function formatLlamaCppDownloadSpeed");
+        aiPageSource.Should().Contain("function formatLlamaCppRemainingTime");
+        aiPageSource.Should().Contain("速度 ${formatLlamaCppDownloadSpeed(status)}");
+        aiPageSource.Should().Contain("剩余 ${formatLlamaCppRemainingTime(status)}");
+        aiPageSource.Should().NotContain("return `${status.Message} ${size}`;");
         aiPageSource.Should().Contain("{{ preset.UseCase }}");
         aiPageSource.Should().Contain("{{ preset.Notes }}");
         aiPageSource.Should().Contain("{{ preset.License }}");
@@ -587,7 +593,22 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().NotContain("魔搭");
         aiPageSource.Should().NotContain("selectedLlamaCppPreset?.ModelScopeModelId");
         cssSource.Should().Contain(".model-preset-list");
+        Regex.IsMatch(cssSource, @"(?s)\.model-preset-list\s*\{[^}]*grid-template-columns:\s*1fr;")
+            .Should().BeTrue("the preset list should stay single-column at every desktop width");
+        Regex.IsMatch(cssSource, @"(?s)@media \(max-width:\s*780px\)[^{]*\{[^}]*\.model-preset-list,")
+            .Should().BeFalse("single-column preset layout should not depend on the mobile breakpoint");
         cssSource.Should().Contain(".model-preset-card");
+        var presetCardBlock = CssBlock(cssSource, @"\.model-preset-card");
+        presetCardBlock.Should().Contain("grid-template-columns: minmax(0, 1fr);");
+        presetCardBlock.Should().Contain("justify-content: stretch;");
+        presetCardBlock.Should().Contain("justify-items: start;");
+        presetCardBlock.Should().Contain("align-content: start;");
+        presetCardBlock.Should().Contain("width: 100%;");
+        presetCardBlock.Should().Contain("text-align: left;");
+        var presetCardContentBlock = CssBlock(cssSource, @"\.model-preset-card\s*>\s*span");
+        presetCardContentBlock.Should().Contain("width: 100%;");
+        presetCardContentBlock.Should().Contain("min-width: 0;");
+        presetCardContentBlock.Should().Contain("max-width: 100%;");
         cssSource.Should().Contain(".model-preset-card-active");
         cssSource.Should().Contain(".model-download-backdrop");
         cssSource.Should().Contain(".model-download-dialog");

@@ -64,4 +64,62 @@ public sealed class TranslationQueueTests
 
         queue.InFlightCount.Should().Be(0);
     }
+
+    [Fact]
+    public void Deferred_jobs_are_not_dequeued_until_promoted()
+    {
+        var queue = new TranslationJobQueue();
+        var retry = TranslationJob.Create(
+            "retry",
+            "Ultra",
+            TranslationPriority.VisibleUi,
+            qualityRetryCount: 1);
+
+        queue.EnqueueDeferred(retry).Should().BeTrue();
+
+        queue.PendingCount.Should().Be(0);
+        queue.TryDequeueBatch(1, 2000, out _).Should().BeFalse();
+
+        queue.PromoteDeferred().Should().Be(1);
+        queue.PendingCount.Should().Be(1);
+        queue.TryDequeueBatch(1, 2000, out var batch).Should().BeTrue();
+        batch.Should().ContainSingle();
+        batch[0].QualityRetryCount.Should().Be(1);
+    }
+
+    [Fact]
+    public void Quality_retry_resume_suppression_skips_only_stale_pending_rows()
+    {
+        var suppressions = new QualityRetryResumeSuppressions();
+        var context = new TranslationCacheContext("Menu", "Canvas/Settings/SFX", "TMPro.TextMeshProUGUI");
+        var retryLimitUtc = DateTimeOffset.Parse("2026-04-29T12:00:00Z");
+
+        suppressions.Suppress("SFX Volume", context, retryLimitUtc);
+
+        suppressions.ShouldSkip(PendingRow("SFX Volume", context, retryLimitUtc.AddSeconds(-1))).Should().BeTrue();
+        suppressions.ShouldSkip(PendingRow("SFX Volume", context, retryLimitUtc.AddSeconds(1))).Should().BeFalse();
+        suppressions.ShouldSkip(PendingRow("SFX Volume", context, retryLimitUtc.AddSeconds(-1))).Should().BeFalse();
+    }
+
+    private static TranslationCacheEntry PendingRow(
+        string sourceText,
+        TranslationCacheContext context,
+        DateTimeOffset updatedUtc)
+    {
+        return new TranslationCacheEntry(
+            SourceText: sourceText,
+            TargetLanguage: "zh-Hans",
+            ProviderKind: string.Empty,
+            ProviderBaseUrl: string.Empty,
+            ProviderEndpoint: string.Empty,
+            ProviderModel: string.Empty,
+            PromptPolicyVersion: "prompt-v4",
+            TranslatedText: null,
+            SceneName: context.SceneName,
+            ComponentHierarchy: context.ComponentHierarchy,
+            ComponentType: context.ComponentType,
+            ReplacementFont: null,
+            CreatedUtc: updatedUtc.AddMinutes(-1),
+            UpdatedUtc: updatedUtc);
+    }
 }

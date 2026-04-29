@@ -97,7 +97,7 @@ public sealed class LlamaCppModelDownloadManager : IDisposable
                 targetPath,
                 downloadedBytes: 0,
                 totalBytes: preset.FileSizeBytes,
-                message: "正在从魔塔下载模型。",
+                message: "正在下载模型。",
                 error: null,
                 startedUtc: DateTimeOffset.UtcNow,
                 completedUtc: null);
@@ -172,7 +172,7 @@ public sealed class LlamaCppModelDownloadManager : IDisposable
                 cancellationToken).ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                throw new InvalidOperationException($"魔塔下载失败（HTTP {(int)response.StatusCode}）。");
+                throw new InvalidOperationException($"模型下载失败（HTTP {(int)response.StatusCode}）。");
             }
 
             var totalBytes = response.Content.Headers.ContentLength.GetValueOrDefault(preset.FileSizeBytes);
@@ -198,7 +198,7 @@ public sealed class LlamaCppModelDownloadManager : IDisposable
                     targetPath,
                     downloaded,
                     totalBytes,
-                    "正在从魔塔下载模型。",
+                    "正在下载模型。",
                     null,
                     GetStatus().StartedUtc,
                     null));

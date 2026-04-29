@@ -314,6 +314,44 @@ public sealed class PromptPolicyTests
     }
 
     [Fact]
+    public void Quality_validator_allows_short_keyboard_tokens_to_remain_untranslated()
+    {
+        var failures = TranslationQualityValidator.FindFailures(
+            new[] { "ESC", "FPS", "F1", "UI" },
+            new[] { "ESC", "FPS", "F1", "UI" },
+            new[]
+            {
+                new PromptItemContext(0, "Settings", "Canvas/Settings/Menu/Keyboard/Escape", "UnityEngine.UI.Text"),
+                new PromptItemContext(1, "Settings", "Canvas/Settings/Graphics/FpsCounter", "UnityEngine.UI.Text"),
+                new PromptItemContext(2, "Settings", "Canvas/Settings/Keyboard/FunctionKey", "UnityEngine.UI.Text"),
+                new PromptItemContext(3, "Settings", "Canvas/Settings/Screen/UiScale", "UnityEngine.UI.Text")
+            },
+            "zh-Hans",
+            "The Glitched Attraction");
+
+        failures.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Quality_validator_still_rejects_untranslated_ordinary_or_mixed_ui_text()
+    {
+        var failures = TranslationQualityValidator.FindFailures(
+            new[] { "SFX Volume", "H\u3048\u3075\u3047\u304f\u3068", "Level2" },
+            new[] { "SFX Volume", "H\u3048\u3075\u3047\u304f\u3068", "Level2" },
+            new[]
+            {
+                new PromptItemContext(0, "Settings", "Canvas/Settings/Audio/SFX Volume", "UnityEngine.UI.Text"),
+                new PromptItemContext(1, "Settings", "Canvas/Settings/H Effect", "UnityEngine.UI.Text"),
+                new PromptItemContext(2, "LevelSelect", "Canvas/Menu/Level2", "UnityEngine.UI.Text")
+            },
+            "zh-Hans",
+            "The Glitched Attraction");
+
+        failures.Select(failure => failure.TextIndex).Should().BeEquivalentTo(new[] { 0, 1, 2 });
+        failures.Should().OnlyContain(failure => failure.Reason.Contains("untranslated", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Quality_validator_rejects_same_group_option_collisions()
     {
         var failures = TranslationQualityValidator.FindFailures(

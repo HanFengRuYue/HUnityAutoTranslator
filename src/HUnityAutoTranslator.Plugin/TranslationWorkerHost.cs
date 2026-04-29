@@ -16,7 +16,6 @@ internal sealed class TranslationWorkerHost : IDisposable
 {
     private const int PendingResumeBatchSize = 100;
     private static readonly TimeSpan PendingResumeInterval = TimeSpan.FromSeconds(5);
-    private static readonly TimeSpan PendingResumeQualityFailureBackoff = TimeSpan.FromMinutes(10);
 
     private readonly ControlPanelService _controlPanel;
     private readonly TranslationJobQueue _queue;
@@ -26,6 +25,7 @@ internal sealed class TranslationWorkerHost : IDisposable
     private readonly ControlPanelMetrics _metrics;
     private readonly ManualLogSource _logger;
     private readonly LlamaCppServerManager? _llamaCppServer;
+    private readonly QualityRetryResumeSuppressions _qualityRetryResumeSuppressions = new();
     private readonly HttpClient _httpClient = new();
     private CancellationTokenSource? _cts;
     private Task? _task;
@@ -71,6 +71,12 @@ internal sealed class TranslationWorkerHost : IDisposable
                     continue;
                 }
 
+                var promotedQualityRetries = _queue.PromoteDeferred();
+                if (promotedQualityRetries > 0)
+                {
+                    _logger.LogInfo($"已将 {promotedQualityRetries} 条质量重试加入等待翻译队列。");
+                }
+
                 if (_queue.PendingCount == 0)
                 {
                     var resumed = ResumePendingTranslations(config);
@@ -105,6 +111,7 @@ internal sealed class TranslationWorkerHost : IDisposable
                     _metrics,
                     _glossary,
                     ReportTranslationFailure,
+                    ReportQualityRetryLimitReached,
                     snapshot => ReportTranslationDebugSnapshot(config, snapshot));
 
                 await pool.RunUntilIdleAsync(cancellationToken).ConfigureAwait(false);
@@ -158,10 +165,11 @@ internal sealed class TranslationWorkerHost : IDisposable
     private void ReportTranslationFailure(string message)
     {
         _logger.LogWarning(message);
-        if (message.IndexOf("translation quality check failed", StringComparison.OrdinalIgnoreCase) >= 0)
-        {
-            _nextPendingResumeUtc = DateTimeOffset.UtcNow + PendingResumeQualityFailureBackoff;
-        }
+    }
+
+    private void ReportQualityRetryLimitReached(TranslationJob job)
+    {
+        _qualityRetryResumeSuppressions.Suppress(job, DateTimeOffset.UtcNow);
     }
 
     private async Task<bool> ProviderReadyAsync(RuntimeConfig config, CancellationToken cancellationToken)
@@ -211,6 +219,11 @@ internal sealed class TranslationWorkerHost : IDisposable
         foreach (var row in pending)
         {
             var context = new TranslationCacheContext(row.SceneName, row.ComponentHierarchy, row.ComponentType);
+            if (_qualityRetryResumeSuppressions.ShouldSkip(row))
+            {
+                continue;
+            }
+
             var key = TranslationCacheKey.Create(
                 row.SourceText,
                 row.TargetLanguage,

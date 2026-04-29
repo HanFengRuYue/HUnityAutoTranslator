@@ -29,4 +29,7 @@ public sealed record TranslationRequestDebugItem(
     string? SceneName,
     string? ComponentHierarchy,
     string? ComponentType,
-    IReadOnlyList<string> Hints);
+    IReadOnlyList<string> Hints,
+    string? CandidateTranslation = null,
+    string? QualityFailureReason = null,
+    int QualityRetryCount = 0);

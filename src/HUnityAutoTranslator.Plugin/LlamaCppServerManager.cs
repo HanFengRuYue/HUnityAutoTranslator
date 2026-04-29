@@ -124,15 +124,18 @@ internal sealed class LlamaCppServerManager : IDisposable
             var port = GetFreeLoopbackPort();
             _backend = manifest.Backend;
             _lastOutput = null;
+            var processLlamaConfig = ToProcessModelConfig(config.LlamaCpp);
             var startInfo = new ProcessStartInfo
             {
                 FileName = manifest.ServerPath,
-                Arguments = LlamaCppServerCommandBuilder.BuildArguments(config.LlamaCpp, config.Provider, port),
+                Arguments = LlamaCppServerCommandBuilder.BuildArguments(processLlamaConfig, config.Provider, port),
                 WorkingDirectory = _llamaDirectory,
                 UseShellExecute = false,
                 CreateNoWindow = true,
                 RedirectStandardOutput = true,
-                RedirectStandardError = true
+                RedirectStandardError = true,
+                StandardOutputEncoding = Encoding.UTF8,
+                StandardErrorEncoding = Encoding.UTF8
             };
             ApplyBackendEnvironment(startInfo, manifest.Backend);
 
@@ -222,10 +225,11 @@ internal sealed class LlamaCppServerManager : IDisposable
         var candidates = new List<LlamaCppBenchmarkCandidate>();
         var errors = new List<string>();
         var outputTail = new StringBuilder();
+        var processCurrent = ToProcessModelConfig(current);
 
         var bench = await RunBenchmarkProcessAsync(
             benchPath,
-            BuildLlamaBenchArguments(current),
+            BuildLlamaBenchArguments(processCurrent),
             manifest.Backend,
             cancellationToken).ConfigureAwait(false);
         AppendTail(outputTail, bench.Output);
@@ -254,7 +258,7 @@ internal sealed class LlamaCppServerManager : IDisposable
             var candidateConfig = kernelConfig with { ParallelSlots = slots };
             var parallel = await RunBenchmarkProcessAsync(
                 batchedBenchPath,
-                BuildLlamaBatchedBenchArguments(candidateConfig),
+                BuildLlamaBatchedBenchArguments(ToProcessModelConfig(candidateConfig)),
                 manifest.Backend,
                 cancellationToken).ConfigureAwait(false);
             AppendTail(outputTail, parallel.Output);
@@ -447,7 +451,9 @@ internal sealed class LlamaCppServerManager : IDisposable
             UseShellExecute = false,
             CreateNoWindow = true,
             RedirectStandardOutput = true,
-            RedirectStandardError = true
+            RedirectStandardError = true,
+            StandardOutputEncoding = Encoding.UTF8,
+            StandardErrorEncoding = Encoding.UTF8
         };
         ApplyBackendEnvironment(startInfo, backend);
 
@@ -510,6 +516,14 @@ internal sealed class LlamaCppServerManager : IDisposable
         {
             startInfo.EnvironmentVariables[CudaLaunchQueuesVariable] = CudaLaunchQueuesValue;
         }
+    }
+
+    private LlamaCppConfig ToProcessModelConfig(LlamaCppConfig config)
+    {
+        return config with
+        {
+            ModelPath = LlamaCppProcessPath.NormalizeModelPathForWorkingDirectory(config.ModelPath, _llamaDirectory)
+        };
     }
 
     private static void AppendProcessOutput(StringBuilder builder, string? value)

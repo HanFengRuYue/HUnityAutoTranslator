@@ -419,7 +419,7 @@ public sealed class WorkerPoolTests
         provider.Requests[1].UserPrompt.Should().Contain("too short");
         snapshots.Should().HaveCount(2);
         snapshots[1].Phase.Should().Be("quality-repair");
-        snapshots[1].RepairReason.Should().Contain("too short");
+        snapshots[1].RepairReason.Should().Be("设置值译文过短或不完整");
         var results = dispatcher.Drain(10);
         results.Should().ContainSingle();
         results[0].TranslatedText.Should().Be("超高");
@@ -429,14 +429,85 @@ public sealed class WorkerPoolTests
     }
 
     [Fact]
-    public async Task WorkerPool_does_not_cache_translation_when_quality_repair_fails()
+    public async Task WorkerPool_requeues_quality_failures_until_valid_translation_is_returned()
     {
         var queue = new TranslationJobQueue();
         var dispatcher = new ResultDispatcher();
         var cache = new MemoryTranslationCache();
         var failures = new List<string>();
+        var snapshots = new List<TranslationRequestDebugSnapshot>();
         var provider = new SequencedProvider(new[]
         {
+            new[] { "超" },
+            new[] { "超" },
+            new[] { "超高" }
+        });
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            MaxConcurrentRequests = 1,
+            GameTitle = "The Glitched Attraction"
+        };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            provider,
+            new ProviderRateLimiter(120),
+            config,
+            cache,
+            failureReporter: failures.Add,
+            debugReporter: snapshots.Add);
+
+        var context = new TranslationCacheContext("Main Menu", "Menu/Camera/Canvas/Settings Menu/Gameplay Panel/Textures/Text", "TMPro.TextMeshProUGUI");
+        queue.Enqueue(TranslationJob.Create("ui-1", "Ultra", TranslationPriority.VisibleUi, context));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        provider.Requests.Should().HaveCount(2);
+        queue.PendingCount.Should().Be(0);
+        queue.DeferredCount.Should().Be(1);
+        dispatcher.PendingCount.Should().Be(0);
+        cache.TryGet(
+            TranslationCacheKey.Create("Ultra", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion),
+            context,
+            out _).Should().BeFalse();
+        var retryFailure = failures.Should().ContainSingle().Which;
+        retryFailure.Should().Contain("Ultra");
+        retryFailure.Should().Contain("1/3");
+        retryFailure.Should().Contain("队列");
+        snapshots.Should().Contain(snapshot =>
+            snapshot.Phase == "quality-repair" &&
+            snapshot.Items[0].CandidateTranslation == "超" &&
+            snapshot.Items[0].QualityFailureReason == "设置值译文过短或不完整" &&
+            snapshot.Items[0].QualityRetryCount == 0);
+
+        queue.PromoteDeferred().Should().Be(1);
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        provider.Requests.Should().HaveCount(3);
+        var results = dispatcher.Drain(10);
+        results.Should().ContainSingle();
+        results[0].TranslatedText.Should().Be("超高");
+        var key = TranslationCacheKey.Create("Ultra", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, context, out var cached).Should().BeTrue();
+        cached.Should().Be("超高");
+    }
+
+    [Fact]
+    public async Task WorkerPool_stops_requeueing_after_quality_retry_limit()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var failures = new List<string>();
+        var exhaustedJobs = new List<TranslationJob>();
+        var provider = new SequencedProvider(new[]
+        {
+            new[] { "超" },
+            new[] { "超" },
+            new[] { "超" },
+            new[] { "超" },
+            new[] { "超" },
+            new[] { "超" },
             new[] { "超" },
             new[] { "超" }
         });
@@ -452,18 +523,25 @@ public sealed class WorkerPoolTests
             new ProviderRateLimiter(120),
             config,
             cache,
-            failureReporter: failures.Add);
+            failureReporter: failures.Add,
+            qualityRetryLimitReporter: exhaustedJobs.Add);
 
         var context = new TranslationCacheContext("Main Menu", "Menu/Camera/Canvas/Settings Menu/Gameplay Panel/Textures/Text", "TMPro.TextMeshProUGUI");
         queue.Enqueue(TranslationJob.Create("ui-1", "Ultra", TranslationPriority.VisibleUi, context));
 
-        await pool.RunUntilIdleAsync(CancellationToken.None);
+        await RunPoolUntilNoDeferredRetriesAsync(pool, queue);
 
-        provider.Requests.Should().HaveCount(2);
+        provider.Requests.Should().HaveCount(8);
         var key = TranslationCacheKey.Create("Ultra", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
         cache.TryGet(key, context, out _).Should().BeFalse();
         dispatcher.PendingCount.Should().Be(0);
-        failures.Should().ContainSingle(message => message.Contains("quality", StringComparison.OrdinalIgnoreCase));
+        failures.Count(message => message.Contains("队列", StringComparison.Ordinal)).Should().Be(3);
+        failures.Should().ContainSingle(message =>
+            message == "质量失败：设置值译文过短或不完整。原文：Ultra。译文：超。重试：3/3，已达上限，保留为待翻译。");
+        exhaustedJobs.Should().ContainSingle(job =>
+            job.SourceText == "Ultra" &&
+            job.Context == context &&
+            job.QualityRetryCount == 3);
     }
 
     [Fact]
@@ -476,7 +554,8 @@ public sealed class WorkerPoolTests
         var provider = new SequencedProvider(new[]
         {
             new[] { "\u8d85", "\u5b57\u5e55" },
-            new[] { "\u8d85" }
+            new[] { "\u8d85" },
+            new[] { "\u8d85\u9ad8" }
         });
         var config = RuntimeConfig.CreateDefault() with
         {
@@ -500,13 +579,22 @@ public sealed class WorkerPoolTests
         await pool.RunUntilIdleAsync(CancellationToken.None);
 
         provider.Requests.Should().HaveCount(2);
+        queue.DeferredCount.Should().Be(1);
+        queue.PromoteDeferred().Should().Be(1);
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        provider.Requests.Should().HaveCount(3);
         var ultraKey = TranslationCacheKey.Create("Ultra", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
-        cache.TryGet(ultraKey, ultraContext, out _).Should().BeFalse();
+        cache.TryGet(ultraKey, ultraContext, out var ultraCached).Should().BeTrue();
+        ultraCached.Should().Be("\u8d85\u9ad8");
         var subtitlesKey = TranslationCacheKey.Create("Subtitles", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
         cache.TryGet(subtitlesKey, subtitlesContext, out var cached).Should().BeTrue();
         cached.Should().Be("\u5b57\u5e55");
-        dispatcher.Drain(10).Select(result => result.TranslatedText).Should().Equal("\u5b57\u5e55");
-        failures.Should().ContainSingle(message => message.Contains("Ultra", StringComparison.Ordinal));
+        dispatcher.Drain(10).Select(result => result.TranslatedText).Should().Equal("\u5b57\u5e55", "\u8d85\u9ad8");
+        failures.Should().ContainSingle(message =>
+            message.Contains("Ultra", StringComparison.Ordinal) &&
+            message.Contains("1/3", StringComparison.Ordinal) &&
+            message.Contains("队列", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -588,6 +676,12 @@ public sealed class WorkerPoolTests
         var provider = new SequencedProvider(new[]
         {
             new[] { "\u3010\u91cd\u8981\u63d0\u793a\u3011" },
+            new[] { "\u3010\u91cd\u8981\u63d0\u793a\u3011" },
+            new[] { "\u3010\u91cd\u8981\u63d0\u793a\u3011" },
+            new[] { "\u3010\u91cd\u8981\u63d0\u793a\u3011" },
+            new[] { "\u3010\u91cd\u8981\u63d0\u793a\u3011" },
+            new[] { "\u3010\u91cd\u8981\u63d0\u793a\u3011" },
+            new[] { "\u3010\u91cd\u8981\u63d0\u793a\u3011" },
             new[] { "\u3010\u91cd\u8981\u63d0\u793a\u3011" }
         });
         var config = RuntimeConfig.CreateDefault() with
@@ -607,13 +701,15 @@ public sealed class WorkerPoolTests
         var context = new TranslationCacheContext("Disclaimer", "Canvas/Text (Legacy)", "UnityEngine.UI.Text");
         queue.Enqueue(TranslationJob.Create("ui-1", "IMPORTANT", TranslationPriority.VisibleUi, context));
 
-        await pool.RunUntilIdleAsync(CancellationToken.None);
+        await RunPoolUntilNoDeferredRetriesAsync(pool, queue);
 
-        provider.Requests.Should().HaveCount(2);
+        provider.Requests.Should().HaveCount(8);
         var key = TranslationCacheKey.Create("IMPORTANT", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
         cache.TryGet(key, context, out _).Should().BeFalse();
         dispatcher.PendingCount.Should().Be(0);
-        failures.Should().ContainSingle(message => message.Contains("quality", StringComparison.OrdinalIgnoreCase));
+        failures.Count(message => message.Contains("队列", StringComparison.Ordinal)).Should().Be(3);
+        failures.Should().ContainSingle(message =>
+            message == "质量失败：译文添加了原文没有的外层符号。原文：IMPORTANT。译文：【重要提示】。重试：3/3，已达上限，保留为待翻译。");
     }
 
     [Fact]
@@ -1100,5 +1196,22 @@ public sealed class WorkerPoolTests
         {
             await Task.Delay(10);
         }
+    }
+
+    private static async Task RunPoolUntilNoDeferredRetriesAsync(
+        TranslationWorkerPool pool,
+        TranslationJobQueue queue,
+        int maxCycles = 8)
+    {
+        for (var i = 0; i < maxCycles; i++)
+        {
+            await pool.RunUntilIdleAsync(CancellationToken.None);
+            if (queue.PromoteDeferred() == 0)
+            {
+                return;
+            }
+        }
+
+        throw new InvalidOperationException("Deferred quality retries did not drain.");
     }
 }

@@ -325,7 +325,7 @@ const llamaCppDownloadText = computed(() => {
   const size = status.TotalBytes > 0
     ? `${formatBytes(status.DownloadedBytes)} / ${formatBytes(status.TotalBytes)}`
     : formatBytes(status.DownloadedBytes);
-  return `${status.Message} ${size}`;
+  return `${size} · 速度 ${formatLlamaCppDownloadSpeed(status)} · 剩余 ${formatLlamaCppRemainingTime(status)}`;
 });
 const activePromptTemplate = computed(() =>
   promptTemplateFields.find((field) => field.key === activePromptTemplateKey.value) ?? promptTemplateFields[0]);
@@ -367,6 +367,71 @@ function formatBytes(value: number | null | undefined): string {
   }
 
   return `${Math.round(bytes / 1024)} KiB`;
+}
+
+function calculateLlamaCppDownloadSpeed(status: LlamaCppModelDownloadStatus): number | null {
+  const started = status.StartedUtc ? Date.parse(status.StartedUtc) : Number.NaN;
+  const downloaded = Math.max(0, Number(status.DownloadedBytes ?? 0));
+  if (!Number.isFinite(started) || downloaded <= 0) {
+    return null;
+  }
+
+  const elapsedSeconds = (Date.now() - started) / 1000;
+  if (!Number.isFinite(elapsedSeconds) || elapsedSeconds <= 0.25) {
+    return null;
+  }
+
+  const speed = downloaded / elapsedSeconds;
+  return Number.isFinite(speed) && speed > 0 ? speed : null;
+}
+
+function formatLlamaCppDownloadSpeed(status: LlamaCppModelDownloadStatus): string {
+  const speed = calculateLlamaCppDownloadSpeed(status);
+  if (!speed) {
+    return "计算中";
+  }
+
+  if (speed < 1024) {
+    return `${Math.max(1, Math.round(speed))} B/s`;
+  }
+
+  return `${formatBytes(speed)}/s`;
+}
+
+function formatLlamaCppRemainingTime(status: LlamaCppModelDownloadStatus): string {
+  const total = Math.max(0, Number(status.TotalBytes ?? 0));
+  const downloaded = Math.max(0, Number(status.DownloadedBytes ?? 0));
+  if (total <= 0 || downloaded <= 0) {
+    return "计算中";
+  }
+
+  const remainingBytes = Math.max(0, total - downloaded);
+  if (remainingBytes <= 0) {
+    return "0秒";
+  }
+
+  const speed = calculateLlamaCppDownloadSpeed(status);
+  if (!speed) {
+    return "计算中";
+  }
+
+  return formatDurationSeconds(remainingBytes / speed);
+}
+
+function formatDurationSeconds(value: number): string {
+  const seconds = Math.max(1, Math.ceil(value));
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.floor((seconds % 3600) / 60);
+  const remainingSeconds = seconds % 60;
+  if (hours > 0) {
+    return `${hours}小时${minutes}分`;
+  }
+
+  if (minutes > 0) {
+    return `${minutes}分${remainingSeconds}秒`;
+  }
+
+  return `${remainingSeconds}秒`;
 }
 
 function normalizePrompt(value: string | null | undefined): string {

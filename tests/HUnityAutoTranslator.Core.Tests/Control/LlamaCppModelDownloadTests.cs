@@ -114,6 +114,46 @@ public sealed class LlamaCppModelDownloadTests
     }
 
     [Fact]
+    public async Task StartDownload_uses_generic_download_messages()
+    {
+        using var temp = new TemporaryDirectory();
+        using var gate = new ManualResetEventSlim(false);
+        var payload = Encoding.UTF8.GetBytes("message");
+        var preset = CreatePreset("message", payload);
+        using var client = new HttpClient(new BlockingHandler(payload, gate));
+        var manager = new LlamaCppModelDownloadManager(client, temp.Path, new[] { preset });
+
+        var startStatus = manager.StartDownload(preset.Id);
+        var downloadingStatus = await WaitForStateAsync(manager, "downloading");
+        gate.Set();
+        await WaitForTerminalStatusAsync(manager);
+
+        startStatus.Message.Should().Be("正在下载模型。");
+        downloadingStatus.Message.Should().Be("正在下载模型。");
+        startStatus.Message.Should().NotContain("魔塔");
+        downloadingStatus.Message.Should().NotContain("魔塔");
+    }
+
+    [Fact]
+    public async Task StartDownload_uses_generic_http_failure_message()
+    {
+        using var temp = new TemporaryDirectory();
+        var payload = Encoding.UTF8.GetBytes("http-failure");
+        var preset = CreatePreset("http-failure", payload);
+        using var client = new HttpClient(new StatusCodeHandler(HttpStatusCode.BadGateway));
+        var manager = new LlamaCppModelDownloadManager(client, temp.Path, new[] { preset });
+
+        manager.StartDownload(preset.Id);
+        var status = await WaitForTerminalStatusAsync(manager);
+
+        status.State.Should().Be("error");
+        status.Message.Should().Contain("模型下载失败");
+        status.Message.Should().Contain("HTTP 502");
+        status.Message.Should().NotContain("魔塔");
+        status.Message.Should().NotContain("魔搭");
+    }
+
+    [Fact]
     public async Task StartDownload_deletes_part_file_when_sha256_does_not_match()
     {
         using var temp = new TemporaryDirectory();
@@ -297,6 +337,21 @@ public sealed class LlamaCppModelDownloadTests
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
             return Task.Run(() => Read(buffer, offset, count), cancellationToken);
+        }
+    }
+
+    private sealed class StatusCodeHandler : HttpMessageHandler
+    {
+        private readonly HttpStatusCode _statusCode;
+
+        public StatusCodeHandler(HttpStatusCode statusCode)
+        {
+            _statusCode = statusCode;
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(new HttpResponseMessage(_statusCode));
         }
     }
 

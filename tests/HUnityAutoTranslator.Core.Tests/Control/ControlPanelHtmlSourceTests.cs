@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using FluentAssertions;
 
 namespace HUnityAutoTranslator.Core.Tests.Control;
@@ -58,6 +59,17 @@ public sealed class ControlPanelHtmlSourceTests
         htmlSource.Should().Contain("model-preset-card");
         htmlSource.Should().Contain("model-preset-license");
         htmlSource.Should().Contain("openLlamaCppModelDownload");
+        htmlSource.Should().Contain(" · 速度 ");
+        htmlSource.Should().Contain(" · 剩余 ");
+        htmlSource.Should().Contain("计算中");
+        Regex.IsMatch(htmlSource, @"(?s)\.model-preset-list\s*\{[^}]*grid-template-columns:\s*1fr;")
+            .Should().BeTrue("the generated model preset list should stay single-column at every desktop width");
+        Regex.IsMatch(htmlSource, @"(?s)\.model-preset-card\s*\{[^}]*grid-template-columns:\s*minmax\(0,1fr\);[^}]*place-content:\s*start stretch;")
+            .Should().BeTrue("the generated model preset card content should use a full-width left-aligned grid track");
+        Regex.IsMatch(htmlSource, @"(?s)\.model-preset-card>span\s*\{[^}]*width:\s*100%;[^}]*min-width:\s*0;[^}]*max-width:\s*100%;?")
+            .Should().BeTrue("the generated model preset card text rows should fill the card width");
+        Regex.IsMatch(htmlSource, @"(?s)@media \(max-width:780px\)[^{]*\{[^}]*\.model-preset-list,")
+            .Should().BeFalse("single-column preset layout should not depend on the mobile breakpoint");
         htmlSource.Should().NotContain("兼容备选");
         htmlSource.Should().NotContain("魔塔");
         htmlSource.Should().NotContain("魔搭");

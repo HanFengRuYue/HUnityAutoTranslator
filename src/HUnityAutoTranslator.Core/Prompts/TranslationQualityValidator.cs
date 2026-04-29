@@ -185,12 +185,17 @@ public static class TranslationQualityValidator
             return false;
         }
 
+        if (IsAllowedUntranslatedToken(normalizedSource))
+        {
+            return false;
+        }
+
         if (hints.Contains("accessibility_option") || hints.Contains("menu_action") || hints.Contains("settings_value"))
         {
             return true;
         }
 
-        return !IsAllowedUntranslatedToken(normalizedSource);
+        return true;
     }
 
     private static bool IsSuspiciousShortSettingValue(
