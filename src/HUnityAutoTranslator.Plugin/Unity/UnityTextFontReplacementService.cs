@@ -11,14 +11,16 @@ internal sealed class UnityTextFontReplacementService
 {
     private static readonly string[] CandidateFontFiles =
     {
-        @"C:\Windows\Fonts\NotoSansSC-VF.ttf",
         @"C:\Windows\Fonts\simhei.ttf",
         @"C:\Windows\Fonts\Deng.ttf",
-        @"C:\Windows\Fonts\NotoSerifSC-VF.ttf",
         @"C:\Windows\Fonts\simfang.ttf",
         @"C:\Windows\Fonts\simkai.ttf",
-        @"C:\Windows\Fonts\simsunb.ttf"
+        @"C:\Windows\Fonts\simsunb.ttf",
+        @"C:\Windows\Fonts\NotoSansSC-VF.ttf",
+        @"C:\Windows\Fonts\NotoSerifSC-VF.ttf"
     };
+
+    private static readonly char[] FontProbeCharacters = { '测', '试', '汉', '語' };
 
     private static readonly Dictionary<string, string[]> VariableFontRegularFaces = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -38,6 +40,13 @@ internal sealed class UnityTextFontReplacementService
         "TMPro.TMP_Settings, Unity.TextMeshPro",
         "TMPro.TMP_Settings, Assembly-CSharp",
         "TMPro.TMP_Settings, Unity.TextMeshProModule"
+    };
+
+    private static readonly string[] TmpMaterialReferenceManagerTypeNames =
+    {
+        "TMPro.MaterialReferenceManager, Unity.TextMeshPro",
+        "TMPro.MaterialReferenceManager, Assembly-CSharp",
+        "TMPro.MaterialReferenceManager, Unity.TextMeshProModule"
     };
 
     private readonly ITranslationCache _cache;
@@ -61,6 +70,11 @@ internal sealed class UnityTextFontReplacementService
     private bool _runtimeReplacementFontsEnabled = true;
     private bool _warnedNoUnityFont;
     private bool _warnedTmpUnavailable;
+    private bool _warnedTmpFallbackListUnavailable;
+    private bool _warnedTmpDirectAssignmentFailure;
+    private bool _loggedTmpDirectAssignment;
+    private bool _warnedTmpInstanceFallbackFailure;
+    private bool _loggedTmpInstanceFallback;
 
     public UnityTextFontReplacementService(
         ITranslationCache cache,
@@ -127,7 +141,7 @@ internal sealed class UnityTextFontReplacementService
 
         if (!_runtimeReplacementFontsEnabled)
         {
-            RestoreKnownFont(component, _tmpOriginalFonts);
+            RestoreKnownTmpFont(component);
             return;
         }
 
@@ -144,8 +158,26 @@ internal sealed class UnityTextFontReplacementService
         }
 
         RememberFontTarget(component, _tmpFontTargets, _tmpOriginalFonts);
+        var addedInstanceFallback = AddTmpFallbackToComponentFont(component, fontAsset);
         _tmpReplacementFonts[component.GetInstanceID()] = fontAsset;
-        SetProperty(component, "font", fontAsset);
+        if (SetTmpFont(component, fontAsset))
+        {
+            LogTmpDirectAssignment(fontAsset);
+        }
+        else
+        {
+            WarnTmpDirectAssignmentFailed(component, fontAsset);
+        }
+
+        if (addedInstanceFallback)
+        {
+            LogTmpInstanceFallback(fontAsset);
+        }
+        else
+        {
+            WarnTmpInstanceFallbackFailed(component, fontAsset);
+        }
+
         AddTmpFallback(fontAsset);
     }
 
@@ -207,17 +239,25 @@ internal sealed class UnityTextFontReplacementService
         }
     }
 
+    private void RestoreKnownTmpFont(UnityEngine.Object component)
+    {
+        if (_tmpOriginalFonts.TryGetValue(component.GetInstanceID(), out var originalFont))
+        {
+            SetTmpFont(component, originalFont);
+        }
+    }
+
     private int RestoreOriginalFontTargets()
     {
         return RestoreFontTargets(_uguiFontTargets, _uguiOriginalFonts, _uguiReplacementFonts) +
-            RestoreFontTargets(_tmpFontTargets, _tmpOriginalFonts, _tmpReplacementFonts) +
+            RestoreTmpFontTargets(_tmpFontTargets, _tmpOriginalFonts, _tmpReplacementFonts) +
             RestoreImguiFont();
     }
 
     private int ApplyReplacementFontTargets()
     {
         return ApplyFontTargets(_uguiFontTargets, _uguiOriginalFonts, _uguiReplacementFonts) +
-            ApplyFontTargets(_tmpFontTargets, _tmpOriginalFonts, _tmpReplacementFonts) +
+            ApplyTmpFontTargets(_tmpFontTargets, _tmpOriginalFonts, _tmpReplacementFonts) +
             ApplyImguiReplacementFont();
     }
 
@@ -238,6 +278,56 @@ internal sealed class UnityTextFontReplacementService
             }
 
             if (originalFonts.TryGetValue(item.Key, out var originalFont) && SetProperty(item.Value, "font", originalFont))
+            {
+                changed++;
+            }
+        }
+
+        return changed;
+    }
+
+    private static int RestoreTmpFontTargets(
+        Dictionary<int, UnityEngine.Object> targets,
+        Dictionary<int, object?> originalFonts,
+        Dictionary<int, object?> replacementFonts)
+    {
+        var changed = 0;
+        foreach (var item in targets.ToArray())
+        {
+            if (item.Value == null)
+            {
+                targets.Remove(item.Key);
+                originalFonts.Remove(item.Key);
+                replacementFonts.Remove(item.Key);
+                continue;
+            }
+
+            if (originalFonts.TryGetValue(item.Key, out var originalFont) && SetTmpFont(item.Value, originalFont))
+            {
+                changed++;
+            }
+        }
+
+        return changed;
+    }
+
+    private static int ApplyTmpFontTargets(
+        Dictionary<int, UnityEngine.Object> targets,
+        Dictionary<int, object?> originalFonts,
+        Dictionary<int, object?> replacementFonts)
+    {
+        var changed = 0;
+        foreach (var item in targets.ToArray())
+        {
+            if (item.Value == null)
+            {
+                targets.Remove(item.Key);
+                originalFonts.Remove(item.Key);
+                replacementFonts.Remove(item.Key);
+                continue;
+            }
+
+            if (replacementFonts.TryGetValue(item.Key, out var replacementFont) && SetTmpFont(item.Value, replacementFont))
             {
                 changed++;
             }
@@ -389,6 +479,7 @@ internal sealed class UnityTextFontReplacementService
             }
 
             EnableDynamicAtlas(fontAsset);
+            RegisterTmpFontAsset(fontAsset);
             _tmpFontAssets[cacheKey] = fontAsset;
             resolvedFont = resolved;
             return fontAsset;
@@ -480,7 +571,7 @@ internal sealed class UnityTextFontReplacementService
         foreach (var regularFaceName in candidate.RegularFaceNames)
         {
             var regularFont = CreateUnityFont(regularFaceName, size);
-            if (regularFont != null)
+            if (regularFont != null && IsUsableReplacementFont(regularFont, size))
             {
                 return regularFont;
             }
@@ -522,6 +613,34 @@ internal sealed class UnityTextFontReplacementService
         {
             return null;
         }
+    }
+
+    private static bool IsUsableReplacementFont(Font font, int size)
+    {
+        try
+        {
+            font.RequestCharactersInTexture(new string(FontProbeCharacters), size);
+        }
+        catch
+        {
+        }
+
+        foreach (var character in FontProbeCharacters)
+        {
+            try
+            {
+                if (font.HasCharacter(character))
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static string[] ResolveVariableFontRegularFaceNames(string value)
@@ -636,7 +755,7 @@ internal sealed class UnityTextFontReplacementService
         var fallbackProperty = settingsType?.GetProperty("fallbackFontAssets", BindingFlags.Public | BindingFlags.Static);
         if (fallbackProperty?.GetValue(null, null) is not IList fallbacks)
         {
-            WarnTmpUnavailable();
+            WarnTmpFallbackListUnavailable();
             return false;
         }
 
@@ -649,14 +768,59 @@ internal sealed class UnityTextFontReplacementService
         return true;
     }
 
+    private static bool AddTmpFallbackToComponentFont(object component, object fontAsset)
+    {
+        var currentFontAsset = GetProperty(component, "font");
+        if (currentFontAsset == null || ReferenceEquals(currentFontAsset, fontAsset))
+        {
+            return false;
+        }
+
+        return AddTmpFallbackToFontAsset(currentFontAsset, fontAsset);
+    }
+
+    private static bool AddTmpFallbackToFontAsset(object targetFontAsset, object fallbackFontAsset)
+    {
+        var fallbackTable =
+            GetProperty(targetFontAsset, "fallbackFontAssetTable") ??
+            GetField(targetFontAsset, "m_FallbackFontAssetTable");
+        if (fallbackTable == null)
+        {
+            return false;
+        }
+
+        if (CollectionContains(fallbackTable, fallbackFontAsset))
+        {
+            return true;
+        }
+
+        return CollectionAdd(fallbackTable, fallbackFontAsset);
+    }
+
     private static Type? ResolveType(IEnumerable<string> typeNames)
     {
+        var fullNames = new List<string>();
         foreach (var typeName in typeNames)
         {
             var type = Type.GetType(typeName);
             if (type != null)
             {
                 return type;
+            }
+
+            var commaIndex = typeName.IndexOf(',');
+            fullNames.Add(commaIndex >= 0 ? typeName[..commaIndex].Trim() : typeName.Trim());
+        }
+
+        foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+        {
+            foreach (var fullName in fullNames)
+            {
+                var type = assembly.GetType(fullName, throwOnError: false, ignoreCase: false);
+                if (type != null)
+                {
+                    return type;
+                }
             }
         }
 
@@ -667,12 +831,88 @@ internal sealed class UnityTextFontReplacementService
     {
         SetProperty(fontAsset, "atlasPopulationMode", "Dynamic");
         SetProperty(fontAsset, "isMultiAtlasTexturesEnabled", true);
+        InvokeMethodIfAvailable(fontAsset, "ReadFontAssetDefinition");
+    }
+
+    private static void RegisterTmpFontAsset(object fontAsset)
+    {
+        var managerType = ResolveType(TmpMaterialReferenceManagerTypeNames);
+        if (managerType == null)
+        {
+            return;
+        }
+
+        var methods = managerType
+            .GetMethods(BindingFlags.Public | BindingFlags.Static)
+            .Where(method => method.Name == "AddFontAsset" && method.GetParameters().Length == 1);
+        foreach (var method in methods)
+        {
+            var parameter = method.GetParameters()[0];
+            if (!IsCompatibleValue(parameter.ParameterType, fontAsset))
+            {
+                continue;
+            }
+
+            try
+            {
+                method.Invoke(null, new[] { fontAsset });
+                return;
+            }
+            catch
+            {
+            }
+        }
     }
 
     private static object? GetProperty(object instance, string propertyName)
     {
         var property = instance.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
-        return property == null || !property.CanRead ? null : property.GetValue(instance, null);
+        if (property != null && property.CanRead)
+        {
+            try
+            {
+                return property.GetValue(instance, null);
+            }
+            catch
+            {
+            }
+        }
+
+        var getter = instance
+            .GetType()
+            .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .FirstOrDefault(method => method.Name == $"get_{propertyName}" && method.GetParameters().Length == 0);
+        if (getter == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return getter.Invoke(instance, Array.Empty<object?>());
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static object? GetField(object instance, string fieldName)
+    {
+        var field = instance.GetType().GetField(fieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        if (field == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return field.GetValue(instance);
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static bool SetProperty(object instance, string propertyName, object? value)
@@ -680,7 +920,7 @@ internal sealed class UnityTextFontReplacementService
         var property = instance.GetType().GetProperty(propertyName, BindingFlags.Public | BindingFlags.Instance);
         if (property == null || !property.CanWrite)
         {
-            return false;
+            return InvokeSetter(instance, propertyName, value);
         }
 
         if (value == null)
@@ -690,23 +930,337 @@ internal sealed class UnityTextFontReplacementService
                 return false;
             }
 
-            property.SetValue(instance, null, null);
-            return true;
+            return TrySetPropertyValue(instance, property, null) || InvokeSetter(instance, propertyName, null);
         }
 
         if (property.PropertyType.IsEnum && value is string enumName)
         {
-            property.SetValue(instance, Enum.Parse(property.PropertyType, enumName), null);
-            return true;
+            var enumValue = Enum.Parse(property.PropertyType, enumName);
+            return TrySetPropertyValue(instance, property, enumValue) || InvokeSetter(instance, propertyName, enumValue);
         }
 
-        if (!property.PropertyType.IsInstanceOfType(value))
+        if (!IsCompatibleValue(property.PropertyType, value))
+        {
+            return InvokeSetter(instance, propertyName, value);
+        }
+
+        return TrySetPropertyValue(instance, property, value) || InvokeSetter(instance, propertyName, value);
+    }
+
+    private static bool SetField(object instance, string fieldName, object? value)
+    {
+        var field = instance.GetType().GetField(fieldName, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        if (field == null)
         {
             return false;
         }
 
-        property.SetValue(instance, value, null);
-        return true;
+        if (value == null)
+        {
+            if (field.FieldType.IsValueType && Nullable.GetUnderlyingType(field.FieldType) == null)
+            {
+                return false;
+            }
+
+            return TrySetFieldValue(instance, field, null);
+        }
+
+        if (field.FieldType.IsEnum && value is string enumName)
+        {
+            return TrySetFieldValue(instance, field, Enum.Parse(field.FieldType, enumName));
+        }
+
+        if (!IsCompatibleValue(field.FieldType, value))
+        {
+            return false;
+        }
+
+        return TrySetFieldValue(instance, field, value);
+    }
+
+    private static bool SetTmpFont(object component, object? fontAsset)
+    {
+        if (fontAsset != null)
+        {
+            PopulateTmpFontAsset(fontAsset, component);
+        }
+
+        var changed = SetProperty(component, "font", fontAsset);
+        changed |= SetProperty(component, "fontAsset", fontAsset);
+        changed |= SetField(component, "m_fontAsset", fontAsset);
+        changed |= SetField(component, "m_currentFontAsset", fontAsset);
+
+        if (fontAsset != null)
+        {
+            var material = GetProperty(fontAsset, "material") ?? GetProperty(fontAsset, "fontMaterial");
+            if (material != null)
+            {
+                SetProperty(component, "fontMaterial", material);
+                SetProperty(component, "fontSharedMaterial", material);
+                SetProperty(component, "sharedMaterial", material);
+                SetProperty(component, "material", material);
+                SetField(component, "m_fontMaterial", material);
+                SetField(component, "m_sharedMaterial", material);
+                SetField(component, "m_currentMaterial", material);
+                SetField(component, "m_material", material);
+            }
+        }
+
+        MarkTmpTextDirty(component);
+        return changed;
+    }
+
+    private static void MarkTmpTextDirty(object component)
+    {
+        SetProperty(component, "havePropertiesChanged", true);
+        SetField(component, "m_havePropertiesChanged", true);
+        SetField(component, "m_hasFontAssetChanged", true);
+        InvokeMethodIfAvailable(component, "LoadFontAsset");
+        InvokeMethodIfAvailable(component, "SetAllDirty");
+        InvokeMethodIfAvailable(component, "SetVerticesDirty");
+        InvokeMethodIfAvailable(component, "SetLayoutDirty");
+        InvokeMethodIfAvailable(component, "SetMaterialDirty");
+        InvokeMethodIfAvailable(component, "ForceMeshUpdate");
+    }
+
+    private static void PopulateTmpFontAsset(object fontAsset, object component)
+    {
+        if (GetProperty(component, "text") is not string text || string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        var methods = fontAsset
+            .GetType()
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(method => method.Name == "TryAddCharacters");
+        foreach (var method in methods)
+        {
+            var parameters = method.GetParameters();
+            if (parameters.Length != 2 ||
+                parameters[0].ParameterType != typeof(string) ||
+                parameters[1].ParameterType != typeof(bool))
+            {
+                continue;
+            }
+
+            try
+            {
+                method.Invoke(fontAsset, new object[] { text, true });
+                return;
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private static void InvokeMethodIfAvailable(object instance, string methodName)
+    {
+        var methods = instance
+            .GetType()
+            .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .Where(method => method.Name == methodName && !method.ContainsGenericParameters)
+            .OrderBy(method => method.GetParameters().Length);
+
+        foreach (var method in methods)
+        {
+            var arguments = BuildSafeMethodArguments(method);
+            if (arguments == null)
+            {
+                continue;
+            }
+
+            try
+            {
+                method.Invoke(instance, arguments);
+                return;
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private static object?[]? BuildSafeMethodArguments(MethodInfo method)
+    {
+        var parameters = method.GetParameters();
+        var arguments = new object?[parameters.Length];
+        for (var i = 0; i < parameters.Length; i++)
+        {
+            var parameter = parameters[i];
+            if (parameter.HasDefaultValue)
+            {
+                arguments[i] = parameter.DefaultValue;
+                continue;
+            }
+
+            if (parameter.ParameterType == typeof(bool))
+            {
+                arguments[i] = false;
+                continue;
+            }
+
+            if (parameter.ParameterType.IsValueType)
+            {
+                arguments[i] = Activator.CreateInstance(parameter.ParameterType);
+                continue;
+            }
+
+            arguments[i] = null;
+        }
+
+        return arguments;
+    }
+
+    private static bool CollectionContains(object collection, object item)
+    {
+        if (collection is IList list)
+        {
+            try
+            {
+                return list.Contains(item);
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        var containsMethods = collection
+            .GetType()
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(method => method.Name == "Contains" && method.GetParameters().Length == 1);
+        foreach (var method in containsMethods)
+        {
+            var parameter = method.GetParameters()[0];
+            if (!IsCompatibleValue(parameter.ParameterType, item))
+            {
+                continue;
+            }
+
+            try
+            {
+                return method.Invoke(collection, new[] { item }) is true;
+            }
+            catch
+            {
+            }
+        }
+
+        return false;
+    }
+
+    private static bool CollectionAdd(object collection, object item)
+    {
+        if (collection is IList list)
+        {
+            try
+            {
+                list.Add(item);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        var addMethods = collection
+            .GetType()
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(method => method.Name == "Add" && method.GetParameters().Length == 1);
+        foreach (var method in addMethods)
+        {
+            var parameter = method.GetParameters()[0];
+            if (!IsCompatibleValue(parameter.ParameterType, item))
+            {
+                continue;
+            }
+
+            try
+            {
+                method.Invoke(collection, new[] { item });
+                return true;
+            }
+            catch
+            {
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TrySetPropertyValue(object instance, PropertyInfo property, object? value)
+    {
+        try
+        {
+            property.SetValue(instance, value, null);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool InvokeSetter(object instance, string propertyName, object? value)
+    {
+        var setterName = $"set_{propertyName}";
+        var setters = instance
+            .GetType()
+            .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .Where(method => method.Name == setterName && method.GetParameters().Length == 1);
+        foreach (var setter in setters)
+        {
+            var parameter = setter.GetParameters()[0];
+            var argument = value;
+            if (argument == null)
+            {
+                if (parameter.ParameterType.IsValueType && Nullable.GetUnderlyingType(parameter.ParameterType) == null)
+                {
+                    continue;
+                }
+            }
+            else if (parameter.ParameterType.IsEnum && argument is string enumName)
+            {
+                argument = Enum.Parse(parameter.ParameterType, enumName);
+            }
+            else if (!IsCompatibleValue(parameter.ParameterType, argument))
+            {
+                continue;
+            }
+
+            try
+            {
+                setter.Invoke(instance, new[] { argument });
+                return true;
+            }
+            catch
+            {
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TrySetFieldValue(object instance, FieldInfo field, object? value)
+    {
+        try
+        {
+            field.SetValue(instance, value);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool IsCompatibleValue(Type targetType, object value)
+    {
+        return targetType.IsInstanceOfType(value) ||
+            string.Equals(targetType.FullName, value.GetType().FullName, StringComparison.Ordinal);
     }
 
     private void WarnNoUnityFont()
@@ -729,6 +1283,65 @@ internal sealed class UnityTextFontReplacementService
 
         _warnedTmpUnavailable = true;
         _logger.LogWarning("TMP 字体替换已跳过：当前游戏缺少可用的 TextMeshPro 设置或字体接口。");
+    }
+
+    private void WarnTmpFallbackListUnavailable()
+    {
+        if (_warnedTmpFallbackListUnavailable)
+        {
+            return;
+        }
+
+        _warnedTmpFallbackListUnavailable = true;
+        _logger.LogWarning("TMP 全局后备字体未安装：当前游戏未暴露 TMP_Settings.fallbackFontAssets，已改为对捕获到的 TMP 文本直接替换字体。");
+    }
+
+    private void WarnTmpDirectAssignmentFailed(UnityEngine.Object component, object fontAsset)
+    {
+        if (_warnedTmpDirectAssignmentFailure)
+        {
+            return;
+        }
+
+        _warnedTmpDirectAssignmentFailure = true;
+        _logger.LogWarning(
+            "TMP 组件字体直接替换失败：" +
+            $"组件={component.GetType().FullName}，字体资产={fontAsset.GetType().FullName}。");
+    }
+
+    private void LogTmpDirectAssignment(object fontAsset)
+    {
+        if (_loggedTmpDirectAssignment)
+        {
+            return;
+        }
+
+        _loggedTmpDirectAssignment = true;
+        _logger.LogInfo($"TMP 组件字体已直接替换：{fontAsset.GetType().FullName}。");
+    }
+
+    private void WarnTmpInstanceFallbackFailed(UnityEngine.Object component, object fontAsset)
+    {
+        if (_warnedTmpInstanceFallbackFailure)
+        {
+            return;
+        }
+
+        _warnedTmpInstanceFallbackFailure = true;
+        _logger.LogWarning(
+            "TMP 组件字体后备表挂载失败：" +
+            $"组件={component.GetType().FullName}，字体资产={fontAsset.GetType().FullName}。");
+    }
+
+    private void LogTmpInstanceFallback(object fontAsset)
+    {
+        if (_loggedTmpInstanceFallback)
+        {
+            return;
+        }
+
+        _loggedTmpInstanceFallback = true;
+        _logger.LogInfo($"TMP 组件字体后备表已挂载：{fontAsset.GetType().FullName}。");
     }
 
     private void WarnTmpCandidatesFailed(IReadOnlyList<string> attemptedCandidates, string? lastError)
