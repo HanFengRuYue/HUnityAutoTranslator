@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using FluentAssertions;
 
 namespace HUnityAutoTranslator.Core.Tests.Packaging;
@@ -100,6 +101,77 @@ public sealed class PackageScriptTests
         script.Should().Contain("if ($GeneratePanelOnly)");
     }
 
+    [Fact]
+    public void Plugin_only_package_script_delegates_without_llamacpp_packages()
+    {
+        var root = FindRepositoryRoot();
+        var scriptPath = Path.Combine(root, "build", "package-plugin.ps1");
+
+        File.Exists(scriptPath).Should().BeTrue();
+
+        var script = File.ReadAllText(scriptPath);
+        script.Should().Contain("$packageScript = Join-Path $PSScriptRoot \"package.ps1\"");
+        script.Should().Contain("$parameters = @{");
+        script.Should().Contain("Configuration = $Configuration");
+        script.Should().Contain("Runtime = $Runtime");
+        script.Should().Contain("LlamaCppVariant = \"None\"");
+        script.Should().Contain("& $packageScript @parameters");
+        script.Should().NotContain("$arguments = @(");
+        script.Should().NotContain("Build-LlamaCppPackage");
+        script.Should().NotContain("Cuda13");
+        script.Should().NotContain("Vulkan");
+    }
+
+    [Fact]
+    public void Plugin_only_package_script_passes_named_parameters_to_package_script()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        var root = FindRepositoryRoot();
+        var tempRoot = Path.Combine(Path.GetTempPath(), "HUnityAutoTranslatorPackageScriptTests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempRoot);
+
+        try
+        {
+            File.Copy(
+                Path.Combine(root, "build", "package-plugin.ps1"),
+                Path.Combine(tempRoot, "package-plugin.ps1"));
+
+            File.WriteAllText(
+                Path.Combine(tempRoot, "package.ps1"),
+                """
+                param(
+                    [string]$Configuration = "Release",
+                    [ValidateSet("Mono", "IL2CPP", "All")]
+                    [string]$Runtime = "All",
+                    [ValidateSet("None", "Cuda13", "Vulkan", "All")]
+                    [string]$LlamaCppVariant = "All",
+                    [switch]$SkipNpmInstall
+                )
+
+                Write-Output "$Configuration|$Runtime|$LlamaCppVariant|$($SkipNpmInstall.IsPresent)"
+                """);
+
+            var result = RunPowerShell(
+                tempRoot,
+                "-NoProfile",
+                "-ExecutionPolicy", "Bypass",
+                "-File", "package-plugin.ps1",
+                "-Runtime", "Mono",
+                "-SkipNpmInstall");
+
+            result.ExitCode.Should().Be(0, result.StandardError);
+            result.StandardOutput.Trim().Should().Be("Release|Mono|None|True");
+        }
+        finally
+        {
+            Directory.Delete(tempRoot, recursive: true);
+        }
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
@@ -115,4 +187,36 @@ public sealed class PackageScriptTests
 
         throw new DirectoryNotFoundException("Could not locate HUnityAutoTranslator.sln from test output directory.");
     }
+
+    private static ProcessResult RunPowerShell(string workingDirectory, params string[] arguments)
+    {
+        using var process = new Process();
+        process.StartInfo = new ProcessStartInfo
+        {
+            FileName = "powershell",
+            WorkingDirectory = workingDirectory,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        foreach (var argument in arguments)
+        {
+            process.StartInfo.ArgumentList.Add(argument);
+        }
+
+        process.Start();
+        var standardOutput = process.StandardOutput.ReadToEnd();
+        var standardError = process.StandardError.ReadToEnd();
+        if (!process.WaitForExit(30_000))
+        {
+            process.Kill(entireProcessTree: true);
+            throw new TimeoutException("PowerShell package script test did not exit within 30 seconds.");
+        }
+
+        return new ProcessResult(process.ExitCode, standardOutput, standardError);
+    }
+
+    private sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError);
 }

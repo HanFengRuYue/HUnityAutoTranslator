@@ -19,17 +19,19 @@
 .\build\package.ps1
 ```
 
-默认会生成 Mono 与 IL2CPP 两个基础插件包，并额外生成两个只包含 llama.cpp 后端安装路径的可选本地后端包。只想生成插件包时：
+默认会生成 Mono 与 IL2CPP 两个基础插件包，并额外生成两个只包含 llama.cpp 后端安装路径的可选本地后端包。只想生成插件包时，使用插件专用脚本：
 
 ```powershell
-.\build\package.ps1 -LlamaCppVariant None
+.\build\package-plugin.ps1
 ```
+
+它会调用 `package.ps1 -LlamaCppVariant None`，只生成基础插件目录和 zip，不构建或重新打包 llama.cpp 后端包。
 
 只构建某一种 Unity 后端时：
 
 ```powershell
-.\build\package.ps1 -Runtime Mono -LlamaCppVariant None
-.\build\package.ps1 -Runtime IL2CPP -LlamaCppVariant None
+.\build\package-plugin.ps1 -Runtime Mono
+.\build\package-plugin.ps1 -Runtime IL2CPP
 ```
 
 只想生成其中一个 llama.cpp 后端包时：
