@@ -5,7 +5,9 @@ public sealed record ProviderProfile(
     string BaseUrl,
     string Endpoint,
     string Model,
-    bool ApiKeyConfigured)
+    bool ApiKeyConfigured,
+    string? OpenAICompatibleCustomHeaders = null,
+    string? OpenAICompatibleExtraBodyJson = null)
 {
     public static ProviderProfile DefaultOpenAi()
     {

@@ -28,6 +28,8 @@ public sealed record UpdateConfigRequest(
     string? ReasoningEffort = null,
     string? OutputVerbosity = null,
     string? DeepSeekThinkingMode = null,
+    string? OpenAICompatibleCustomHeaders = null,
+    string? OpenAICompatibleExtraBodyJson = null,
     double? Temperature = null,
     bool? ClearTemperature = null,
     string? CustomPrompt = null,

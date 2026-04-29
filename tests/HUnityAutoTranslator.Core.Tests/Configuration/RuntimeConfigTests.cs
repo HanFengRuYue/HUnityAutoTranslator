@@ -81,6 +81,7 @@ public sealed class RuntimeConfigTests
         config.LlamaCpp.BatchSize.Should().Be(2048);
         config.LlamaCpp.UBatchSize.Should().Be(512);
         config.LlamaCpp.FlashAttentionMode.Should().Be("auto");
+        config.LlamaCpp.AutoStartOnStartup.Should().BeFalse();
     }
 
     [Fact]

@@ -88,6 +88,8 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             ReasoningEffort: ReadString(values, ProviderSection, "ReasoningEffort"),
             OutputVerbosity: ReadString(values, ProviderSection, "OutputVerbosity"),
             DeepSeekThinkingMode: ReadString(values, ProviderSection, "DeepSeekThinkingMode"),
+            OpenAICompatibleCustomHeaders: ReadPrompt(values, ProviderSection, "OpenAICompatibleCustomHeaders"),
+            OpenAICompatibleExtraBodyJson: ReadPrompt(values, ProviderSection, "OpenAICompatibleExtraBodyJson"),
             Temperature: ReadDouble(values, ProviderSection, "Temperature"),
             ClearTemperature: temperatureText != null && string.IsNullOrWhiteSpace(temperatureText),
             CustomPrompt: ReadPrompt(values, ProviderSection, "CustomPrompt"),
@@ -124,7 +126,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
 
     private static LlamaCppConfig? BuildLlamaCppConfig(Dictionary<string, Dictionary<string, string>> values)
     {
-        var keys = new[] { "ModelPath", "ContextSize", "GpuLayers", "ParallelSlots", "BatchSize", "UBatchSize", "FlashAttentionMode" };
+        var keys = new[] { "ModelPath", "ContextSize", "GpuLayers", "ParallelSlots", "BatchSize", "UBatchSize", "FlashAttentionMode", "AutoStartOnStartup" };
         if (!keys.Any(key => HasValue(values, LlamaCppSection, key)))
         {
             return null;
@@ -138,7 +140,8 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             ReadInt(values, LlamaCppSection, "ParallelSlots") ?? defaults.ParallelSlots,
             ReadInt(values, LlamaCppSection, "BatchSize") ?? defaults.BatchSize,
             ReadInt(values, LlamaCppSection, "UBatchSize") ?? defaults.UBatchSize,
-            ReadString(values, LlamaCppSection, "FlashAttentionMode") ?? defaults.FlashAttentionMode);
+            ReadString(values, LlamaCppSection, "FlashAttentionMode") ?? defaults.FlashAttentionMode,
+            ReadBool(values, LlamaCppSection, "AutoStartOnStartup") ?? defaults.AutoStartOnStartup);
     }
 
     private static PromptTemplateConfig? BuildPromptTemplates(Dictionary<string, Dictionary<string, string>> values)
@@ -213,6 +216,8 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "OpenAI 推理强度。普通翻译建议 none。", "none", "可选：none、low、medium、high、xhigh、max。", "ReasoningEffort", Text(config.ReasoningEffort ?? defaults.ReasoningEffort));
         Option(builder, "OpenAI 输出详细程度。普通翻译建议 low。", "low", "可选：low、medium、high。", "OutputVerbosity", Text(config.OutputVerbosity ?? defaults.OutputVerbosity));
         Option(builder, "DeepSeek 思考模式。普通 UI 翻译建议 disabled。", "disabled", "可选：enabled、disabled。", "DeepSeekThinkingMode", Text(config.DeepSeekThinkingMode ?? defaults.DeepSeekThinkingMode));
+        Option(builder, "OpenAI 兼容模式自定义请求头。每行 Header-Name: value；Authorization 和 Content-Type 由插件维护。", "留空", "示例：HTTP-Referer: http://127.0.0.1\\nX-Title: HUnity。", "OpenAICompatibleCustomHeaders", Prompt(config.OpenAICompatibleCustomHeaders));
+        Option(builder, "OpenAI 兼容模式额外请求体 JSON。必须是 JSON object，且不会覆盖插件生成的 model、messages 等字段。", "留空", "示例：{\"stream\":false}。", "OpenAICompatibleExtraBodyJson", Prompt(config.OpenAICompatibleExtraBodyJson));
         Option(builder, "采样温度。留空表示使用服务默认值。", "留空", "范围：0 到 2。", "Temperature", NullableDouble(config.Temperature));
         Option(builder, "自定义系统提示词。留空使用内置提示词；需要换行时写 \\n。", "留空", "可使用 {TargetLanguage}、{StyleInstruction}、{GameTitle}、{GameContext} 占位符。", "CustomPrompt", Prompt(config.CustomPrompt));
         Option(builder, "API Key 临时填写处。", "留空", "如果你不想打开控制面板，可以把密钥填在这里；插件下次启动会自动加密保存，并清空这一项。", "ApiKey", Text(settings.ApiKey));
@@ -281,6 +286,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "llama.cpp prompt batch size。", "2048", "范围：128 到 8192。", "BatchSize", Int(llamaCpp.BatchSize));
         Option(builder, "llama.cpp physical ubatch size。", "512", "范围：64 到 4096，且不超过 BatchSize。", "UBatchSize", Int(llamaCpp.UBatchSize));
         Option(builder, "llama.cpp Flash Attention 模式。", "auto", "可选：auto、on、off。", "FlashAttentionMode", Text(llamaCpp.FlashAttentionMode));
+        Option(builder, "上次手动启动成功后，下次启动游戏时是否自动启动 llama.cpp。本项会由启动/停止按钮自动维护。", "false", "true 或 false。", "AutoStartOnStartup", Bool(llamaCpp.AutoStartOnStartup));
 
         return builder.ToString();
     }

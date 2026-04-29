@@ -1,6 +1,7 @@
 using BepInEx;
 using BepInEx.Logging;
 using HUnityAutoTranslator.Core.Caching;
+using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Dispatching;
 using HUnityAutoTranslator.Core.Glossary;
@@ -44,6 +45,8 @@ internal sealed class PluginRuntime : IDisposable
 
     public void Start()
     {
+        WindowsConsoleEncoding.ConfigureUtf8();
+
         try
         {
             var dataDirectory = Path.Combine(Paths.ConfigPath, MyPluginInfo.PLUGIN_NAME);
@@ -87,6 +90,7 @@ internal sealed class PluginRuntime : IDisposable
                 _logger);
             _httpServer.Start(config.HttpHost, config.HttpPort);
             _hotkeys = new RuntimeHotkeyController(_httpServer, _captureCoordinator, _resultApplier, _fontReplacement, _logger);
+            StartLlamaCppIfConfigured();
             _logger.LogInfo($"{MyPluginInfo.PLUGIN_NAME} 已加载。控制面板：{_httpServer.Url}");
             OpenControlPanelIfConfigured();
             _logger.LogInfo($"设置文件：{settingsPath}");
@@ -97,6 +101,46 @@ internal sealed class PluginRuntime : IDisposable
         {
             _logger.LogError($"启动失败，插件将保持停用：{ex}");
         }
+    }
+
+    private void StartLlamaCppIfConfigured()
+    {
+        if (_controlPanel == null || _llamaCppServer == null)
+        {
+            return;
+        }
+
+        var config = _controlPanel.GetConfig();
+        if (config.Provider.Kind != ProviderKind.LlamaCpp || !config.LlamaCpp.AutoStartOnStartup)
+        {
+            return;
+        }
+
+        _logger.LogInfo("检测到上次使用本地模型，正在后台自动启动 llama.cpp。");
+        _ = Task.Run(async () =>
+        {
+            try
+            {
+                var status = await _llamaCppServer.StartAsync(_controlPanel.GetConfig(), CancellationToken.None).ConfigureAwait(false);
+                _controlPanel.SetLlamaCppStatus(status);
+                if (status.State == "error")
+                {
+                    _controlPanel.SetLastError(status.Message);
+                    _controlPanel.SetProviderStatus(new ProviderStatus("error", status.Message, DateTimeOffset.UtcNow));
+                    _logger.LogWarning($"自动启动 llama.cpp 本地模型失败：{status.Message}");
+                    return;
+                }
+
+                _logger.LogInfo($"自动启动 llama.cpp 本地模型：{status.Message}");
+            }
+            catch (Exception ex)
+            {
+                var message = $"自动启动 llama.cpp 本地模型失败：{ex.Message}";
+                _controlPanel.SetLastError(message);
+                _controlPanel.SetProviderStatus(new ProviderStatus("error", message, DateTimeOffset.UtcNow));
+                _logger.LogWarning(message);
+            }
+        });
     }
 
     private void OpenControlPanelIfConfigured()

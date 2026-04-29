@@ -44,6 +44,23 @@ public sealed class PluginProjectRuntimeTests
         il2CppLoop.Should().Contain("_runtime?.RenderGui()");
     }
 
+    [Fact]
+    public void Plugin_runtime_configures_windows_console_for_utf8_before_chinese_logs()
+    {
+        var root = FindRepositoryRoot();
+        var runtime = File.ReadAllText(Path.Combine(root, "src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+        var encoding = File.ReadAllText(Path.Combine(root, "src", "HUnityAutoTranslator.Plugin", "WindowsConsoleEncoding.cs"));
+
+        runtime.Should().Contain("WindowsConsoleEncoding.ConfigureUtf8();");
+        runtime.IndexOf("WindowsConsoleEncoding.ConfigureUtf8();", StringComparison.Ordinal)
+            .Should()
+            .BeLessThan(runtime.IndexOf("_logger.LogInfo($\"{MyPluginInfo.PLUGIN_NAME} 已加载。", StringComparison.Ordinal));
+        encoding.Should().Contain("SetConsoleOutputCP(Utf8CodePage)");
+        encoding.Should().Contain("SetConsoleCP(Utf8CodePage)");
+        encoding.Should().Contain("Console.OutputEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false)");
+        encoding.Should().Contain("catch");
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

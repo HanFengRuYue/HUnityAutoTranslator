@@ -77,6 +77,8 @@ public sealed class ChatCompletionsProvider : ITranslationProvider
             };
         }
 
+        OpenAICompatibleRequestOptions.ApplyExtraBody(body, _profile);
+
         using var httpRequest = CreateRequest(body);
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(_timeout);
@@ -106,6 +108,8 @@ public sealed class ChatCompletionsProvider : ITranslationProvider
         {
             message.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
         }
+
+        OpenAICompatibleRequestOptions.ApplyCustomHeaders(message, _profile);
 
         return message;
     }

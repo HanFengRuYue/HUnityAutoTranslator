@@ -1,5 +1,6 @@
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Prompts;
+using HUnityAutoTranslator.Core.Providers;
 
 namespace HUnityAutoTranslator.Core.Control;
 
@@ -88,6 +89,8 @@ public sealed class ControlPanelService
                 config.ReasoningEffort,
                 config.OutputVerbosity,
                 config.DeepSeekThinkingMode,
+                config.OpenAICompatibleCustomHeaders,
+                config.OpenAICompatibleExtraBodyJson,
                 config.Temperature,
                 config.CustomPrompt,
                 PromptBuilder.BuildDefaultSystemPrompt(config.TargetLanguage, config.Style, config.GameTitle),
@@ -183,6 +186,18 @@ public sealed class ControlPanelService
         lock (_gate)
         {
             _llamaCppStatus = status;
+        }
+    }
+
+    public void SetLlamaCppAutoStartOnStartup(bool enabled)
+    {
+        lock (_gate)
+        {
+            _config = _config with
+            {
+                LlamaCpp = _config.LlamaCpp with { AutoStartOnStartup = enabled }
+            };
+            SaveSettings();
         }
     }
 
@@ -373,7 +388,13 @@ public sealed class ControlPanelService
     private void ApplyConfig(UpdateConfigRequest request)
     {
         var llamaCpp = BuildLlamaCppConfig(request.LlamaCpp);
-        var provider = BuildProviderProfile(request, llamaCpp);
+        var openAICompatibleCustomHeaders = OpenAICompatibleRequestOptions.NormalizeCustomHeaders(
+            request.OpenAICompatibleCustomHeaders,
+            _config.OpenAICompatibleCustomHeaders);
+        var openAICompatibleExtraBodyJson = OpenAICompatibleRequestOptions.NormalizeExtraBodyJson(
+            request.OpenAICompatibleExtraBodyJson,
+            _config.OpenAICompatibleExtraBodyJson);
+        var provider = BuildProviderProfile(request, llamaCpp, openAICompatibleCustomHeaders, openAICompatibleExtraBodyJson);
         var targetLanguage = string.IsNullOrWhiteSpace(request.TargetLanguage)
             ? _config.TargetLanguage
             : request.TargetLanguage.Trim();
@@ -468,6 +489,8 @@ public sealed class ControlPanelService
             ReasoningEffort = SelectKnown(request.ReasoningEffort, _config.ReasoningEffort, "none", "low", "medium", "high", "xhigh", "max"),
             OutputVerbosity = SelectKnown(request.OutputVerbosity, _config.OutputVerbosity, "low", "medium", "high"),
             DeepSeekThinkingMode = SelectKnown(request.DeepSeekThinkingMode, _config.DeepSeekThinkingMode, "enabled", "disabled"),
+            OpenAICompatibleCustomHeaders = openAICompatibleCustomHeaders,
+            OpenAICompatibleExtraBodyJson = openAICompatibleExtraBodyJson,
             Temperature = temperature,
             CustomPrompt = customPrompt,
             PromptTemplates = promptTemplates,
@@ -546,6 +569,8 @@ public sealed class ControlPanelService
                 ReasoningEffort: _config.ReasoningEffort,
                 OutputVerbosity: _config.OutputVerbosity,
                 DeepSeekThinkingMode: _config.DeepSeekThinkingMode,
+                OpenAICompatibleCustomHeaders: _config.OpenAICompatibleCustomHeaders,
+                OpenAICompatibleExtraBodyJson: _config.OpenAICompatibleExtraBodyJson,
                 Temperature: _config.Temperature,
                 CustomPrompt: _config.CustomPrompt,
                 PromptTemplates: _config.PromptTemplates,
@@ -582,7 +607,11 @@ public sealed class ControlPanelService
         });
     }
 
-    private ProviderProfile BuildProviderProfile(UpdateConfigRequest request, LlamaCppConfig llamaCpp)
+    private ProviderProfile BuildProviderProfile(
+        UpdateConfigRequest request,
+        LlamaCppConfig llamaCpp,
+        string? openAICompatibleCustomHeaders,
+        string? openAICompatibleExtraBodyJson)
     {
         var provider = _config.Provider;
         if (request.ProviderKind.HasValue && request.ProviderKind.Value != provider.Kind)
@@ -596,7 +625,9 @@ public sealed class ControlPanelService
                     "http://127.0.0.1:8000",
                     "/v1/chat/completions",
                     "local-model",
-                    _apiKeyConfigured),
+                    _apiKeyConfigured,
+                    openAICompatibleCustomHeaders,
+                    openAICompatibleExtraBodyJson),
                 ProviderKind.LlamaCpp => ProviderProfile.DefaultLlamaCpp(),
                 _ => provider
             };
@@ -609,7 +640,9 @@ public sealed class ControlPanelService
                 BaseUrl = "http://127.0.0.1:0",
                 Endpoint = "/v1/chat/completions",
                 Model = "local-model",
-                ApiKeyConfigured = true
+                ApiKeyConfigured = true,
+                OpenAICompatibleCustomHeaders = null,
+                OpenAICompatibleExtraBodyJson = null
             };
         }
 
@@ -618,7 +651,9 @@ public sealed class ControlPanelService
             BaseUrl = string.IsNullOrWhiteSpace(request.BaseUrl) ? provider.BaseUrl : request.BaseUrl.Trim(),
             Endpoint = string.IsNullOrWhiteSpace(request.Endpoint) ? provider.Endpoint : request.Endpoint.Trim(),
             Model = string.IsNullOrWhiteSpace(request.Model) ? provider.Model : request.Model.Trim(),
-            ApiKeyConfigured = IsApiKeyConfiguredForProvider(provider.Kind)
+            ApiKeyConfigured = IsApiKeyConfiguredForProvider(provider.Kind),
+            OpenAICompatibleCustomHeaders = provider.Kind == ProviderKind.OpenAICompatible ? openAICompatibleCustomHeaders : null,
+            OpenAICompatibleExtraBodyJson = provider.Kind == ProviderKind.OpenAICompatible ? openAICompatibleExtraBodyJson : null
         };
     }
 
@@ -637,7 +672,8 @@ public sealed class ControlPanelService
             RuntimeConfigLimits.ClampLlamaCppParallelSlots(request.ParallelSlots),
             batchSize,
             RuntimeConfigLimits.ClampLlamaCppUBatchSize(request.UBatchSize, batchSize),
-            RuntimeConfigLimits.NormalizeLlamaCppFlashAttentionMode(request.FlashAttentionMode));
+            RuntimeConfigLimits.NormalizeLlamaCppFlashAttentionMode(request.FlashAttentionMode),
+            request.AutoStartOnStartup);
     }
 
     private RuntimeConfig BuildEffectiveConfig(RuntimeConfig config)

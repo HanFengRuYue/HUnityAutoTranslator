@@ -66,6 +66,33 @@ public sealed class ProviderUtilityClientTests
         handler.RequestQuery.Should().Contain("limit=7");
     }
 
+    [Fact]
+    public async Task FetchModelsAsync_applies_openai_compatible_custom_headers_without_overriding_authorization()
+    {
+        var handler = new CaptureHandler("""{"object":"list","data":[{"id":"proxy-model","owned_by":"proxy"}]}""");
+        var client = new ProviderUtilityClient(new HttpClient(handler), () => "key");
+        var profile = new ProviderProfile(
+            ProviderKind.OpenAICompatible,
+            "http://127.0.0.1:9000",
+            "/v1/chat/completions",
+            "proxy-model",
+            true,
+            """
+            X-App-Title: HUnity
+            Authorization: Bearer ignored
+            Content-Type: text/plain
+            """);
+
+        var result = await client.FetchModelsAsync(profile, CancellationToken.None);
+
+        result.Succeeded.Should().BeTrue();
+        result.Models.Should().ContainSingle(model => model.Id == "proxy-model");
+        handler.RequestPath.Should().Be("/v1/models");
+        handler.AuthorizationHeader.Should().Be("Bearer key");
+        handler.Header("X-App-Title").Should().Be("HUnity");
+        handler.Header("Content-Type").Should().BeNull();
+    }
+
     private sealed class CaptureHandler : HttpMessageHandler
     {
         private readonly string _json;
@@ -79,11 +106,24 @@ public sealed class ProviderUtilityClientTests
 
         public string RequestPath { get; private set; } = string.Empty;
         public string RequestQuery { get; private set; } = string.Empty;
+        public string? AuthorizationHeader { get; private set; }
+        public Dictionary<string, string> Headers { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public string? Header(string name)
+        {
+            return Headers.TryGetValue(name, out var value) ? value : null;
+        }
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             RequestPath = request.RequestUri?.AbsolutePath ?? string.Empty;
             RequestQuery = request.RequestUri?.Query ?? string.Empty;
+            AuthorizationHeader = request.Headers.Authorization?.ToString();
+            foreach (var header in request.Headers)
+            {
+                Headers[header.Key] = string.Join(",", header.Value);
+            }
+
             return Task.FromResult(new HttpResponseMessage(_statusCode)
             {
                 Content = new StringContent(_json, Encoding.UTF8, "application/json")

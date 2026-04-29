@@ -179,6 +179,7 @@ internal sealed class LocalHttpServer : IDisposable
                 var status = _llamaCppServer == null
                     ? LlamaCppServerStatus.Error(_controlPanel.GetConfig().LlamaCpp, string.Empty, "llama.cpp 本地模型管理器不可用。")
                     : await _llamaCppServer.StartAsync(_controlPanel.GetConfig(), CancellationToken.None).ConfigureAwait(false);
+                _controlPanel.SetLlamaCppAutoStartOnStartup(status.State != "error");
                 _controlPanel.SetLlamaCppStatus(status);
                 await WriteJsonAsync(context.Response, status).ConfigureAwait(false);
             }
@@ -187,6 +188,7 @@ internal sealed class LocalHttpServer : IDisposable
                 var status = _llamaCppServer == null
                     ? LlamaCppServerStatus.Stopped(_controlPanel.GetConfig().LlamaCpp)
                     : _llamaCppServer.Stop(_controlPanel.GetConfig());
+                _controlPanel.SetLlamaCppAutoStartOnStartup(false);
                 _controlPanel.SetLlamaCppStatus(status);
                 await WriteJsonAsync(context.Response, status).ConfigureAwait(false);
             }

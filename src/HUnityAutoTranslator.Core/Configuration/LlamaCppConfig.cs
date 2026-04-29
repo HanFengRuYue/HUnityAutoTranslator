@@ -7,7 +7,8 @@ public sealed record LlamaCppConfig(
     int ParallelSlots,
     int BatchSize = 2048,
     int UBatchSize = 512,
-    string FlashAttentionMode = "auto")
+    string FlashAttentionMode = "auto",
+    bool AutoStartOnStartup = false)
 {
     public static LlamaCppConfig Default()
     {
@@ -18,6 +19,7 @@ public sealed record LlamaCppConfig(
             ParallelSlots: 1,
             BatchSize: 2048,
             UBatchSize: 512,
-            FlashAttentionMode: "auto");
+            FlashAttentionMode: "auto",
+            AutoStartOnStartup: false);
     }
 }

@@ -44,7 +44,7 @@ public sealed class ProviderUtilityClient
     {
         if (profile.Kind == ProviderKind.LlamaCpp)
         {
-            return new ProviderBalanceResult(true, "本地模型不适用余额或成本查询。", Array.Empty<ProviderBalanceInfo>());
+            return new ProviderBalanceResult(true, "本地模型不适用账户余额查询。", Array.Empty<ProviderBalanceInfo>());
         }
 
         var path = profile.Kind == ProviderKind.DeepSeek
@@ -55,7 +55,7 @@ public sealed class ProviderUtilityClient
         var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
-            return new ProviderBalanceResult(false, BuildFailureMessage("查询余额/成本失败", response.StatusCode), Array.Empty<ProviderBalanceInfo>());
+            return new ProviderBalanceResult(false, BuildFailureMessage("查询账户余额失败", response.StatusCode), Array.Empty<ProviderBalanceInfo>());
         }
 
         if (profile.Kind == ProviderKind.DeepSeek)
@@ -102,6 +102,8 @@ public sealed class ProviderUtilityClient
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
         }
+
+        OpenAICompatibleRequestOptions.ApplyCustomHeaders(request, profile);
 
         return request;
     }

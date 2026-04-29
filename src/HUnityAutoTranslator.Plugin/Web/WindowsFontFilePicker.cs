@@ -1,4 +1,7 @@
 using System.Runtime.InteropServices;
+#if NET6_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 using System.Threading;
 using HUnityAutoTranslator.Core.Control;
 
@@ -11,7 +14,7 @@ internal static class WindowsFontFilePicker
 
     public static FontPickResult PickFontFile()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (!IsWindows())
         {
             return FontPickResult.Unsupported();
         }
@@ -21,6 +24,12 @@ internal static class WindowsFontFilePicker
         {
             try
             {
+                if (!IsWindows())
+                {
+                    result = FontPickResult.Unsupported();
+                    return;
+                }
+
                 result = PickFontFileOnStaThread();
             }
             catch (Exception ex)
@@ -35,6 +44,9 @@ internal static class WindowsFontFilePicker
         return result ?? FontPickResult.Error("打开字体文件选择器失败。");
     }
 
+#if NET6_0_OR_GREATER
+    [SupportedOSPlatform("windows")]
+#endif
     private static FontPickResult PickFontFileOnStaThread()
     {
         IFileOpenDialog? dialog = null;
@@ -88,6 +100,14 @@ internal static class WindowsFontFilePicker
                 Marshal.ReleaseComObject(dialog);
             }
         }
+    }
+
+#if NET6_0_OR_GREATER
+    [SupportedOSPlatformGuard("windows")]
+#endif
+    private static bool IsWindows()
+    {
+        return RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
     }
 
     private static string? GetFileSystemPath(IShellItem item)

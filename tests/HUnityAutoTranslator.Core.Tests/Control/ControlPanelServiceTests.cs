@@ -232,6 +232,56 @@ public sealed class ControlPanelServiceTests
     }
 
     [Fact]
+    public void UpdateConfig_saves_openai_compatible_advanced_options_without_reserved_headers()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        service.UpdateConfig(new UpdateConfigRequest(
+            ProviderKind: ProviderKind.OpenAICompatible,
+            OpenAICompatibleCustomHeaders: """
+                X-App-Title: HUnity
+                Authorization: Bearer wrong
+                Content-Type: text/plain
+                # ignored comment
+                X-Feature: translation
+                """,
+            OpenAICompatibleExtraBodyJson: """{"stream":false,"metadata":{"source":"panel"}}"""));
+
+        var state = service.GetState();
+        var config = service.GetConfig();
+
+        state.OpenAICompatibleCustomHeaders.Should().Be("X-App-Title: HUnity\nX-Feature: translation");
+        state.OpenAICompatibleExtraBodyJson.Should().Be("""{"stream":false,"metadata":{"source":"panel"}}""");
+        config.OpenAICompatibleCustomHeaders.Should().Be("X-App-Title: HUnity\nX-Feature: translation");
+        config.OpenAICompatibleExtraBodyJson.Should().Be("""{"stream":false,"metadata":{"source":"panel"}}""");
+        config.Provider.OpenAICompatibleCustomHeaders.Should().Be("X-App-Title: HUnity\nX-Feature: translation");
+        config.Provider.OpenAICompatibleExtraBodyJson.Should().Be("""{"stream":false,"metadata":{"source":"panel"}}""");
+    }
+
+    [Fact]
+    public void UpdateConfig_rejects_invalid_openai_compatible_advanced_options_without_crashing()
+    {
+        var service = ControlPanelService.CreateDefault();
+        service.UpdateConfig(new UpdateConfigRequest(
+            ProviderKind: ProviderKind.OpenAICompatible,
+            OpenAICompatibleCustomHeaders: "X-Gateway: one",
+            OpenAICompatibleExtraBodyJson: """{"stream":false}"""));
+
+        service.UpdateConfig(new UpdateConfigRequest(
+            ProviderKind: ProviderKind.OpenAICompatible,
+            OpenAICompatibleCustomHeaders: """
+                MissingSeparator
+                Authorization: Bearer wrong
+                """,
+            OpenAICompatibleExtraBodyJson: """["not-an-object"]"""));
+
+        var state = service.GetState();
+
+        state.OpenAICompatibleCustomHeaders.Should().Be("X-Gateway: one");
+        state.OpenAICompatibleExtraBodyJson.Should().Be("""{"stream":false}""");
+    }
+
+    [Fact]
     public void UpdateConfig_changes_to_llamacpp_without_requiring_api_key()
     {
         var service = ControlPanelService.CreateDefault();
@@ -263,6 +313,7 @@ public sealed class ControlPanelServiceTests
         state.LlamaCpp.BatchSize.Should().Be(4096);
         state.LlamaCpp.UBatchSize.Should().Be(1024);
         state.LlamaCpp.FlashAttentionMode.Should().Be("on");
+        state.LlamaCpp.AutoStartOnStartup.Should().BeFalse();
         state.EffectiveMaxConcurrentRequests.Should().Be(2);
         state.LlamaCppStatus.State.Should().Be("stopped");
         state.LlamaCppStatus.Port.Should().Be(0);
@@ -295,6 +346,43 @@ public sealed class ControlPanelServiceTests
         state.LlamaCpp.BatchSize.Should().Be(128);
         state.LlamaCpp.UBatchSize.Should().Be(128);
         state.LlamaCpp.FlashAttentionMode.Should().Be("auto");
+        state.LlamaCpp.AutoStartOnStartup.Should().BeFalse();
+    }
+
+    [Fact]
+    public void SetLlamaCppAutoStartOnStartup_persists_without_changing_runtime_port()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+        first.UpdateConfig(new UpdateConfigRequest(
+            ProviderKind: ProviderKind.LlamaCpp,
+            LlamaCpp: new LlamaCppConfig(
+                ModelPath: @"D:\Models\game-ui.gguf",
+                ContextSize: 4096,
+                GpuLayers: 999,
+                ParallelSlots: 1,
+                BatchSize: 2048,
+                UBatchSize: 512,
+                FlashAttentionMode: "auto")));
+        first.SetLlamaCppStatus(LlamaCppServerStatus.Running(
+            first.GetConfig().LlamaCpp,
+            backend: "Vulkan",
+            port: 51234,
+            release: "b8943",
+            variant: "Vulkan",
+            serverPath: @"D:\Game\BepInEx\plugins\HUnityAutoTranslator\llama.cpp\llama-server.exe"));
+
+        first.SetLlamaCppAutoStartOnStartup(true);
+        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+
+        second.GetConfig().LlamaCpp.AutoStartOnStartup.Should().BeTrue();
+        second.GetState().LlamaCppStatus.Port.Should().Be(0);
+        second.GetConfig().Provider.BaseUrl.Should().Be("http://127.0.0.1:0");
+
+        second.SetLlamaCppAutoStartOnStartup(false);
+        var third = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+
+        third.GetConfig().LlamaCpp.AutoStartOnStartup.Should().BeFalse();
     }
 
     [Fact]
@@ -356,6 +444,8 @@ public sealed class ControlPanelServiceTests
             BaseUrl: "http://127.0.0.1:9000",
             Endpoint: "/v1/chat/completions",
             Model: "local-model",
+            OpenAICompatibleCustomHeaders: "X-App-Title: HUnity",
+            OpenAICompatibleExtraBodyJson: """{"stream":false}""",
             EnableUgui: false,
             EnableTmp: true,
             EnableImgui: false,
@@ -372,6 +462,8 @@ public sealed class ControlPanelServiceTests
         state.BaseUrl.Should().Be("http://127.0.0.1:9000");
         state.Endpoint.Should().Be("/v1/chat/completions");
         state.Model.Should().Be("local-model");
+        state.OpenAICompatibleCustomHeaders.Should().Be("X-App-Title: HUnity");
+        state.OpenAICompatibleExtraBodyJson.Should().Be("""{"stream":false}""");
         state.ApiKeyConfigured.Should().BeTrue();
         second.GetApiKey().Should().Be("secret-value");
         state.MaxConcurrentRequests.Should().Be(7);

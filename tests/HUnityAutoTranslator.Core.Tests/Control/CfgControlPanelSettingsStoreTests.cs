@@ -54,6 +54,8 @@ public sealed class CfgControlPanelSettingsStoreTests
                 Endpoint: "/v1/chat/completions",
                 Model: "local-model",
                 Style: TranslationStyle.Localized,
+                OpenAICompatibleCustomHeaders: "X-App-Title: HUnity",
+                OpenAICompatibleExtraBodyJson: """{"stream":false}""",
                 Temperature: null,
                 CustomPrompt: null,
                 FontSizeAdjustmentMode: FontSizeAdjustmentMode.Percent,
@@ -73,6 +75,8 @@ public sealed class CfgControlPanelSettingsStoreTests
         cfg.Should().Contain("[llama.cpp]");
         cfg.Should().Contain("# 是否启用自动翻译。");
         cfg.Should().Contain("# 翻译服务商。");
+        cfg.Should().Contain("OpenAICompatibleCustomHeaders = X-App-Title: HUnity");
+        cfg.Should().Contain("OpenAICompatibleExtraBodyJson = {\"stream\":false}");
         cfg.Should().Contain("# API Key 临时填写处。");
         cfg.Should().Contain("ProviderKind = LlamaCpp");
         cfg.Should().Contain("Style = Localized");
@@ -80,6 +84,7 @@ public sealed class CfgControlPanelSettingsStoreTests
         cfg.Should().Contain("BatchSize = 2048");
         cfg.Should().Contain("UBatchSize = 512");
         cfg.Should().Contain("FlashAttentionMode = auto");
+        cfg.Should().Contain("AutoStartOnStartup = false");
         cfg.Should().NotContain("ProviderKind = 3");
         cfg.Should().NotContain("Style = 2");
         cfg.Should().NotContain("FontSizeAdjustmentMode = 2");
@@ -110,6 +115,8 @@ public sealed class CfgControlPanelSettingsStoreTests
             Endpoint = /chat/completions
             Model = deepseek-v4-pro
             Style = UiConcise
+            OpenAICompatibleCustomHeaders = X-App-Title: HUnity\nAuthorization: Bearer wrong\nContent-Type: text/plain\nX-Feature: translation
+            OpenAICompatibleExtraBodyJson = {"stream":false,"metadata":{"source":"cfg"}}
             RequestTimeoutSeconds = 2
             ReasoningEffort = max
             OutputVerbosity = high
@@ -172,6 +179,7 @@ public sealed class CfgControlPanelSettingsStoreTests
             BatchSize = 32
             UBatchSize = 99999
             FlashAttentionMode = maybe
+            AutoStartOnStartup = true
             """);
 
         var service = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
@@ -189,6 +197,8 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.ToggleFontHotkey.Should().Be("Shift+F8");
         config.Provider.Kind.Should().Be(ProviderKind.DeepSeek);
         config.Provider.Model.Should().Be("deepseek-v4-pro");
+        config.OpenAICompatibleCustomHeaders.Should().Be("X-App-Title: HUnity\nX-Feature: translation");
+        config.OpenAICompatibleExtraBodyJson.Should().Be("""{"stream":false,"metadata":{"source":"cfg"}}""");
         config.Style.Should().Be(TranslationStyle.UiConcise);
         config.RequestTimeoutSeconds.Should().Be(5);
         config.MaxConcurrentRequests.Should().Be(100);
@@ -219,6 +229,7 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.LlamaCpp.BatchSize.Should().Be(128);
         config.LlamaCpp.UBatchSize.Should().Be(128);
         config.LlamaCpp.FlashAttentionMode.Should().Be("auto");
+        config.LlamaCpp.AutoStartOnStartup.Should().BeTrue();
     }
 
     [Fact]
@@ -241,6 +252,7 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.LlamaCpp.BatchSize.Should().Be(2048);
         config.LlamaCpp.UBatchSize.Should().Be(512);
         config.LlamaCpp.FlashAttentionMode.Should().Be("auto");
+        config.LlamaCpp.AutoStartOnStartup.Should().BeFalse();
     }
 
     [Fact]

@@ -1,4 +1,7 @@
 using System.Runtime.InteropServices;
+#if NET6_0_OR_GREATER
+using System.Runtime.Versioning;
+#endif
 using System.Threading;
 using HUnityAutoTranslator.Core.Control;
 
@@ -11,7 +14,7 @@ internal static class WindowsLlamaCppModelFilePicker
 
     public static LlamaCppModelPickResult PickModelFile()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (!IsWindows())
         {
             return LlamaCppModelPickResult.Unsupported();
         }
@@ -21,6 +24,12 @@ internal static class WindowsLlamaCppModelFilePicker
         {
             try
             {
+                if (!IsWindows())
+                {
+                    result = LlamaCppModelPickResult.Unsupported();
+                    return;
+                }
+
                 result = PickModelFileOnStaThread();
             }
             catch (Exception ex)
@@ -35,6 +44,9 @@ internal static class WindowsLlamaCppModelFilePicker
         return result ?? LlamaCppModelPickResult.Error("打开 GGUF 模型文件选择器失败。");
     }
 
+#if NET6_0_OR_GREATER
+    [SupportedOSPlatform("windows")]
+#endif
     private static LlamaCppModelPickResult PickModelFileOnStaThread()
     {
         IFileOpenDialog? dialog = null;
@@ -81,6 +93,14 @@ internal static class WindowsLlamaCppModelFilePicker
                 Marshal.ReleaseComObject(dialog);
             }
         }
+    }
+
+#if NET6_0_OR_GREATER
+    [SupportedOSPlatformGuard("windows")]
+#endif
+    private static bool IsWindows()
+    {
+        return RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
     }
 
     private static string? GetFileSystemPath(IShellItem item)

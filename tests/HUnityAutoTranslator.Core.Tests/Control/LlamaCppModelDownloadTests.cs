@@ -14,42 +14,64 @@ public sealed class LlamaCppModelDownloadTests
     {
         var presets = LlamaCppModelDownloadPresets.All;
 
-        presets.Should().Contain(preset =>
-            preset.Id == "qwen36-27b-q3km" &&
-            preset.ModelScopeModelId == "unsloth/Qwen3.6-27B-GGUF" &&
-            preset.FileName == "Qwen3.6-27B-Q3_K_M.gguf" &&
-            preset.FileSizeBytes == 13586217184 &&
-            preset.Sha256 == "bdfa99d488b501f5ca711f35c930f005319a064eabcaae23290571a25c499eeb" &&
-            preset.License == "apache-2.0" &&
-            preset.UseCase.Contains("英翻中", StringComparison.Ordinal));
+        presets.Should().NotContain(preset => preset.Id == "qwen36-27b-q3km");
+        presets.Should().NotContain(preset => preset.Id == "qwen3-14b-q4km");
+        presets.Should().NotContain(preset => preset.Id == "qwen3-4b-q4km");
+        presets.Should().NotContain(preset => preset.Id == "qwen3-4b-q6k");
+        presets.Should().NotContain(preset => preset.Id == "sakura-14b-qwen3-iq4xs");
+        presets.Should().NotContain(preset => preset.Label.Contains("兼容备选", StringComparison.Ordinal));
+        presets.Should().NotContain(preset => preset.Label.Contains("4B 均衡", StringComparison.Ordinal));
+        presets.Should().NotContain(preset => preset.Label.Contains("4B 省空间", StringComparison.Ordinal));
+        presets.Should().NotContain(preset => preset.Label.Contains("日翻中特化轻量", StringComparison.Ordinal));
+        presets.Where(preset => preset.Label.Contains("英翻中质量档", StringComparison.Ordinal)).Should().ContainSingle()
+            .Which.Id.Should().Be("qwen36-27b-iq4xs");
+        presets.Where(preset => preset.Label.Contains("英翻中 4B", StringComparison.Ordinal)).Should().ContainSingle()
+            .Which.Id.Should().Be("qwen3-4b-q8");
+        presets.Where(preset => preset.Label.Contains("日翻中特化", StringComparison.Ordinal)).Should().ContainSingle()
+            .Which.Id.Should().Be("sakura-14b-qwen3-q6k");
         presets.Should().Contain(preset =>
             preset.Id == "qwen36-27b-iq4xs" &&
+            preset.ModelScopeModelId == "unsloth/Qwen3.6-27B-GGUF" &&
             preset.FileName == "Qwen3.6-27B-IQ4_XS.gguf" &&
-            preset.FileSizeBytes == 15440005344);
+            preset.FileSizeBytes == 15440005344 &&
+            preset.Sha256 == "8a3365759dc1b33b52c4e7d91d5a67d5ee1418e8408aa54196f04a98da53e5dc");
         presets.Should().Contain(preset =>
             preset.Id == "qwen35-9b-q8" &&
             preset.ModelScopeModelId == "unsloth/Qwen3.5-9B-GGUF" &&
             preset.FileName == "Qwen3.5-9B-Q8_0.gguf" &&
             preset.Sha256 == "809626574d0cb43d4becfa56169980da2bb448f2299270f7be443cb89d0a6ae4");
         presets.Should().Contain(preset =>
+            preset.Id == "qwen3-0p6b-q8" &&
+            preset.ModelScopeModelId == "Qwen/Qwen3-0.6B-GGUF" &&
+            preset.FileName == "Qwen3-0.6B-Q8_0.gguf" &&
+            preset.FileSizeBytes == 639446688 &&
+            preset.Sha256 == "9465e63a22add5354d9bb4b99e90117043c7124007664907259bd16d043bb031");
+        presets.Should().Contain(preset =>
+            preset.Id == "qwen3-1p7b-q8" &&
+            preset.ModelScopeModelId == "Qwen/Qwen3-1.7B-GGUF" &&
+            preset.FileName == "Qwen3-1.7B-Q8_0.gguf" &&
+            preset.FileSizeBytes == 1834426016 &&
+            preset.Sha256 == "061b54daade076b5d3362dac252678d17da8c68f07560be70818cace6590cb1a");
+        presets.Should().Contain(preset =>
+            preset.Id == "qwen3-4b-q8" &&
+            preset.ModelScopeModelId == "Qwen/Qwen3-4B-GGUF" &&
+            preset.FileName == "Qwen3-4B-Q8_0.gguf" &&
+            preset.FileSizeBytes == 4280404704 &&
+            preset.Sha256 == "8c2f07f26af9747e41988551106f149b03eb9b5cb6df636027b6bf6278473300");
+        presets.Should().Contain(preset =>
             preset.Id == "sakura-14b-qwen3-q6k" &&
             preset.ModelScopeModelId == "sakuraumi/Sakura-14B-Qwen3-v1.5-GGUF" &&
             preset.FileName == "sakura-14b-qwen3-v1.5-q6k.gguf" &&
             preset.License == "CC-BY-NC-SA-4.0 / 非商用" &&
             preset.UseCase.Contains("日翻中", StringComparison.Ordinal));
-        presets.Should().Contain(preset =>
-            preset.Id == "qwen3-14b-q4km" &&
-            preset.ModelScopeModelId == "Qwen/Qwen3-14B-GGUF" &&
-            preset.FileName == "Qwen3-14B-Q4_K_M.gguf" &&
-            preset.FileSizeBytes == 9001752960);
     }
 
     [Fact]
     public void BuiltInPresets_build_modelscope_resolve_download_urls()
     {
-        var preset = LlamaCppModelDownloadPresets.All.Single(item => item.Id == "qwen35-9b-q8");
+        var preset = LlamaCppModelDownloadPresets.All.Single(item => item.Id == "qwen3-4b-q8");
 
-        preset.DownloadUrl.Should().Be("https://www.modelscope.cn/models/unsloth/Qwen3.5-9B-GGUF/resolve/master/Qwen3.5-9B-Q8_0.gguf");
+        preset.DownloadUrl.Should().Be("https://www.modelscope.cn/models/Qwen/Qwen3-4B-GGUF/resolve/master/Qwen3-4B-Q8_0.gguf");
     }
 
     [Fact]

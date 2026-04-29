@@ -150,6 +150,43 @@ public sealed class ProviderRequestOptionsTests
         body["chat_template_kwargs"]!["enable_thinking"]!.Value<bool>().Should().BeFalse();
     }
 
+    [Fact]
+    public async Task ChatCompletionsProvider_applies_openai_compatible_headers_and_extra_body_without_overriding_core_fields()
+    {
+        var handler = new CaptureHandler("""{"choices":[{"message":{"content":"[\"Start translated\"]"}}]}""");
+        var client = new HttpClient(handler);
+        var profile = new ProviderProfile(
+            ProviderKind.OpenAICompatible,
+            "http://127.0.0.1:9000",
+            "/v1/chat/completions",
+            "proxy-model",
+            true,
+            """
+            X-App-Title: HUnity
+            Authorization: Bearer ignored
+            Content-Type: text/plain
+            X-Feature: translation
+            """,
+            """{"stream":false,"model":"ignored-model","messages":[{"role":"user","content":"ignored"}],"metadata":{"source":"panel"}}""");
+        var provider = new ChatCompletionsProvider(client, profile, () => "key", "none", "disabled", null, TimeSpan.FromSeconds(30));
+
+        await provider.TranslateAsync(new TranslationRequest(
+            new[] { "Start" },
+            "zh-Hans",
+            "system",
+            "user"), CancellationToken.None);
+
+        var body = JObject.Parse(handler.Body);
+        handler.AuthorizationHeader.Should().Be("Bearer key");
+        handler.Header("X-App-Title").Should().Be("HUnity");
+        handler.Header("X-Feature").Should().Be("translation");
+        handler.ContentType.Should().Be("application/json; charset=utf-8");
+        body["model"]!.Value<string>().Should().Be("proxy-model");
+        body["messages"]!.Should().HaveCount(2);
+        body["stream"]!.Value<bool>().Should().BeFalse();
+        body["metadata"]!["source"]!.Value<string>().Should().Be("panel");
+    }
+
     private sealed class CaptureHandler : HttpMessageHandler
     {
         private readonly string _json;
@@ -164,11 +201,24 @@ public sealed class ProviderRequestOptionsTests
         public string RequestPath { get; private set; } = string.Empty;
 
         public string? AuthorizationHeader { get; private set; }
+        public string? ContentType { get; private set; }
+        public Dictionary<string, string> Headers { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public string? Header(string name)
+        {
+            return Headers.TryGetValue(name, out var value) ? value : null;
+        }
 
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             RequestPath = request.RequestUri?.AbsolutePath ?? string.Empty;
             AuthorizationHeader = request.Headers.Authorization?.ToString();
+            ContentType = request.Content?.Headers.ContentType?.ToString();
+            foreach (var header in request.Headers)
+            {
+                Headers[header.Key] = string.Join(",", header.Value);
+            }
+
             Body = request.Content == null ? string.Empty : await request.Content.ReadAsStringAsync();
             return new HttpResponseMessage(HttpStatusCode.OK)
             {

@@ -43,6 +43,8 @@ public sealed record ControlPanelState(
     string ReasoningEffort,
     string OutputVerbosity,
     string DeepSeekThinkingMode,
+    string? OpenAICompatibleCustomHeaders,
+    string? OpenAICompatibleExtraBodyJson,
     double? Temperature,
     string? CustomPrompt,
     string DefaultSystemPrompt,
