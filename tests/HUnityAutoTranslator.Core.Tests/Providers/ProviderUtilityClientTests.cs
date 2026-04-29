@@ -93,6 +93,62 @@ public sealed class ProviderUtilityClientTests
         handler.Header("Content-Type").Should().BeNull();
     }
 
+    [Fact]
+    public async Task TestConnectionAsync_posts_openai_compatible_chat_endpoint_with_auth_headers_and_extra_body()
+    {
+        var handler = new CaptureHandler("""{"choices":[{"message":{"content":"ok"}}]}""");
+        var client = new ProviderUtilityClient(new HttpClient(handler), () => "key");
+        var profile = new ProviderProfile(
+            ProviderKind.OpenAICompatible,
+            "http://127.0.0.1:9000",
+            "/v1/chat/completions",
+            "proxy-model",
+            true,
+            """
+            X-App-Title: HUnity
+            Authorization: Bearer ignored
+            Content-Type: text/plain
+            """,
+            """{"stream":true,"metadata":{"source":"test"}}""");
+
+        var result = await client.TestConnectionAsync(profile, CancellationToken.None);
+
+        result.Succeeded.Should().BeTrue();
+        result.Message.Should().Contain("/v1/chat/completions");
+        handler.Method.Should().Be(HttpMethod.Post);
+        handler.RequestPath.Should().Be("/v1/chat/completions");
+        handler.AuthorizationHeader.Should().Be("Bearer key");
+        handler.Header("X-App-Title").Should().Be("HUnity");
+        handler.Header("Content-Type").Should().BeNull();
+        handler.ContentType.Should().Be("application/json; charset=utf-8");
+        var body = Newtonsoft.Json.Linq.JObject.Parse(handler.Body);
+        body.Value<string>("model").Should().Be("proxy-model");
+        body["messages"]!.Should().HaveCount(2);
+        body.Value<bool>("stream").Should().BeFalse();
+        body["metadata"]!.Value<string>("source").Should().Be("test");
+    }
+
+    [Fact]
+    public async Task TestConnectionAsync_reports_path_and_saved_key_hint_for_openai_compatible_unauthorized_response()
+    {
+        var handler = new CaptureHandler("""{"error":{"message":"Unauthorized"}}""", HttpStatusCode.Unauthorized);
+        var client = new ProviderUtilityClient(new HttpClient(handler), () => "key");
+        var profile = new ProviderProfile(
+            ProviderKind.OpenAICompatible,
+            "http://127.0.0.1:9000",
+            "/v1/chat/completions",
+            "proxy-model",
+            true);
+
+        var result = await client.TestConnectionAsync(profile, CancellationToken.None);
+
+        result.Succeeded.Should().BeFalse();
+        result.Message.Should().Contain("连接测试失败");
+        result.Message.Should().Contain("401");
+        result.Message.Should().Contain("/v1/chat/completions");
+        result.Message.Should().Contain("API Key 已保存");
+    }
+
     private sealed class CaptureHandler : HttpMessageHandler
     {
         private readonly string _json;
@@ -106,6 +162,9 @@ public sealed class ProviderUtilityClientTests
 
         public string RequestPath { get; private set; } = string.Empty;
         public string RequestQuery { get; private set; } = string.Empty;
+        public HttpMethod? Method { get; private set; }
+        public string Body { get; private set; } = string.Empty;
+        public string? ContentType { get; private set; }
         public string? AuthorizationHeader { get; private set; }
         public Dictionary<string, string> Headers { get; } = new(StringComparer.OrdinalIgnoreCase);
 
@@ -116,12 +175,19 @@ public sealed class ProviderUtilityClientTests
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            Method = request.Method;
             RequestPath = request.RequestUri?.AbsolutePath ?? string.Empty;
             RequestQuery = request.RequestUri?.Query ?? string.Empty;
             AuthorizationHeader = request.Headers.Authorization?.ToString();
             foreach (var header in request.Headers)
             {
                 Headers[header.Key] = string.Join(",", header.Value);
+            }
+
+            if (request.Content != null)
+            {
+                ContentType = request.Content.Headers.ContentType?.ToString();
+                Body = request.Content.ReadAsStringAsync(cancellationToken).GetAwaiter().GetResult();
             }
 
             return Task.FromResult(new HttpResponseMessage(_statusCode)

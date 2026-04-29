@@ -661,8 +661,8 @@ async function saveConfigOnly(options: SaveBehavior = {}): Promise<ControlPanelS
   return state;
 }
 
-async function savePendingApiKey(options: SaveBehavior = {}): Promise<boolean> {
-  const apiKey = form.ApiKey.trim();
+async function savePendingApiKey(options: SaveBehavior = {}, pendingApiKey = form.ApiKey.trim()): Promise<boolean> {
+  const apiKey = pendingApiKey.trim();
   if (!apiKey) {
     return false;
   }
@@ -678,6 +678,7 @@ async function savePendingApiKey(options: SaveBehavior = {}): Promise<boolean> {
 }
 
 async function saveAll(): Promise<void> {
+  const pendingApiKey = form.ApiKey.trim();
   const state = await saveConfigOnly();
   if (!state) {
     return;
@@ -687,8 +688,8 @@ async function saveAll(): Promise<void> {
     return;
   }
 
-  const keySaved = await savePendingApiKey();
-  if (!keySaved && !form.ApiKey.trim()) {
+  const keySaved = await savePendingApiKey({}, pendingApiKey);
+  if (!keySaved && !pendingApiKey) {
     showToast("未填写新密钥，已保留当前密钥。", "info");
   }
 }
@@ -700,6 +701,7 @@ async function saveKeyOnly(): Promise<void> {
 }
 
 async function runProviderUtility(label: string, action: () => Promise<void>): Promise<void> {
+  const pendingApiKey = form.ApiKey.trim();
   utilityBusy.value = true;
   try {
     const state = await saveConfigOnly({ quiet: true });
@@ -707,7 +709,11 @@ async function runProviderUtility(label: string, action: () => Promise<void>): P
       return;
     }
 
-    await savePendingApiKey({ quiet: true });
+    const keySaved = await savePendingApiKey({ quiet: true }, pendingApiKey);
+    if (pendingApiKey && !keySaved) {
+      return;
+    }
+
     await action();
   } catch (error) {
     showToast(error instanceof Error ? error.message : `${label}失败`, "error");

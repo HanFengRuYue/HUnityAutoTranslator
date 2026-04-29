@@ -394,12 +394,21 @@ public sealed class ControlPanelVueSourceTests
         var storeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "state", "controlPanelStore.ts"));
 
         aiPageSource.Should().Contain("async function saveConfigOnly(options: SaveBehavior = {})");
-        aiPageSource.Should().Contain("async function savePendingApiKey(options: SaveBehavior = {})");
-        aiPageSource.Should().Contain("const apiKey = form.ApiKey.trim();");
+        aiPageSource.Should().Contain("async function savePendingApiKey(options: SaveBehavior = {}, pendingApiKey = form.ApiKey.trim())");
+        aiPageSource.Should().Contain("const apiKey = pendingApiKey.trim();");
         aiPageSource.Should().Contain("await saveConfigOnly();");
-        aiPageSource.Should().Contain("await savePendingApiKey();");
+        aiPageSource.Should().Contain("const pendingApiKey = form.ApiKey.trim();");
+        aiPageSource.Should().Contain("await savePendingApiKey({}, pendingApiKey);");
         aiPageSource.Should().Contain("await saveConfigOnly({ quiet: true });");
-        aiPageSource.Should().Contain("await savePendingApiKey({ quiet: true });");
+        aiPageSource.Should().Contain("await savePendingApiKey({ quiet: true }, pendingApiKey);");
+        System.Text.RegularExpressions.Regex.IsMatch(
+                aiPageSource,
+                @"async function saveAll\(\): Promise<void>[\s\S]*?const pendingApiKey = form\.ApiKey\.trim\(\);[\s\S]*?await saveConfigOnly\(\);[\s\S]*?await savePendingApiKey\(\{\}, pendingApiKey\);")
+            .Should().BeTrue();
+        System.Text.RegularExpressions.Regex.IsMatch(
+                aiPageSource,
+                @"async function runProviderUtility\(label: string, action: \(\) => Promise<void>\): Promise<void>[\s\S]*?const pendingApiKey = form\.ApiKey\.trim\(\);[\s\S]*?await saveConfigOnly\(\{ quiet: true \}\);[\s\S]*?await savePendingApiKey\(\{ quiet: true \}, pendingApiKey\);")
+            .Should().BeTrue();
         storeSource.Should().Contain("options: SaveOptions = {}");
         System.Text.RegularExpressions.Regex.IsMatch(storeSource, @"if \(!options\.quiet\)\s*\{\s*showToast\(""设置已保存"", ""ok""\);\s*\}")
             .Should().BeTrue();

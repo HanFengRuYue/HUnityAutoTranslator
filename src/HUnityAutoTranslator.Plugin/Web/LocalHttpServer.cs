@@ -412,21 +412,25 @@ internal sealed class LocalHttpServer : IDisposable
             else if (context.Request.HttpMethod == "POST" && path == "/api/provider/test")
             {
                 var config = _controlPanel.GetConfig();
-                ProviderModelsResult result;
+                ProviderTestResult result;
                 if (config.Provider.Kind == ProviderKind.LlamaCpp)
                 {
                     var ready = _llamaCppServer != null && await _llamaCppServer.IsReadyAsync(config, CancellationToken.None).ConfigureAwait(false);
                     var status = _llamaCppServer?.GetStatus(config)
                         ?? LlamaCppServerStatus.Error(config.LlamaCpp, string.Empty, "llama.cpp 本地模型管理器不可用。");
                     _controlPanel.SetLlamaCppStatus(status);
-                    result = new ProviderModelsResult(
+                    result = new ProviderTestResult(
                         ready,
-                        ready ? "llama.cpp 本地模型连接可用。" : status.Message,
-                        Array.Empty<ProviderModelInfo>());
+                        ready ? "llama.cpp 本地模型连接可用。" : status.Message);
+                }
+                else if (config.Provider.Kind == ProviderKind.OpenAICompatible)
+                {
+                    result = await _providerUtilityClient.TestConnectionAsync(config.Provider, CancellationToken.None).ConfigureAwait(false);
                 }
                 else
                 {
-                    result = await _providerUtilityClient.FetchModelsAsync(config.Provider, CancellationToken.None).ConfigureAwait(false);
+                    var models = await _providerUtilityClient.FetchModelsAsync(config.Provider, CancellationToken.None).ConfigureAwait(false);
+                    result = new ProviderTestResult(models.Succeeded, models.Message);
                 }
 
                 _controlPanel.SetProviderStatus(new ProviderStatus(result.Succeeded ? "ok" : "error", result.Message, DateTimeOffset.UtcNow));

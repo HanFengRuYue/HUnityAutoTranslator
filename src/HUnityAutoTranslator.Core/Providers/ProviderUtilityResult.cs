@@ -13,6 +13,10 @@ public sealed record ProviderModelsResult(
     string Message,
     IReadOnlyList<ProviderModelInfo> Models);
 
+public sealed record ProviderTestResult(
+    bool Succeeded,
+    string Message);
+
 public sealed record ProviderBalanceResult(
     bool Succeeded,
     string Message,
