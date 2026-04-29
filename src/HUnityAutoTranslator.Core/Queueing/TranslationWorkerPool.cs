@@ -90,7 +90,8 @@ public sealed class TranslationWorkerPool
                 var targetLanguage = ResolveTargetLanguage(batch);
                 var contextExamples = BuildContextExamples(batch, targetLanguage);
                 var glossaryTerms = BuildGlossaryTerms(batch, targetLanguage);
-                var protectedTexts = batch.Select(job => PlaceholderProtector.Protect(job.SourceText)).ToArray();
+                var richTextPreparations = batch.Select(job => RichTextTranslationPreprocessor.Prepare(job.SourceText)).ToArray();
+                var protectedTexts = richTextPreparations.Select(item => PlaceholderProtector.Protect(item.ProviderText)).ToArray();
                 var itemContexts = BuildItemContexts(batch);
                 var request = new TranslationRequest(
                     protectedTexts.Select(text => text.Text).ToArray(),
@@ -123,6 +124,7 @@ public sealed class TranslationWorkerPool
                 {
                     retryJobs = await HandleSuccessfulResponseAsync(
                         batch,
+                        richTextPreparations,
                         protectedTexts,
                         response,
                         itemContexts,
@@ -158,6 +160,7 @@ public sealed class TranslationWorkerPool
 
     private static IReadOnlyList<string> RestoreTokens(
         IReadOnlyList<TranslationJob> jobs,
+        IReadOnlyList<RichTextTranslationPreparation> richTextPreparations,
         IReadOnlyList<ProtectedText> protectedTexts,
         IReadOnlyList<string> translatedTexts)
     {
@@ -165,15 +168,21 @@ public sealed class TranslationWorkerPool
         var restored = new List<string>(count);
         for (var i = 0; i < count; i++)
         {
-            restored.Add(RestoreTokens(jobs[i], protectedTexts[i], translatedTexts[i]));
+            restored.Add(RestoreTokens(jobs[i], richTextPreparations[i], protectedTexts[i], translatedTexts[i]));
         }
 
         return restored;
     }
 
-    private static string RestoreTokens(TranslationJob job, ProtectedText protectedText, string translatedText)
+    private static string RestoreTokens(
+        TranslationJob job,
+        RichTextTranslationPreparation richTextPreparation,
+        ProtectedText protectedText,
+        string translatedText)
     {
-        return NormalizeEscapedControlCharacters(job.SourceText, protectedText.Restore(translatedText));
+        var restored = protectedText.Restore(translatedText);
+        restored = richTextPreparation.RebuildTranslation(restored);
+        return NormalizeEscapedControlCharacters(job.SourceText, restored);
     }
 
     private static string NormalizeEscapedControlCharacters(string sourceText, string translatedText)
@@ -213,6 +222,7 @@ public sealed class TranslationWorkerPool
 
     private async Task<IReadOnlyList<TranslationJob>> HandleSuccessfulResponseAsync(
         IReadOnlyList<TranslationJob> jobs,
+        IReadOnlyList<RichTextTranslationPreparation> richTextPreparations,
         IReadOnlyList<ProtectedText> protectedTexts,
         TranslationResponse response,
         IReadOnlyList<PromptItemContext> itemContexts,
@@ -228,9 +238,10 @@ public sealed class TranslationWorkerPool
             return Array.Empty<TranslationJob>();
         }
 
-        var restoredTexts = RestoreTokens(jobs, protectedTexts, translatedTexts);
+        var restoredTexts = RestoreTokens(jobs, richTextPreparations, protectedTexts, translatedTexts);
         restoredTexts = await RepairGlossaryFailuresAsync(
             jobs,
+            richTextPreparations,
             protectedTexts,
             restoredTexts,
             glossaryTerms,
@@ -238,6 +249,7 @@ public sealed class TranslationWorkerPool
             cancellationToken).ConfigureAwait(false);
         restoredTexts = await RepairQualityFailuresAsync(
             jobs,
+            richTextPreparations,
             protectedTexts,
             restoredTexts,
             itemContexts,
@@ -634,6 +646,7 @@ public sealed class TranslationWorkerPool
 
     private async Task<IReadOnlyList<string>> RepairGlossaryFailuresAsync(
         IReadOnlyList<TranslationJob> jobs,
+        IReadOnlyList<RichTextTranslationPreparation> richTextPreparations,
         IReadOnlyList<ProtectedText> protectedTexts,
         IReadOnlyList<string> translatedTexts,
         IReadOnlyList<GlossaryPromptTerm> glossaryTerms,
@@ -672,14 +685,19 @@ public sealed class TranslationWorkerPool
                     GameTitle: _config.GameTitle,
                     Templates: _config.PromptTemplates)),
                 "The previous translation missed required glossary terms.\n" +
-                PromptBuilder.BuildRepairPrompt(jobs[i].SourceText, repaired[i], validation.Reason, terms, _config.PromptTemplates));
+                PromptBuilder.BuildRepairPrompt(
+                    richTextPreparations[i].ProviderText,
+                    RichTextGuard.GetVisibleText(repaired[i]),
+                    validation.Reason,
+                    terms,
+                    _config.PromptTemplates));
             var response = await _provider.TranslateAsync(request, cancellationToken).ConfigureAwait(false);
             if (!response.Succeeded || response.TranslatedTexts.Count == 0)
             {
                 continue;
             }
 
-            repaired[i] = RestoreTokens(jobs[i], protectedTexts[i], response.TranslatedTexts[0]);
+            repaired[i] = RestoreTokens(jobs[i], richTextPreparations[i], protectedTexts[i], response.TranslatedTexts[0]);
         }
 
         return repaired;
@@ -687,6 +705,7 @@ public sealed class TranslationWorkerPool
 
     private async Task<IReadOnlyList<string>> RepairQualityFailuresAsync(
         IReadOnlyList<TranslationJob> jobs,
+        IReadOnlyList<RichTextTranslationPreparation> richTextPreparations,
         IReadOnlyList<ProtectedText> protectedTexts,
         IReadOnlyList<string> translatedTexts,
         IReadOnlyList<PromptItemContext> itemContexts,
@@ -738,8 +757,8 @@ public sealed class TranslationWorkerPool
                     GameTitle: _config.GameTitle,
                     Templates: _config.PromptTemplates)),
                 PromptBuilder.BuildQualityRepairPrompt(
-                    jobs[failure.TextIndex].SourceText,
-                    repaired[failure.TextIndex],
+                    richTextPreparations[failure.TextIndex].ProviderText,
+                    RichTextGuard.GetVisibleText(repaired[failure.TextIndex]),
                     failure.Reason,
                     context,
                     sameParentSourceTexts,
@@ -753,6 +772,7 @@ public sealed class TranslationWorkerPool
 
             repaired[failure.TextIndex] = RestoreTokens(
                 jobs[failure.TextIndex],
+                richTextPreparations[failure.TextIndex],
                 protectedTexts[failure.TextIndex],
                 response.TranslatedTexts[0]);
         }
@@ -832,7 +852,7 @@ public sealed class TranslationWorkerPool
                 continue;
             }
 
-            sources.Add(jobs[i].SourceText);
+            sources.Add(RichTextGuard.GetVisibleText(jobs[i].SourceText));
         }
 
         return sources;

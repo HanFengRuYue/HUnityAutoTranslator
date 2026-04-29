@@ -372,7 +372,7 @@ public sealed class WorkerPoolTests
         snapshots.Should().ContainSingle();
         var snapshot = snapshots[0];
         snapshot.Phase.Should().Be("translate");
-        snapshot.PromptPolicyVersion.Should().Be("prompt-v4");
+        snapshot.PromptPolicyVersion.Should().Be("prompt-v5");
         snapshot.GameTitle.Should().Be("The Glitched Attraction");
         snapshot.Items.Should().HaveCount(2);
         snapshot.Items[0].SourceText.Should().Be("Ultra");
@@ -912,6 +912,33 @@ public sealed class WorkerPoolTests
         cache.TryGet(key, TranslationCacheContext.Empty, out var cached).Should().BeTrue();
         cached.Should().Be("第一段。\n\n第二段。");
         dispatcher.Drain(10).Should().ContainSingle(result => result.TranslatedText == "第一段。\n\n第二段。");
+    }
+
+    [Fact]
+    public async Task WorkerPool_translates_per_character_tmp_text_as_plain_text_and_rebuilds_rich_text()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var provider = new CapturingProvider(new[] { "\u4e2d\u6587" });
+        var config = RuntimeConfig.CreateDefault() with { MaxConcurrentRequests = 1 };
+        var pool = new TranslationWorkerPool(queue, dispatcher, provider, new ProviderRateLimiter(600), config, cache);
+        var source = "<rotate=90>A</rotate><rotate=90>B</rotate><rotate=90>C</rotate>";
+
+        queue.Enqueue(TranslationJob.Create("ui-1", source, TranslationPriority.VisibleUi));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        provider.LastRequest.Should().NotBeNull();
+        provider.LastRequest!.ProtectedTexts.Should().Equal("ABC");
+        provider.LastRequest.UserPrompt.Should().Contain("[\"ABC\"]");
+        provider.LastRequest.UserPrompt.Should().NotContain("<rotate");
+
+        var key = TranslationCacheKey.Create(source, config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, TranslationCacheContext.Empty, out var cached).Should().BeTrue();
+        cached.Should().Be("<rotate=90>\u4e2d</rotate><rotate=90>\u6587</rotate>");
+        cached.Should().NotContain("<rotate=90></rotate>");
+        dispatcher.Drain(10).Should().ContainSingle(result => result.TranslatedText == cached);
     }
 
     [Fact]

@@ -1,4 +1,5 @@
 using System.Globalization;
+using HUnityAutoTranslator.Core.Text;
 
 namespace HUnityAutoTranslator.Core.Prompts;
 
@@ -63,18 +64,20 @@ public static class TranslationQualityValidator
 
         var contextByIndex = BuildContextLookup(itemContexts);
         var isSimplifiedChinese = PromptItemClassifier.IsSimplifiedChineseTarget(targetLanguage);
+        var visibleSourceTexts = sourceTexts.Select(RichTextGuard.GetVisibleText).ToArray();
+        var visibleTranslatedTexts = translatedTexts.Select(RichTextGuard.GetVisibleText).ToArray();
         for (var i = 0; i < sourceTexts.Count; i++)
         {
             contextByIndex.TryGetValue(i, out var context);
-            var hints = PromptItemClassifier.BuildHints(sourceTexts[i], context, gameTitle);
-            var failure = ValidateSingle(i, sourceTexts[i], translatedTexts[i], hints, isSimplifiedChinese, gameTitle);
+            var hints = PromptItemClassifier.BuildHints(visibleSourceTexts[i], context, gameTitle);
+            var failure = ValidateSingle(i, visibleSourceTexts[i], visibleTranslatedTexts[i], hints, isSimplifiedChinese, gameTitle);
             if (failure != null)
             {
                 failures.Add(failure);
             }
         }
 
-        AddSameParentCollisions(sourceTexts, translatedTexts, contextByIndex, gameTitle, failures);
+        AddSameParentCollisions(visibleSourceTexts, visibleTranslatedTexts, contextByIndex, gameTitle, failures);
         return failures;
     }
 

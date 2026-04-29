@@ -36,4 +36,20 @@ public sealed class TextSafetyTests
         RichTextGuard.HasSameTags("<color=red>Start</color>", "<color=red>开始</color>").Should().BeTrue();
         RichTextGuard.HasSameTags("<color=red>Start</color>", "<color=red>开始").Should().BeFalse();
     }
+
+    [Fact]
+    public void RichTextGuard_allows_rebuilt_per_character_tmp_tags_with_different_text_length()
+    {
+        var source = "<rotate=90>A</rotate><rotate=90>B</rotate><rotate=90><voffset=0.5em>,</voffset></rotate><rotate=90>C</rotate>";
+        var translated = "<rotate=90>X</rotate><rotate=90><voffset=0.5em>,</voffset></rotate><rotate=90>Y</rotate>";
+
+        RichTextGuard.HasSameTags(source, translated).Should().BeTrue();
+        translated.Should().NotContain("<rotate=90></rotate>");
+    }
+
+    [Fact]
+    public void RichTextGuard_keeps_ordinary_rich_text_strict()
+    {
+        RichTextGuard.HasSameTags("<color=red>Start</color>", "<color=red>Start").Should().BeFalse();
+    }
 }

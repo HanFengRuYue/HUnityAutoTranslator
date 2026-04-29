@@ -1,4 +1,5 @@
 using HUnityAutoTranslator.Core.Prompts;
+using HUnityAutoTranslator.Core.Text;
 
 namespace HUnityAutoTranslator.Core.Glossary;
 
@@ -9,14 +10,16 @@ public static class GlossaryOutputValidator
         string translatedText,
         IReadOnlyList<GlossaryPromptTerm> terms)
     {
+        var visibleSourceText = RichTextGuard.GetVisibleText(sourceText);
+        var visibleTranslatedText = RichTextGuard.GetVisibleText(translatedText);
         foreach (var term in terms)
         {
-            if (sourceText.IndexOf(term.SourceTerm, StringComparison.OrdinalIgnoreCase) < 0)
+            if (visibleSourceText.IndexOf(term.SourceTerm, StringComparison.OrdinalIgnoreCase) < 0)
             {
                 continue;
             }
 
-            if (translatedText.IndexOf(term.TargetTerm, StringComparison.Ordinal) < 0)
+            if (visibleTranslatedText.IndexOf(term.TargetTerm, StringComparison.Ordinal) < 0)
             {
                 return ValidationResult.Invalid($"术语不一致: {term.SourceTerm} 必须译为 {term.TargetTerm}");
             }

@@ -24,9 +24,9 @@ public sealed class PromptPolicyTests
     }
 
     [Fact]
-    public void Prompt_policy_version_is_v4_after_outer_symbol_rules()
+    public void Prompt_policy_version_is_v5_after_per_character_rich_text_rebuild()
     {
-        TextPipeline.PromptPolicyVersion.Should().Be("prompt-v4");
+        TextPipeline.PromptPolicyVersion.Should().Be("prompt-v5");
     }
 
     [Fact]

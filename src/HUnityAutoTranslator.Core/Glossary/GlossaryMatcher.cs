@@ -1,3 +1,5 @@
+using HUnityAutoTranslator.Core.Text;
+
 namespace HUnityAutoTranslator.Core.Glossary;
 
 public static class GlossaryMatcher
@@ -23,7 +25,7 @@ public static class GlossaryMatcher
 
         for (var textIndex = 0; textIndex < sourceTexts.Count; textIndex++)
         {
-            var sourceText = sourceTexts[textIndex] ?? string.Empty;
+            var sourceText = RichTextGuard.GetVisibleText(sourceTexts[textIndex] ?? string.Empty);
             var occupied = new List<Range>();
             foreach (var term in orderedTerms)
             {

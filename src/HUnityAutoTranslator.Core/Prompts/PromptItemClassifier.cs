@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using HUnityAutoTranslator.Core.Text;
 
 namespace HUnityAutoTranslator.Core.Prompts;
 
@@ -9,7 +10,7 @@ public static class PromptItemClassifier
     public static IReadOnlyList<string> BuildHints(string sourceText, PromptItemContext? context, string? gameTitle)
     {
         var hints = new List<string>();
-        var source = sourceText ?? string.Empty;
+        var source = RichTextGuard.GetVisibleText(sourceText ?? string.Empty);
         var hierarchy = context?.ComponentHierarchy ?? string.Empty;
         var scene = context?.SceneName ?? string.Empty;
         var combined = (source + "\n" + hierarchy + "\n" + scene).ToLowerInvariant();
@@ -77,7 +78,7 @@ public static class PromptItemClassifier
             return string.Empty;
         }
 
-        return WhitespacePattern.Replace(value.Trim(), " ");
+        return WhitespacePattern.Replace(RichTextGuard.GetVisibleText(value).Trim(), " ");
     }
 
     public static string? GetParentHierarchy(string? componentHierarchy)

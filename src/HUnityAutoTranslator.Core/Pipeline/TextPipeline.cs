@@ -10,7 +10,7 @@ namespace HUnityAutoTranslator.Core.Pipeline;
 
 public sealed class TextPipeline
 {
-    public const string PromptPolicyVersion = "prompt-v4";
+    public const string PromptPolicyVersion = "prompt-v5";
 
     private readonly ITranslationCache _cache;
     private readonly TranslationJobQueue _queue;
