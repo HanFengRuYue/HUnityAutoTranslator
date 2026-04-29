@@ -35,6 +35,7 @@ export interface LlamaCppConfig {
   BatchSize: number;
   UBatchSize: number;
   FlashAttentionMode: string;
+  AutoStartOnStartup: boolean;
 }
 
 export interface LlamaCppServerStatus {
@@ -179,6 +180,8 @@ export interface ControlPanelState {
   ReasoningEffort: string;
   OutputVerbosity: string;
   DeepSeekThinkingMode: string;
+  OpenAICompatibleCustomHeaders: string | null;
+  OpenAICompatibleExtraBodyJson: string | null;
   Temperature: number | null;
   CustomPrompt: string | null;
   DefaultSystemPrompt: string;
@@ -243,6 +246,8 @@ export interface UpdateConfigRequest {
   ReasoningEffort?: string;
   OutputVerbosity?: string;
   DeepSeekThinkingMode?: string;
+  OpenAICompatibleCustomHeaders?: string | null;
+  OpenAICompatibleExtraBodyJson?: string | null;
   Temperature?: number | null;
   ClearTemperature?: boolean;
   CustomPrompt?: string | null;

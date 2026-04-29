@@ -20,7 +20,7 @@ import {
 } from "lucide-vue-next";
 import { api, buildQuery, deleteJson, getJson, getText, patchJson, postJson } from "../api/client";
 import SectionPanel from "../components/SectionPanel.vue";
-import { refreshState, showToast } from "../state/controlPanelStore";
+import { controlPanelStore, refreshState, showToast } from "../state/controlPanelStore";
 import type {
   DeleteResult,
   RetranslateResult,
@@ -528,14 +528,40 @@ async function importRows(): Promise<void> {
   }
 }
 
+function padExportDatePart(value: number): string {
+  return String(value).padStart(2, "0");
+}
+
+function formatExportTimestamp(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = padExportDatePart(date.getMonth() + 1);
+  const day = padExportDatePart(date.getDate());
+  const hour = padExportDatePart(date.getHours());
+  const minute = padExportDatePart(date.getMinutes());
+  const second = padExportDatePart(date.getSeconds());
+  return `${year}${month}${day}-${hour}${minute}${second}`;
+}
+
+function sanitizeExportFileNamePart(value: string | null | undefined): string {
+  const cleaned = (value ?? "")
+    .trim()
+    .replace(/[<>:"\/\\|?*\x00-\x1f]+/g, "-")
+    .replace(/\s+/g, " ")
+    .replace(/\.+$/g, "")
+    .trim();
+  return cleaned || "unknown-game";
+}
+
 async function exportRows(format: "json" | "csv"): Promise<void> {
   exportMenuOpen.value = false;
   const text = await getText(buildQuery("/api/translations/export", { format }));
   const blob = new Blob([text], { type: format === "csv" ? "text/csv;charset=utf-8" : "application/json;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const anchor = document.createElement("a");
+  const gameName = sanitizeExportFileNamePart(controlPanelStore.state?.GameTitle || controlPanelStore.state?.AutomaticGameTitle || "unknown-game");
+  const timestamp = formatExportTimestamp();
   anchor.href = url;
-  anchor.download = `hunity-translations.${format}`;
+  anchor.download = `hunity-translations-${gameName}-${timestamp}.${format}`;
   anchor.click();
   URL.revokeObjectURL(url);
   showToast("导出已开始。", "ok");

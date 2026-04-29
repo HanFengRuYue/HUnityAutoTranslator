@@ -48,6 +48,23 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Generated_control_panel_uses_compact_model_download_dialog_copy()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("模型下载");
+        htmlSource.Should().Contain("model-download-dialog");
+        htmlSource.Should().Contain("model-preset-list");
+        htmlSource.Should().Contain("model-preset-card");
+        htmlSource.Should().Contain("model-preset-license");
+        htmlSource.Should().Contain("openLlamaCppModelDownload");
+        htmlSource.Should().NotContain("兼容备选");
+        htmlSource.Should().NotContain("魔塔");
+        htmlSource.Should().NotContain("魔搭");
+        htmlSource.Should().NotContain("<select id=\"llamaCppPreset\"");
+    }
+
+    [Fact]
     public void Local_http_server_exposes_glossary_and_translation_editor_endpoints()
     {
         var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
@@ -82,6 +99,22 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Windows_file_pickers_mark_com_dialog_paths_as_windows_only()
+    {
+        var fontPickerSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "WindowsFontFilePicker.cs"));
+        var modelPickerSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "WindowsLlamaCppModelFilePicker.cs"));
+
+        foreach (var pickerSource in new[] { fontPickerSource, modelPickerSource })
+        {
+            pickerSource.Should().Contain("using System.Runtime.Versioning;");
+            pickerSource.Should().Contain("[SupportedOSPlatform(\"windows\")]");
+            pickerSource.Should().Contain("[SupportedOSPlatformGuard(\"windows\")]");
+            pickerSource.Should().Contain("if (!IsWindows())");
+            pickerSource.Should().Contain("private static bool IsWindows()");
+        }
+    }
+
+    [Fact]
     public void Local_http_server_exposes_llamacpp_manual_control_endpoints()
     {
         var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
@@ -95,6 +128,8 @@ public sealed class ControlPanelHtmlSourceTests
         serverSource.Should().Contain("WindowsLlamaCppModelFilePicker.PickModelFile()");
         serverSource.Should().Contain("BenchmarkAsync(_controlPanel.GetConfig()");
         serverSource.Should().Contain("_controlPanel.UpdateConfig(new UpdateConfigRequest(LlamaCpp:");
+        serverSource.Should().Contain("_controlPanel.SetLlamaCppAutoStartOnStartup(status.State != \"error\")");
+        serverSource.Should().Contain("_controlPanel.SetLlamaCppAutoStartOnStartup(false)");
         commandBuilderSource.Should().Contain("\"--host\"");
         commandBuilderSource.Should().Contain("\"127.0.0.1\"");
         commandBuilderSource.Should().Contain("\"--metrics\"");
@@ -108,6 +143,18 @@ public sealed class ControlPanelHtmlSourceTests
         managerSource.Should().Contain("backend.json");
         managerSource.Should().Contain("llama-server.exe");
         managerSource.Should().Contain("StopOwnedProcess");
+    }
+
+    [Fact]
+    public void Plugin_runtime_background_starts_llamacpp_when_saved_config_requests_it()
+    {
+        var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+
+        pluginSource.Should().Contain("StartLlamaCppIfConfigured()");
+        pluginSource.Should().Contain("AutoStartOnStartup");
+        pluginSource.Should().Contain("ProviderKind.LlamaCpp");
+        pluginSource.Should().Contain("Task.Run");
+        pluginSource.Should().Contain("_controlPanel.SetLlamaCppStatus(status)");
     }
 
     [Fact]

@@ -8,7 +8,7 @@ import {
   Gauge,
   History,
   ListTodo,
-  LoaderCircle,
+  LoaderPinwheel,
   RefreshCw,
   Timer
 } from "lucide-vue-next";
@@ -100,7 +100,7 @@ function formatInFlightCapacity(inFlight: number, max: number): string {
           label="正在翻译"
           :value="formatInFlightCapacity(activeTranslationCapacity.inFlight, activeTranslationCapacity.max)"
           value-id="inFlightTranslationCount"
-          :icon="LoaderCircle"
+          :icon="LoaderPinwheel"
           tone="warn"
           help="当前正在占用的 AI 请求/槽位数，以及 AI 设置中的最大并发上限；同一请求可能批量包含多条文本。"
         />

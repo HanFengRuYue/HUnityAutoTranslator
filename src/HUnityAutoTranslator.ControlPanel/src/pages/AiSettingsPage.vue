@@ -209,6 +209,33 @@ const styleHints: Record<number, string> = {
   3: "简短：菜单、按钮和提示更短。"
 };
 
+const targetLanguageOptions = [
+  { value: "zh-Hans", label: "简体中文" },
+  { value: "zh-Hant", label: "繁体中文" },
+  { value: "en", label: "英语" },
+  { value: "ja", label: "日语" },
+  { value: "ko", label: "韩语" },
+  { value: "fr", label: "法语" },
+  { value: "de", label: "德语" },
+  { value: "es", label: "西班牙语" },
+  { value: "pt", label: "葡萄牙语" },
+  { value: "pt-BR", label: "巴西葡萄牙语" },
+  { value: "ru", label: "俄语" },
+  { value: "it", label: "意大利语" },
+  { value: "th", label: "泰语" },
+  { value: "vi", label: "越南语" },
+  { value: "id", label: "印尼语" },
+  { value: "tr", label: "土耳其语" },
+  { value: "ar", label: "阿拉伯语" }
+];
+
+const llamaCppStateLabels: Record<string, string> = {
+  stopped: "已停止",
+  starting: "启动中",
+  running: "运行中",
+  error: "错误"
+};
+
 const form = reactive({
   TargetLanguage: "zh-Hans",
   GameTitle: "",
@@ -226,10 +253,13 @@ const form = reactive({
   EnableTranslationContext: true,
   TranslationContextMaxExamples: 4,
   TranslationContextMaxCharacters: 1200,
+  EnableOpenAiReasoning: false,
   ReasoningEffort: "none",
   DeepSeekReasoningEffort: "none",
   OutputVerbosity: "low",
   DeepSeekThinkingMode: "disabled",
+  OpenAICompatibleCustomHeaders: "",
+  OpenAICompatibleExtraBodyJson: "",
   Temperature: "",
   CustomPrompt: "",
   PromptTemplates: createPromptTemplates(),
@@ -239,7 +269,8 @@ const form = reactive({
   LlamaCppParallelSlots: 1,
   LlamaCppBatchSize: 2048,
   LlamaCppUBatchSize: 512,
-  LlamaCppFlashAttentionMode: "auto"
+  LlamaCppFlashAttentionMode: "auto",
+  LlamaCppAutoStartOnStartup: false
 });
 
 const utilityBusy = ref(false);
@@ -249,6 +280,7 @@ const llamaCppBenchmarkBusy = ref(false);
 const llamaCppBenchmarkResult = ref<LlamaCppBenchmarkResult | null>(null);
 const llamaCppModelPresets = ref<LlamaCppModelDownloadPreset[]>([]);
 const llamaCppSelectedPresetId = ref("");
+const llamaCppDownloadDialogOpen = ref(false);
 const llamaCppDownloadStatus = ref<LlamaCppModelDownloadStatus | null>(null);
 const llamaCppCompletedPath = ref<string | null>(null);
 const activePromptTemplateKey = ref<PromptTemplateKey>("SystemPrompt");
@@ -258,8 +290,11 @@ const activeProviderName = computed(() => providerNames[form.ProviderKind] ?? "-
 const activeStyleHint = computed(() => styleHints[form.Style] ?? "");
 const isOpenAi = computed(() => form.ProviderKind === 0);
 const isDeepSeek = computed(() => form.ProviderKind === 1);
+const isOpenAiCompatible = computed(() => form.ProviderKind === 2);
 const isLlamaCpp = computed(() => form.ProviderKind === 3);
 const canUseTemperature = computed(() => form.ProviderKind === 1 || form.ProviderKind === 2 || form.ProviderKind === 3);
+const canShowOpenAiReasoningEffort = computed(() => isOpenAi.value && form.EnableOpenAiReasoning);
+const canShowDeepSeekReasoningEffort = computed(() => isDeepSeek.value && form.DeepSeekThinkingMode === "enabled");
 const automaticGameTitle = computed(() => controlPanelStore.state?.AutomaticGameTitle ?? "");
 const defaultSystemPrompt = computed(() => controlPanelStore.state?.DefaultSystemPrompt ?? "");
 const defaultPromptTemplates = computed(() => controlPanelStore.state?.DefaultPromptTemplates ?? createPromptTemplates());
@@ -268,6 +303,10 @@ const promptModeText = computed(() => promptUsesDefault.value ? "正在使用内
 const restorePromptText = computed(() => promptUsesDefault.value ? "使用内置提示词" : "恢复内置提示词");
 const llamaCppStatus = computed(() => controlPanelStore.state?.LlamaCppStatus);
 const llamaCppStatusText = computed(() => llamaCppStatus.value?.Message ?? "本地模型未启动。");
+const llamaCppStateText = computed(() => {
+  const state = (llamaCppStatus.value?.State ?? "stopped").toLowerCase();
+  return llamaCppStateLabels[state] ?? state;
+});
 const llamaCppIsActive = computed(() => {
   const state = (llamaCppStatus.value?.State ?? "").toLowerCase();
   return state === "starting" || state === "running";
@@ -275,6 +314,8 @@ const llamaCppIsActive = computed(() => {
 const selectedLlamaCppPreset = computed(() =>
   llamaCppModelPresets.value.find((preset) => preset.Id === llamaCppSelectedPresetId.value) ?? llamaCppModelPresets.value[0] ?? null);
 const isLlamaCppDownloading = computed(() => llamaCppDownloadStatus.value?.State === "downloading");
+const llamaCppDownloadProgressPercent = computed(() =>
+  Math.max(0, Math.min(100, llamaCppDownloadStatus.value?.ProgressPercent ?? 0)));
 const llamaCppDownloadText = computed(() => {
   const status = llamaCppDownloadStatus.value;
   if (!status) {
@@ -387,6 +428,62 @@ function normalizeDeepSeekEffort(value: unknown): string {
   return "none";
 }
 
+function validateOpenAiCompatibleAdvancedOptions(): boolean {
+  if (!isOpenAiCompatible.value) {
+    return true;
+  }
+
+  const headerText = form.OpenAICompatibleCustomHeaders.trim();
+  if (headerText) {
+    for (const rawLine of headerText.replace(/\r\n/g, "\n").replace(/\r/g, "\n").split("\n")) {
+      const line = rawLine.trim();
+      if (!line || line.startsWith("#")) {
+        continue;
+      }
+
+      const separator = line.indexOf(":");
+      if (separator <= 0) {
+        showToast("自定义请求头请按 Header-Name: value 的格式逐行填写。", "warn", 5200);
+        return false;
+      }
+
+      const name = line.slice(0, separator).trim().toLowerCase();
+      if (name === "authorization" || name === "content-type") {
+        showToast("Authorization 和 Content-Type 请继续使用内置密钥和 JSON 请求。", "warn", 5200);
+        return false;
+      }
+    }
+  }
+
+  const extraBody = form.OpenAICompatibleExtraBodyJson.trim();
+  if (!extraBody) {
+    return true;
+  }
+
+  try {
+    const parsed = JSON.parse(extraBody) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      showToast("额外请求体 JSON 必须是对象。", "warn", 5200);
+      return false;
+    }
+  } catch {
+    showToast("额外请求体 JSON 格式不正确。", "warn", 5200);
+    return false;
+  }
+
+  return true;
+}
+
+function ensureReasoningDefaults(): void {
+  if (form.EnableOpenAiReasoning && form.ReasoningEffort === "none") {
+    form.ReasoningEffort = "low";
+  }
+
+  if (form.DeepSeekThinkingMode === "enabled" && form.DeepSeekReasoningEffort === "none") {
+    form.DeepSeekReasoningEffort = "high";
+  }
+}
+
 function updateModelPresetFromInput(): void {
   const match = providerOptions.value.find((option) => option.value === form.Model);
   form.ModelPreset = match ? match.value : "custom";
@@ -412,9 +509,12 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.TranslationContextMaxExamples = state.TranslationContextMaxExamples;
   form.TranslationContextMaxCharacters = state.TranslationContextMaxCharacters;
   form.ReasoningEffort = state.ReasoningEffort || "none";
+  form.EnableOpenAiReasoning = form.ReasoningEffort !== "none";
   form.DeepSeekReasoningEffort = normalizeDeepSeekEffort(state.ReasoningEffort);
   form.OutputVerbosity = state.OutputVerbosity;
   form.DeepSeekThinkingMode = state.DeepSeekThinkingMode || "disabled";
+  form.OpenAICompatibleCustomHeaders = state.OpenAICompatibleCustomHeaders ?? "";
+  form.OpenAICompatibleExtraBodyJson = state.OpenAICompatibleExtraBodyJson ?? "";
   form.Temperature = state.Temperature === null || state.Temperature === undefined ? "" : String(state.Temperature);
   applyPromptTemplates(state.PromptTemplates, state.DefaultPromptTemplates);
   form.LlamaCppModelPath = state.LlamaCpp?.ModelPath ?? "";
@@ -424,13 +524,22 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.LlamaCppBatchSize = state.LlamaCpp?.BatchSize ?? 2048;
   form.LlamaCppUBatchSize = state.LlamaCpp?.UBatchSize ?? 512;
   form.LlamaCppFlashAttentionMode = state.LlamaCpp?.FlashAttentionMode ?? "auto";
+  form.LlamaCppAutoStartOnStartup = state.LlamaCpp?.AutoStartOnStartup ?? false;
   form.ApiKey = "";
   updateModelPresetFromInput();
   setDirtyForm(formKey, false);
 }
 
 function activeReasoningEffort(): string {
-  return form.ProviderKind === 1 ? form.DeepSeekReasoningEffort : form.ReasoningEffort;
+  if (form.ProviderKind === 1) {
+    return canShowDeepSeekReasoningEffort.value ? form.DeepSeekReasoningEffort : "none";
+  }
+
+  if (form.ProviderKind === 0) {
+    return canShowOpenAiReasoningEffort.value ? form.ReasoningEffort : "none";
+  }
+
+  return "none";
 }
 
 function readConfig(): UpdateConfigRequest {
@@ -454,6 +563,8 @@ function readConfig(): UpdateConfigRequest {
     ReasoningEffort: activeReasoningEffort(),
     OutputVerbosity: form.OutputVerbosity,
     DeepSeekThinkingMode: form.DeepSeekThinkingMode,
+    OpenAICompatibleCustomHeaders: form.OpenAICompatibleCustomHeaders.trim(),
+    OpenAICompatibleExtraBodyJson: form.OpenAICompatibleExtraBodyJson.trim(),
     Temperature: temperatureText === "" ? null : Number(temperatureText),
     ClearTemperature: canUseTemperature.value && temperatureText === "",
     CustomPrompt: promptTemplateOverrides.SystemPrompt ?? "",
@@ -465,13 +576,18 @@ function readConfig(): UpdateConfigRequest {
       ParallelSlots: numberValue(form.LlamaCppParallelSlots),
       BatchSize: numberValue(form.LlamaCppBatchSize),
       UBatchSize: numberValue(form.LlamaCppUBatchSize),
-      FlashAttentionMode: form.LlamaCppFlashAttentionMode
+      FlashAttentionMode: form.LlamaCppFlashAttentionMode,
+      AutoStartOnStartup: form.LlamaCppAutoStartOnStartup
     }
   };
 }
 
 async function saveConfigOnly(options: SaveBehavior = {}): Promise<ControlPanelState | null> {
   if (!validatePromptTemplates()) {
+    return null;
+  }
+
+  if (!validateOpenAiCompatibleAdvancedOptions()) {
     return null;
   }
 
@@ -572,28 +688,28 @@ function formatBalanceEntry(balance: ProviderBalanceInfo): string {
 
 function formatBalanceToast(result: ProviderBalanceResult): string {
   if (!result.Succeeded) {
-    return result.Message || "查询余额/成本失败。";
+    return result.Message || "查询账户余额失败。";
   }
 
   if (!result.Balances.length) {
-    return "未返回余额/成本记录。";
+    return "未返回账户余额或成本记录。";
   }
 
   const values = result.Balances.map(formatBalanceEntry).join("；");
   if (form.ProviderKind === 1) {
-    return `余额：${values}`;
+    return `账户余额：${values}`;
   }
 
-  return `最近 7 天成本：${values}。OpenAI 成本接口通常需要管理员密钥。`;
+  return `最近 7 天账户成本：${values}。OpenAI 成本接口通常需要管理员密钥。`;
 }
 
 async function fetchBalance(): Promise<void> {
   if (isLlamaCpp.value) {
-    showToast("本地模型不适用余额或成本查询。", "info");
+    showToast("本地模型不适用账户余额查询。", "info");
     return;
   }
 
-  await runProviderUtility("查询余额/成本", async () => {
+  await runProviderUtility("查询账户余额", async () => {
     const result = await api<ProviderBalanceResult>("/api/provider/balance");
     showToast(formatBalanceToast(result), result.Succeeded ? "ok" : "warn", 5600);
   });
@@ -616,6 +732,9 @@ async function startLlamaCpp(): Promise<void> {
 
     const status = await api<LlamaCppServerStatus>("/api/llamacpp/start", { method: "POST", body: {} });
     updateLocalLlamaStatus(status);
+    if (status.State !== "error") {
+      form.LlamaCppAutoStartOnStartup = true;
+    }
     showToast(status.Message, status.State === "error" ? "error" : "ok", 5200);
   } catch (error) {
     showToast(error instanceof Error ? error.message : "启动本地模型失败。", "error");
@@ -629,6 +748,7 @@ async function stopLlamaCpp(): Promise<void> {
   try {
     const status = await api<LlamaCppServerStatus>("/api/llamacpp/stop", { method: "POST", body: {} });
     updateLocalLlamaStatus(status);
+    form.LlamaCppAutoStartOnStartup = false;
     showToast(status.Message, "ok");
   } catch (error) {
     showToast(error instanceof Error ? error.message : "停止本地模型失败。", "error");
@@ -666,8 +786,19 @@ async function loadLlamaCppModelPresets(): Promise<void> {
       llamaCppSelectedPresetId.value = presets[0].Id;
     }
   } catch (error) {
-    showToast(error instanceof Error ? error.message : "读取魔塔模型预设失败。", "warn");
+    showToast(error instanceof Error ? error.message : "读取模型列表失败。", "warn");
   }
+}
+
+function openLlamaCppDownloadDialog(): void {
+  llamaCppDownloadDialogOpen.value = true;
+  if (llamaCppModelPresets.value.length === 0) {
+    void loadLlamaCppModelPresets();
+  }
+}
+
+function closeLlamaCppDownloadDialog(): void {
+  llamaCppDownloadDialogOpen.value = false;
 }
 
 function applyLlamaCppDownloadStatus(status: LlamaCppModelDownloadStatus): void {
@@ -700,7 +831,7 @@ async function pollLlamaCppDownloadStatus(): Promise<void> {
 async function downloadLlamaCppPreset(): Promise<void> {
   const preset = selectedLlamaCppPreset.value;
   if (!preset) {
-    showToast("请先选择一个魔塔模型预设。", "warn");
+    showToast("请先选择一个模型。", "warn");
     return;
   }
 
@@ -713,7 +844,8 @@ async function downloadLlamaCppPreset(): Promise<void> {
     });
     applyLlamaCppDownloadStatus(status);
     if (status.State === "downloading") {
-      showToast("已开始从魔塔下载模型。", "info", 2800);
+      llamaCppDownloadDialogOpen.value = false;
+      showToast("已开始下载模型。", "info", 2800);
       window.setTimeout(() => void pollLlamaCppDownloadStatus(), 1000);
     }
   } catch (error) {
@@ -776,6 +908,7 @@ function applyProviderDefaults(): void {
   form.BaseUrl = defaults.baseUrl;
   form.Endpoint = defaults.endpoint;
   form.Model = defaults.model;
+  form.EnableOpenAiReasoning = false;
   form.ReasoningEffort = "none";
   form.DeepSeekReasoningEffort = "none";
   form.DeepSeekThinkingMode = "disabled";
@@ -839,7 +972,11 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
               <option :value="2">OpenAI 兼容</option>
             </select>
           </label>
-          <label class="field help-target" data-help="译文输出语言，建议填写 zh-Hans、zh-Hant 或具体语言名称。"><span class="field-label"><Globe2 class="field-label-icon" />目标语言</span><input id="targetLanguage" v-model="form.TargetLanguage" autocomplete="off"></label>
+          <label class="field help-target" data-help="译文输出语言。菜单显示语言名称，内部仍保存兼容缓存和术语库的语言代码。"><span class="field-label"><Globe2 class="field-label-icon" />目标语言</span>
+            <select id="targetLanguage" v-model="form.TargetLanguage">
+              <option v-for="option in targetLanguageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+            </select>
+          </label>
           <label class="field help-target" data-help="用于提示词中的游戏名；留空时使用插件自动检测到的当前游戏。"><span class="field-label"><Gamepad2 class="field-label-icon" />游戏名称</span><input id="gameTitle" v-model="form.GameTitle" autocomplete="off" :placeholder="automaticGameTitle || '自动检测当前游戏'"></label>
           <label class="field help-target" data-help="控制译文偏忠实、自然、本地化或更短的 UI 风格。"><span class="field-label"><MessageSquareText class="field-label-icon" />翻译风格</span>
             <select id="style" v-model.number="form.Style">
@@ -867,10 +1004,20 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
             <button id="saveKey" class="secondary help-target" data-help="只更新 API Key，不改变当前表单里的其他 AI 设置。" type="button" @click="saveKeyOnly"><FileKey class="option-icon" />只保存密钥</button>
             <button id="testProvider" class="secondary help-target" data-help="先保存当前 AI 设置和新密钥，再向服务商发起一次连通性测试。" type="button" :disabled="utilityBusy" @click="testProvider"><Zap class="button-icon" />测试连接</button>
             <button v-if="!isLlamaCpp" id="fetchModels" class="secondary help-target" data-help="从当前服务商读取模型列表，并在顶部通知里显示部分结果。" type="button" :disabled="utilityBusy" @click="fetchModels"><ListRestart class="button-icon" />获取模型列表</button>
-            <button id="fetchBalance" class="secondary help-target" data-help="查询当前服务商余额或近期成本，结果会显示在顶部通知中。" type="button" :disabled="utilityBusy" @click="fetchBalance"><WalletCards class="button-icon" />查询余额/成本</button>
+            <button id="fetchBalance" class="secondary help-target" data-help="查询当前服务商账户余额或近期账户成本，结果会显示在顶部通知中。" type="button" :disabled="utilityBusy" @click="fetchBalance"><WalletCards class="button-icon" />查询账户余额</button>
           </div>
         </div>
-        <div v-else class="actions inline-actions ai-provider-actions">
+        <div v-if="isOpenAiCompatible" class="ai-compatible-advanced">
+          <label class="field textarea-field help-target" data-help="每行一个请求头，格式为 Header-Name: value；Authorization 和 Content-Type 请继续使用内置密钥和 JSON 请求。">
+            <span class="field-label"><ListChecks class="field-label-icon" />自定义请求头</span>
+            <textarea id="openAICompatibleCustomHeaders" v-model="form.OpenAICompatibleCustomHeaders" rows="4" spellcheck="false" placeholder="HTTP-Referer: http://127.0.0.1&#10;X-Title: HUnity"></textarea>
+          </label>
+          <label class="field textarea-field help-target" data-help="附加到 OpenAI 兼容请求体的 JSON object，不会覆盖插件生成的 model、messages、temperature 等字段。">
+            <span class="field-label"><Settings2 class="field-label-icon" />额外请求体 JSON</span>
+            <textarea id="openAICompatibleExtraBodyJson" v-model="form.OpenAICompatibleExtraBodyJson" rows="4" spellcheck="false" placeholder="{&quot;stream&quot;: false}"></textarea>
+          </label>
+        </div>
+        <div v-if="isLlamaCpp" class="actions inline-actions ai-provider-actions">
           <button id="testProvider" class="secondary help-target" data-help="向当前 llama.cpp 本地服务发起一次连通性测试。" type="button" :disabled="utilityBusy" @click="testProvider"><Zap class="button-icon" />测试连接</button>
         </div>
       </SectionPanel>
@@ -879,41 +1026,25 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
         <div class="llama-local-panel">
           <div class="field llama-model-row help-target" data-help="选择本地 GGUF 模型文件，启动 llama.cpp 时会使用这个路径。">
             <span class="field-label"><FolderOpen class="field-label-icon" />GGUF 模型文件</span>
-            <div class="input-action-row">
+            <div class="input-action-row model-path-actions">
               <input id="llamaCppModelPath" v-model="form.LlamaCppModelPath" autocomplete="off" placeholder="选择 .gguf 模型文件">
               <button id="pickLlamaCppModel" class="secondary" type="button" :disabled="llamaCppModelPicking" @click="pickLlamaCppModel">
                 <FolderOpen class="button-icon" />
                 {{ llamaCppModelPicking ? "选择中..." : "选择模型" }}
               </button>
+              <button id="openLlamaCppModelDownload" class="secondary" type="button" @click="openLlamaCppDownloadDialog">
+                <Download class="button-icon" />
+                模型下载
+              </button>
             </div>
           </div>
-          <div class="llama-preset-row">
-            <label class="field help-target" data-help="从常用魔塔 GGUF 预设中选择，下载完成后会填入上方模型路径，保存后生效。">
-              <span class="field-label"><Download class="field-label-icon" />魔塔预设下载</span>
-              <select id="llamaCppPreset" v-model="llamaCppSelectedPresetId" :disabled="isLlamaCppDownloading">
-                <option v-for="preset in llamaCppModelPresets" :key="preset.Id" :value="preset.Id">
-                  {{ preset.Label }} · {{ formatBytes(preset.FileSizeBytes) }} · {{ preset.License }}
-                </option>
-              </select>
-            </label>
-            <div class="llama-preset-meta">
-              <span>{{ selectedLlamaCppPreset?.UseCase ?? "读取预设中..." }}</span>
-              <strong>{{ selectedLlamaCppPreset?.ModelScopeModelId ?? "-" }} · {{ selectedLlamaCppPreset?.Quantization ?? "-" }}</strong>
-              <span>日翻中特化预设会标注 CC-BY-NC-SA-4.0 / 非商用。</span>
-            </div>
-            <div class="actions inline-actions llama-run-actions">
-              <button id="downloadLlamaCppPreset" class="secondary help-target" data-help="由插件进程从魔塔下载 GGUF 文件；不会覆盖校验不匹配的同名文件。" type="button" :disabled="isLlamaCppDownloading || !selectedLlamaCppPreset" @click="downloadLlamaCppPreset"><Download class="button-icon" />{{ isLlamaCppDownloading ? "下载中..." : "下载预设" }}</button>
-              <button id="cancelLlamaCppDownload" class="secondary help-target" data-help="取消当前模型下载，并删除未完成的 .part 临时文件。" type="button" :disabled="!isLlamaCppDownloading" @click="cancelLlamaCppDownload"><X class="button-icon" />取消下载</button>
-            </div>
-          </div>
-          <div v-if="llamaCppDownloadStatus" class="llama-download-progress">
-            <div><span>下载</span><strong>{{ llamaCppDownloadStatus.State }}</strong></div>
-            <div class="llama-download-bar"><span :style="{ width: `${Math.max(0, Math.min(100, llamaCppDownloadStatus.ProgressPercent))}%` }"></span></div>
+          <div v-if="isLlamaCppDownloading" class="llama-download-progress">
+            <div class="llama-download-bar"><span :style="{ width: `${llamaCppDownloadProgressPercent}%` }"></span></div>
             <strong>{{ llamaCppDownloadText }}</strong>
           </div>
           <div class="llama-status-strip">
             <div><span>安装</span><strong>{{ llamaCppInstallText }}</strong></div>
-            <div><span>状态</span><strong>{{ llamaCppStatus?.State ?? "stopped" }}</strong></div>
+            <div><span>状态</span><strong>{{ llamaCppStateText }}</strong></div>
             <div class="llama-result-card"><span>结果</span><strong>{{ llamaCppStatusText }}</strong></div>
           </div>
           <div class="llama-run-row">
@@ -956,26 +1087,25 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
         <p class="hint">{{ isLlamaCpp ? "llama.cpp 使用并行槽位控制本地模型压力。" : "在线服务商最多 100 并发。" }}</p>
         <div class="checks">
           <label class="check help-target" data-help="把同组件或同场景附近文本作为参考发给 AI，帮助短词和按钮翻译更准确。"><input id="enableTranslationContext" v-model="form.EnableTranslationContext" type="checkbox">启用翻译上下文</label>
+          <label v-if="isOpenAi" class="check help-target" data-help="启用后才显示 OpenAI 推理强度；普通翻译建议关闭以节省成本。"><input id="enableOpenAiReasoning" v-model="form.EnableOpenAiReasoning" type="checkbox" @change="ensureReasoningDefaults">启用 OpenAI 推理</label>
         </div>
         <div class="form-grid four">
           <label v-if="!isLlamaCpp" class="field help-target" data-help="限制同时发送给在线服务商的翻译请求数，过高可能触发限流或增加费用。"><span class="field-label"><Gauge class="field-label-icon" />在线服务并发请求</span><input id="maxConcurrentRequests" v-model.number="form.MaxConcurrentRequests" type="number" min="1" max="100"></label>
           <label class="field help-target" data-help="限制每分钟最多发起多少次请求，用来配合服务商速率限制。"><span class="field-label"><Clock3 class="field-label-icon" />每分钟请求</span><input id="requestsPerMinute" v-model.number="form.RequestsPerMinute" type="number" min="1"></label>
           <label class="field help-target" data-help="单批翻译最多包含多少原文字符，调低可减少失败重试和响应延迟。"><span class="field-label"><MessageSquareText class="field-label-icon" />批次字符上限</span><input id="maxBatchCharacters" v-model.number="form.MaxBatchCharacters" type="number" min="1"></label>
-          <label class="field help-target" data-help="每条请求最多带入多少条历史上下文示例，过多会增加 token 消耗。"><span class="field-label"><Sparkles class="field-label-icon" />上下文示例数</span><input id="translationContextMaxExamples" v-model.number="form.TranslationContextMaxExamples" type="number" min="0"></label>
-          <label class="field help-target" data-help="限制上下文示例的总字符数，用来控制提示词长度和请求成本。"><span class="field-label"><MessageSquareText class="field-label-icon" />上下文字符数</span><input id="translationContextMaxCharacters" v-model.number="form.TranslationContextMaxCharacters" type="number" min="0"></label>
+          <label v-if="form.EnableTranslationContext" class="field help-target" data-help="每条请求最多带入多少条历史上下文示例，过多会增加 token 消耗。"><span class="field-label"><Sparkles class="field-label-icon" />上下文示例数</span><input id="translationContextMaxExamples" v-model.number="form.TranslationContextMaxExamples" type="number" min="0"></label>
+          <label v-if="form.EnableTranslationContext" class="field help-target" data-help="限制上下文示例的总字符数，用来控制提示词长度和请求成本。"><span class="field-label"><MessageSquareText class="field-label-icon" />上下文字符数</span><input id="translationContextMaxCharacters" v-model.number="form.TranslationContextMaxCharacters" type="number" min="0"></label>
           <label class="field help-target" data-help="单次 AI 请求最长等待时间，网络慢或本地模型慢时可适当调高。"><span class="field-label"><Clock3 class="field-label-icon" />请求超时 (秒)</span><input id="requestTimeoutSeconds" v-model.number="form.RequestTimeoutSeconds" type="number" min="5" max="180"></label>
-          <label v-if="isOpenAi" class="field provider-option help-target" data-help="控制 OpenAI 模型额外推理投入；翻译通常保持关闭或低档以节省成本。" data-providers="0"><span class="field-label"><Brain class="field-label-icon" />OpenAI 推理强度</span>
+          <label v-if="canShowOpenAiReasoningEffort" class="field provider-option help-target" data-help="控制 OpenAI 模型额外推理投入；翻译通常保持低档以节省成本。" data-providers="0"><span class="field-label"><Brain class="field-label-icon" />OpenAI 推理强度</span>
             <select id="reasoningEffort" v-model="form.ReasoningEffort">
-              <option value="none">关闭</option>
               <option value="low">low</option>
               <option value="medium">medium</option>
               <option value="high">high</option>
               <option value="xhigh">xhigh</option>
             </select>
           </label>
-          <label v-if="isDeepSeek" class="field provider-option help-target" data-help="控制 DeepSeek 推理模型的思考强度；普通翻译建议关闭。" data-providers="1"><span class="field-label"><Brain class="field-label-icon" />DeepSeek 推理强度</span>
+          <label v-if="canShowDeepSeekReasoningEffort" class="field provider-option help-target" data-help="控制 DeepSeek 推理模型的思考强度；普通翻译建议关闭 Thinking。" data-providers="1"><span class="field-label"><Brain class="field-label-icon" />DeepSeek 推理强度</span>
             <select id="deepSeekReasoningEffort" v-model="form.DeepSeekReasoningEffort">
-              <option value="none">关闭</option>
               <option value="high">high</option>
               <option value="max">max</option>
             </select>
@@ -988,7 +1118,7 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
             </select>
           </label>
           <label v-if="isDeepSeek" class="field provider-option help-target" data-help="开启 DeepSeek Thinking 会让模型先思考再回答，可能更慢且更耗 token。" data-providers="1"><span class="field-label"><Brain class="field-label-icon" />DeepSeek Thinking</span>
-            <select id="deepSeekThinkingMode" v-model="form.DeepSeekThinkingMode">
+            <select id="deepSeekThinkingMode" v-model="form.DeepSeekThinkingMode" @change="ensureReasoningDefaults">
               <option value="disabled">关闭</option>
               <option value="enabled">启用</option>
             </select>
@@ -1025,6 +1155,47 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
         </div>
         <textarea id="customPrompt" class="prompt-editor-field" v-model="activePromptTemplateText" rows="12" spellcheck="false"></textarea>
       </SectionPanel>
+    </div>
+
+    <div v-if="llamaCppDownloadDialogOpen" class="model-download-backdrop" @click.self="closeLlamaCppDownloadDialog">
+      <section class="model-download-dialog" role="dialog" aria-modal="true" aria-labelledby="modelDownloadTitle">
+        <div class="model-download-head">
+          <div>
+            <h2 id="modelDownloadTitle">模型下载</h2>
+            <p>选择 GGUF 模型，下载完成后会自动填入本地模型路径。</p>
+          </div>
+          <button class="secondary" type="button" @click="closeLlamaCppDownloadDialog"><X class="button-icon" />关闭</button>
+        </div>
+        <div v-if="llamaCppModelPresets.length" class="field help-target" data-help="下载完成后会填入本地模型路径，保存 AI 设置后生效。">
+          <span class="field-label"><Download class="field-label-icon" />模型</span>
+          <div id="llamaCppPresetList" class="model-preset-list" role="radiogroup" aria-label="模型下载列表">
+            <button
+              v-for="preset in llamaCppModelPresets"
+              :key="preset.Id"
+              class="model-preset-card"
+              :class="{ 'model-preset-card-active': preset.Id === llamaCppSelectedPresetId }"
+              type="button"
+              role="radio"
+              :aria-checked="preset.Id === llamaCppSelectedPresetId"
+              :disabled="isLlamaCppDownloading"
+              @click="llamaCppSelectedPresetId = preset.Id">
+              <span class="model-preset-title">{{ preset.Label }}</span>
+              <span class="model-preset-meta">
+                <strong>{{ preset.Quantization }}</strong>
+                <span>{{ formatBytes(preset.FileSizeBytes) }}</span>
+                <span v-if="preset.License !== 'apache-2.0'" class="model-preset-license">{{ preset.License }}</span>
+              </span>
+              <span class="model-preset-use">{{ preset.UseCase }}</span>
+              <span class="model-preset-notes">{{ preset.Notes }}</span>
+            </button>
+          </div>
+        </div>
+        <p v-else class="hint">正在读取模型列表...</p>
+        <div class="actions model-download-actions">
+          <button id="downloadLlamaCppPreset" class="primary help-target" data-help="由插件进程下载 GGUF 文件；不会覆盖校验不匹配的同名文件。" type="button" :disabled="isLlamaCppDownloading || !selectedLlamaCppPreset" @click="downloadLlamaCppPreset"><Download class="button-icon" />{{ isLlamaCppDownloading ? "下载中..." : "下载模型" }}</button>
+          <button id="cancelLlamaCppDownload" class="secondary help-target" data-help="取消当前模型下载，并删除未完成的 .part 临时文件。" type="button" :disabled="!isLlamaCppDownloading" @click="cancelLlamaCppDownload"><X class="button-icon" />取消下载</button>
+        </div>
+      </section>
     </div>
   </section>
 </template>

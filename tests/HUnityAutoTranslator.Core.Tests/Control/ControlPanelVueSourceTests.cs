@@ -57,6 +57,9 @@ public sealed class ControlPanelVueSourceTests
         statusPageSource.Should().Contain("当前正在占用的 AI 请求/槽位数");
         statusPageSource.Should().Contain("同一请求可能批量包含多条文本");
         statusPageSource.Should().Contain("value-id=\"inFlightTranslationCount\"");
+        statusPageSource.Should().Contain("LoaderPinwheel");
+        statusPageSource.Should().Contain(":icon=\"LoaderPinwheel\"");
+        statusPageSource.Should().NotContain("LoaderCircle");
         statusPageSource.Should().NotContain("value-id=\"completedTranslationCount\"");
         statusPageSource.Should().NotContain("state?.CompletedTranslationCount");
     }
@@ -94,6 +97,62 @@ public sealed class ControlPanelVueSourceTests
         pluginPageSource.Should().NotContain("id=\"enableTranslationContext\"");
         pluginPageSource.Should().NotContain("id=\"translationContextMaxExamples\"");
         pluginPageSource.Should().NotContain("id=\"translationContextMaxCharacters\"");
+    }
+
+    [Fact]
+    public void Vue_ai_settings_uses_language_name_dropdown_with_code_values()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+
+        aiPageSource.Should().Contain("const targetLanguageOptions");
+        aiPageSource.Should().Contain("{ value: \"zh-Hans\", label: \"简体中文\" }");
+        aiPageSource.Should().Contain("{ value: \"zh-Hant\", label: \"繁体中文\" }");
+        aiPageSource.Should().Contain("{ value: \"ja\", label: \"日语\" }");
+        aiPageSource.Should().Contain("{ value: \"ko\", label: \"韩语\" }");
+        aiPageSource.Should().Contain("{ value: \"pt-BR\", label: \"巴西葡萄牙语\" }");
+        aiPageSource.Should().Contain("<select id=\"targetLanguage\" v-model=\"form.TargetLanguage\">");
+        aiPageSource.Should().Contain("v-for=\"option in targetLanguageOptions\"");
+        aiPageSource.Should().NotContain("id=\"targetLanguage\" v-model=\"form.TargetLanguage\" autocomplete=\"off\"");
+    }
+
+    [Fact]
+    public void Vue_ai_settings_hides_dependent_options_when_parent_options_are_disabled()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+
+        aiPageSource.Should().Contain("EnableOpenAiReasoning: false");
+        aiPageSource.Should().Contain("const canShowOpenAiReasoningEffort");
+        aiPageSource.Should().Contain("const canShowDeepSeekReasoningEffort");
+        aiPageSource.Should().Contain("v-if=\"form.EnableTranslationContext\"");
+        aiPageSource.Should().Contain("v-if=\"canShowOpenAiReasoningEffort\"");
+        aiPageSource.Should().Contain("v-if=\"canShowDeepSeekReasoningEffort\"");
+        aiPageSource.Should().Contain("return canShowOpenAiReasoningEffort.value ? form.ReasoningEffort : \"none\";");
+        aiPageSource.Should().Contain("return canShowDeepSeekReasoningEffort.value ? form.DeepSeekReasoningEffort : \"none\";");
+    }
+
+    [Fact]
+    public void Vue_ai_settings_exposes_openai_compatible_advanced_options()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+
+        apiTypesSource.Should().Contain("OpenAICompatibleCustomHeaders: string | null;");
+        apiTypesSource.Should().Contain("OpenAICompatibleExtraBodyJson: string | null;");
+        apiTypesSource.Should().Contain("OpenAICompatibleCustomHeaders?: string | null;");
+        apiTypesSource.Should().Contain("OpenAICompatibleExtraBodyJson?: string | null;");
+        aiPageSource.Should().Contain("OpenAICompatibleCustomHeaders: \"\"");
+        aiPageSource.Should().Contain("OpenAICompatibleExtraBodyJson: \"\"");
+        aiPageSource.Should().Contain("const isOpenAiCompatible");
+        aiPageSource.Should().Contain("function validateOpenAiCompatibleAdvancedOptions");
+        aiPageSource.Should().Contain("v-if=\"isOpenAiCompatible\"");
+        aiPageSource.Should().Contain("id=\"openAICompatibleCustomHeaders\"");
+        aiPageSource.Should().Contain("id=\"openAICompatibleExtraBodyJson\"");
+        aiPageSource.Should().Contain("OpenAICompatibleCustomHeaders: form.OpenAICompatibleCustomHeaders.trim()");
+        aiPageSource.Should().Contain("OpenAICompatibleExtraBodyJson: form.OpenAICompatibleExtraBodyJson.trim()");
+        aiPageSource.Should().Contain("Authorization 和 Content-Type 请继续使用内置密钥和 JSON 请求。");
+        cssSource.Should().Contain(".ai-compatible-advanced");
+        cssSource.Should().Contain(".textarea-field");
     }
 
     [Fact]
@@ -210,6 +269,34 @@ public sealed class ControlPanelVueSourceTests
         cssSource.Should().Contain("grid-template-columns: 64px minmax(0, 1fr);");
         cssSource.Should().Contain(".sidebar-collapse");
         cssSource.Should().Contain(".nav-icon");
+    }
+
+    [Fact]
+    public void Vue_shared_layout_constrains_pages_to_browser_width()
+    {
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        CssBlock(cssSource, @"\.app-shell").Should().Contain("width: 100%;").And.Contain("min-width: 0;");
+        CssBlock(cssSource, @"\.workspace").Should().Contain("max-width: 100%;").And.Contain("overflow-x: clip;");
+        CssBlock(cssSource, @"\.workspace-main").Should().Contain("max-width: 100%;");
+        CssBlock(cssSource, @"\.page").Should().Contain("width: 100%;").And.Contain("max-width: min(1500px, 100%);");
+        CssBlock(cssSource, @"\.page-head").Should().Contain("min-width: 0;").And.Contain("flex-wrap: wrap;");
+        CssBlock(cssSource, @"\.section-panel").Should().Contain("min-width: 0;").And.Contain("max-width: 100%;");
+        CssBlock(cssSource, @"\.section-head").Should().Contain("min-width: 0;").And.Contain("flex-wrap: wrap;");
+        CssBlock(cssSource, @"\.section-head\s*>\s*div:first-child").Should().Contain("min-width: 0;");
+        CssBlock(cssSource, @"\.actions").Should().Contain("min-width: 0;");
+
+        CssBlock(cssSource, @"\.metric-grid,\s*\.about-grid").Should().Contain("repeat(auto-fit, minmax(min(180px, 100%), 1fr))");
+        CssBlock(cssSource, @"\.provider-summary").Should().Contain("repeat(auto-fit, minmax(min(180px, 100%), 1fr))");
+        CssBlock(cssSource, @"\.form-grid\.four").Should().Contain("repeat(auto-fit, minmax(min(180px, 100%), 1fr))");
+        CssBlock(cssSource, @"\.ai-provider-grid,\s*\.ai-endpoint-grid").Should().Contain("repeat(auto-fit, minmax(min(190px, 100%), 1fr))");
+        CssBlock(cssSource, @"\.ai-model-row").Should().Contain("repeat(auto-fit, minmax(min(240px, 100%), 1fr))");
+        CssBlock(cssSource, @"\.llama-status-strip").Should().Contain("repeat(auto-fit, minmax(min(180px, 100%), 1fr))");
+        CssBlock(cssSource, @"\.llama-run-row").Should().Contain("repeat(auto-fit, minmax(min(150px, 100%), 1fr))");
+        CssBlock(cssSource, @"\.editor-tools").Should().Contain("repeat(auto-fit, minmax(min(260px, 100%), 1fr))");
+
+        CssBlock(cssSource, @"\.metric\[data-help\]::after,\s*\.help-target\[data-help\]::after")
+            .Should().Contain("width: min(360px, 100%);").And.NotContain("width: max-content;");
     }
 
     [Fact]
@@ -397,6 +484,8 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("balance.TotalBalance");
         aiPageSource.Should().Contain("balance.GrantedBalance");
         aiPageSource.Should().Contain("balance.ToppedUpBalance");
+        aiPageSource.Should().Contain("查询账户余额");
+        aiPageSource.Should().NotContain("查询余额/成本</button>");
     }
 
     [Fact]
@@ -420,6 +509,7 @@ public sealed class ControlPanelVueSourceTests
         apiTypesSource.Should().Contain("BatchSize: number;");
         apiTypesSource.Should().Contain("UBatchSize: number;");
         apiTypesSource.Should().Contain("FlashAttentionMode: string;");
+        apiTypesSource.Should().Contain("AutoStartOnStartup: boolean;");
         apiTypesSource.Should().Contain("export interface LlamaCppBenchmarkResult");
         apiTypesSource.Should().Contain("Installed: boolean");
         apiTypesSource.Should().Contain("Release: string | null");
@@ -434,9 +524,17 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("id=\"startLlamaCpp\"");
         aiPageSource.Should().Contain("id=\"stopLlamaCpp\"");
         aiPageSource.Should().Contain("llamaCppIsActive");
+        aiPageSource.Should().Contain("llamaCppStatusText");
+        aiPageSource.Should().Contain("stopped: \"已停止\"");
+        aiPageSource.Should().Contain("running: \"运行中\"");
         aiPageSource.Should().Contain("v-if=\"!llamaCppIsActive\"");
         aiPageSource.Should().Contain("v-else id=\"stopLlamaCpp\"");
         aiPageSource.Should().Contain("llamaCppInstallText");
+        aiPageSource.Should().Contain("LlamaCppAutoStartOnStartup");
+        aiPageSource.Should().Contain("form.LlamaCppAutoStartOnStartup = state.LlamaCpp?.AutoStartOnStartup ?? false;");
+        aiPageSource.Should().Contain("AutoStartOnStartup: form.LlamaCppAutoStartOnStartup");
+        aiPageSource.Should().Contain("form.LlamaCppAutoStartOnStartup = true;");
+        aiPageSource.Should().Contain("form.LlamaCppAutoStartOnStartup = false;");
         aiPageSource.Should().Contain("/api/llamacpp/start");
         aiPageSource.Should().Contain("/api/llamacpp/stop");
         aiPageSource.Should().Contain("/api/llamacpp/benchmark");
@@ -458,19 +556,41 @@ public sealed class ControlPanelVueSourceTests
         apiTypesSource.Should().Contain("ProgressPercent: number;");
         aiPageSource.Should().Contain("llamaCppModelPresets");
         aiPageSource.Should().Contain("llamaCppSelectedPresetId");
+        aiPageSource.Should().Contain("const llamaCppDownloadDialogOpen = ref(false);");
+        aiPageSource.Should().Contain("function openLlamaCppDownloadDialog()");
         aiPageSource.Should().Contain("async function loadLlamaCppModelPresets()");
         aiPageSource.Should().Contain("async function downloadLlamaCppPreset()");
         aiPageSource.Should().Contain("async function cancelLlamaCppDownload()");
-        aiPageSource.Should().Contain("id=\"llamaCppPreset\"");
+        aiPageSource.Should().Contain("id=\"openLlamaCppModelDownload\"");
+        aiPageSource.Should().Contain("id=\"llamaCppPresetList\"");
+        aiPageSource.Should().Contain("role=\"radiogroup\"");
+        aiPageSource.Should().Contain("class=\"model-preset-card\"");
+        aiPageSource.Should().Contain("model-preset-card-active");
+        aiPageSource.Should().NotContain("<select id=\"llamaCppPreset\"");
         aiPageSource.Should().Contain("id=\"downloadLlamaCppPreset\"");
         aiPageSource.Should().Contain("id=\"cancelLlamaCppDownload\"");
+        aiPageSource.Should().Contain("class=\"model-download-backdrop\"");
+        aiPageSource.Should().Contain("class=\"model-download-dialog\"");
         aiPageSource.Should().Contain("/api/llamacpp/model/presets");
         aiPageSource.Should().Contain("/api/llamacpp/model/download");
         aiPageSource.Should().Contain("/api/llamacpp/model/download/cancel");
         aiPageSource.Should().Contain("form.LlamaCppModelPath = status.LocalPath;");
         aiPageSource.Should().Contain("已下载并填入模型路径");
-        aiPageSource.Should().Contain("CC-BY-NC-SA-4.0 / 非商用");
-        cssSource.Should().Contain(".llama-preset-row");
+        aiPageSource.Should().Contain("模型下载");
+        aiPageSource.Should().Contain("<div v-if=\"isLlamaCppDownloading\" class=\"llama-download-progress\">");
+        aiPageSource.Should().Contain("{{ preset.UseCase }}");
+        aiPageSource.Should().Contain("{{ preset.Notes }}");
+        aiPageSource.Should().Contain("{{ preset.License }}");
+        aiPageSource.Should().Contain("model-preset-license");
+        aiPageSource.Should().NotContain("兼容备选");
+        aiPageSource.Should().NotContain("魔塔");
+        aiPageSource.Should().NotContain("魔搭");
+        aiPageSource.Should().NotContain("selectedLlamaCppPreset?.ModelScopeModelId");
+        cssSource.Should().Contain(".model-preset-list");
+        cssSource.Should().Contain(".model-preset-card");
+        cssSource.Should().Contain(".model-preset-card-active");
+        cssSource.Should().Contain(".model-download-backdrop");
+        cssSource.Should().Contain(".model-download-dialog");
         cssSource.Should().Contain(".llama-download-progress");
     }
 
@@ -511,7 +631,8 @@ public sealed class ControlPanelVueSourceTests
         cssSource.Should().Contain(".llama-local-panel");
         cssSource.Should().Contain(".llama-model-row");
         cssSource.Should().Contain(".llama-status-strip");
-        cssSource.Should().Contain("grid-template-columns: minmax(180px, 1fr) minmax(120px, 0.7fr) minmax(260px, 1.6fr);");
+        CssBlock(cssSource, @"\.llama-status-strip").Should().Contain("grid-template-columns: repeat(auto-fit, minmax(min(180px, 100%), 1fr));");
+        cssSource.Should().NotContain("grid-template-columns: minmax(180px, 1fr) minmax(120px, 0.7fr) minmax(260px, 1.6fr);");
         cssSource.Should().NotContain("grid-template-columns: minmax(150px, 1fr) minmax(110px, 0.7fr) minmax(100px, 0.6fr) minmax(260px, 1.55fr);");
         cssSource.Should().Contain(".llama-run-row");
         cssSource.Should().Contain(".llama-result-card");
@@ -655,6 +776,20 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_editor_export_filename_includes_game_name_and_local_timestamp()
+    {
+        var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
+
+        editorPageSource.Should().Contain("controlPanelStore.state?.GameTitle");
+        editorPageSource.Should().Contain("controlPanelStore.state?.AutomaticGameTitle");
+        editorPageSource.Should().Contain("function sanitizeExportFileNamePart(");
+        editorPageSource.Should().Contain("function formatExportTimestamp(");
+        editorPageSource.Should().Contain(@"replace(/[<>:""\/\\|?*\x00-\x1f]+/g");
+        editorPageSource.Should().Contain("anchor.download = `hunity-translations-${gameName}-${timestamp}.${format}`;");
+        editorPageSource.Should().NotContain("anchor.download = `hunity-translations.${format}`;");
+    }
+
+    [Fact]
     public void Vue_editor_aligns_search_box_and_toolbar_actions()
     {
         var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
@@ -662,7 +797,7 @@ public sealed class ControlPanelVueSourceTests
         var editorActionsBlock = System.Text.RegularExpressions.Regex.Match(cssSource, @"\.editor-actions\s*\{[^}]*\}", System.Text.RegularExpressions.RegexOptions.Singleline);
 
         editorToolsBlock.Success.Should().BeTrue();
-        editorToolsBlock.Value.Should().Contain("grid-template-columns: minmax(260px, 1fr) auto;");
+        editorToolsBlock.Value.Should().Contain("grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));");
         editorToolsBlock.Value.Should().Contain("align-items: end;");
         editorActionsBlock.Success.Should().BeTrue();
         editorActionsBlock.Value.Should().Contain("align-self: end;");
@@ -807,5 +942,15 @@ public sealed class ControlPanelVueSourceTests
 
         directory.Should().NotBeNull("tests should run from inside the repository checkout");
         return directory!.FullName;
+    }
+
+    private static string CssBlock(string cssSource, string selectorPattern)
+    {
+        var block = System.Text.RegularExpressions.Regex.Match(
+            cssSource,
+            $@"{selectorPattern}\s*\{{[^}}]*\}}",
+            System.Text.RegularExpressions.RegexOptions.Singleline);
+        block.Success.Should().BeTrue($"CSS should contain a {selectorPattern} block");
+        return block.Value;
     }
 }
