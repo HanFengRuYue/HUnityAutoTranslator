@@ -22,7 +22,6 @@ $zipPath = Join-Path $outputRoot "HUnityAutoTranslator-0.1.0.zip"
 $il2CppZipPath = Join-Path $outputRoot "HUnityAutoTranslator-0.1.0-il2cpp.zip"
 $controlPanelRoot = Join-Path $root "src\HUnityAutoTranslator.ControlPanel"
 $controlPanelBuildRoot = Join-Path $outputRoot ".control-panel-build"
-$brandingSource = Join-Path $controlPanelRoot "public\branding"
 $LlamaCppReleaseTag = "b8943"
 
 function Invoke-CheckedNative([string]$Command, [string[]]$Arguments) {
@@ -354,16 +353,6 @@ function Get-PluginRuntimeBuilds([string]$Runtime) {
     return $builds
 }
 
-function Copy-BrandingAssets([string]$TargetRoot) {
-    if (-not (Test-Path -LiteralPath $brandingSource)) {
-        return
-    }
-
-    $brandingTarget = Join-Path $TargetRoot "assets\branding"
-    New-Item -ItemType Directory -Force -Path $brandingTarget | Out-Null
-    Get-ChildItem -LiteralPath $brandingSource -File | Copy-Item -Destination $brandingTarget -Force
-}
-
 function Copy-NativeSqlite([string]$BuildOutput, [string]$TargetRoot) {
     $nativeSqlite = Join-Path $BuildOutput "runtimes\win-x64\native\e_sqlite3.dll"
     if (Test-Path -LiteralPath $nativeSqlite) {
@@ -394,8 +383,6 @@ function Build-PluginPackage([hashtable]$Build) {
 
     Remove-BuildSubdirectory -Path $runtimePackageRoot
     New-Item -ItemType Directory -Force -Path $runtimePluginRoot | Out-Null
-
-    Copy-BrandingAssets -TargetRoot $runtimePluginRoot
 
     Get-ChildItem -LiteralPath $runtimeBuildOutput -Filter "*.dll" |
         Where-Object { $_.Name -notlike "BepInEx.*" -and $_.Name -notlike "UnityEngine.*" -and $_.Name -ne "0Harmony.dll" } |

@@ -63,16 +63,16 @@ public sealed class PackageScriptTests
     }
 
     [Fact]
-    public void Package_script_embeds_favicon_and_copies_branding_assets()
+    public void Package_script_embeds_favicon_without_copying_branding_assets()
     {
         var script = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "build", "package.ps1"));
 
         script.Should().Contain("Convert-LocalIconLinksToDataUris");
         script.Should().Contain("data:image/x-icon;base64,");
-        script.Should().Contain("$brandingSource = Join-Path $controlPanelRoot \"public\\branding\"");
-        script.Should().Contain("function Copy-BrandingAssets");
-        script.Should().Contain("$brandingTarget = Join-Path $TargetRoot \"assets\\branding\"");
-        script.Should().Contain("Get-ChildItem -LiteralPath $brandingSource -File | Copy-Item -Destination $brandingTarget -Force");
+        script.Should().NotContain("$brandingSource = Join-Path $controlPanelRoot \"public\\branding\"");
+        script.Should().NotContain("function Copy-BrandingAssets");
+        script.Should().NotContain("assets\\branding");
+        script.Should().NotContain("Copy-BrandingAssets -TargetRoot");
     }
 
     [Fact]
