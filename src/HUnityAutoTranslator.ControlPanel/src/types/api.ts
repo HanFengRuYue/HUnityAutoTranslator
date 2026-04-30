@@ -6,6 +6,7 @@ export type PageKey =
   | "plugin"
   | "ai"
   | "glossary"
+  | "textures"
   | "editor"
   | "about";
 
@@ -463,4 +464,53 @@ export interface TranslationHighlightResult {
   Status: string;
   Message: string;
   TargetId: string | null;
+}
+
+export interface TextureReferenceInfo {
+  TargetId: string;
+  SceneName: string | null;
+  ComponentHierarchy: string | null;
+  ComponentType: string | null;
+}
+
+export interface TextureCatalogItem {
+  SourceHash: string;
+  TextureName: string;
+  Width: number;
+  Height: number;
+  Format: string;
+  FileName: string;
+  ReferenceCount: number;
+  References: TextureReferenceInfo[];
+  HasOverride: boolean;
+  OverrideUpdatedUtc: string | null;
+}
+
+export interface TextureCatalogPage {
+  ScannedUtc: string | null;
+  TextureCount: number;
+  ReferenceCount: number;
+  OverrideCount: number;
+  Items: TextureCatalogItem[];
+  Errors: string[];
+}
+
+export interface TextureScanResult {
+  ScannedUtc: string;
+  TextureCount: number;
+  ReferenceCount: number;
+  OverrideCount: number;
+  Errors: string[];
+}
+
+export interface TextureImportResult {
+  ImportedCount: number;
+  AppliedCount: number;
+  Errors: string[];
+}
+
+export interface TextureOverrideClearResult {
+  DeletedCount: number;
+  RestoredCount: number;
+  Errors: string[];
 }

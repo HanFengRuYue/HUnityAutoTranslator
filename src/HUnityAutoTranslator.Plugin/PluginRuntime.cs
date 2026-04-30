@@ -7,6 +7,7 @@ using HUnityAutoTranslator.Core.Dispatching;
 using HUnityAutoTranslator.Core.Glossary;
 using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Queueing;
+using HUnityAutoTranslator.Core.Textures;
 using HUnityAutoTranslator.Plugin.Capture;
 using HUnityAutoTranslator.Plugin.Hotkeys;
 using HUnityAutoTranslator.Plugin.Unity;
@@ -30,6 +31,8 @@ internal sealed class PluginRuntime : IDisposable
     private ControlPanelMetrics? _metrics;
     private UnityTextFontReplacementService? _fontReplacement;
     private UnityTextHighlighter? _highlighter;
+    private TextureOverrideStore? _textureOverrides;
+    private UnityTextureReplacementService? _textureReplacement;
     private RuntimeHotkeyController? _hotkeys;
     private LlamaCppServerManager? _llamaCppServer;
     private LlamaCppModelDownloadManager? _llamaCppModelDownloads;
@@ -54,6 +57,7 @@ internal sealed class PluginRuntime : IDisposable
             var providerProfilesPath = Path.Combine(dataDirectory, "providers");
             var cachePath = Path.Combine(dataDirectory, "translation-cache.sqlite");
             var glossaryPath = Path.Combine(dataDirectory, "translation-glossary.sqlite");
+            var textureOverridesPath = Path.Combine(dataDirectory, "texture-overrides");
             _metrics = new ControlPanelMetrics();
             _controlPanel = ControlPanelService.CreateDefault(
                 new CfgControlPanelSettingsStore(settingsPath),
@@ -67,6 +71,11 @@ internal sealed class PluginRuntime : IDisposable
             _dispatcher = new ResultDispatcher();
             _resultApplier = new UnityMainThreadResultApplier(_controlPanel.GetConfig, message => _logger.LogInfo(message));
             _highlighter = new UnityTextHighlighter(_resultApplier, _logger);
+            _textureOverrides = new TextureOverrideStore(textureOverridesPath);
+            _textureReplacement = new UnityTextureReplacementService(
+                _textureOverrides,
+                () => _controlPanel?.GetConfig().GameTitle ?? Application.productName,
+                _logger);
             var pluginDirectory = _pluginDirectory ?? Path.GetDirectoryName(typeof(PluginRuntime).Assembly.Location) ?? Paths.PluginPath;
             _llamaCppServer = new LlamaCppServerManager(pluginDirectory, _logger);
             _llamaCppModelDownloads = new LlamaCppModelDownloadManager(Path.Combine(pluginDirectory, "models"));
@@ -89,6 +98,7 @@ internal sealed class PluginRuntime : IDisposable
                 _queue,
                 _dispatcher,
                 _highlighter,
+                _textureReplacement,
                 _llamaCppServer,
                 _llamaCppModelDownloads,
                 _logger);
@@ -171,6 +181,7 @@ internal sealed class PluginRuntime : IDisposable
         _workerHost?.Dispose();
         _llamaCppServer?.Dispose();
         _llamaCppModelDownloads?.Dispose();
+        _textureReplacement?.Dispose();
         _httpServer?.Dispose();
         (_cache as IDisposable)?.Dispose();
         (_glossary as IDisposable)?.Dispose();
@@ -196,6 +207,8 @@ internal sealed class PluginRuntime : IDisposable
             _highlighter.RefreshTargetSnapshot(_resultApplier.SnapshotTargets());
             _highlighter.Tick();
         }
+
+        _textureReplacement?.Tick();
     }
 
     public void LateTick()

@@ -9,12 +9,14 @@ import GlossaryPage from "./pages/GlossaryPage.vue";
 import PluginSettingsPage from "./pages/PluginSettingsPage.vue";
 import StatusPage from "./pages/StatusPage.vue";
 import TextEditorPage from "./pages/TextEditorPage.vue";
+import TexturePage from "./pages/TexturePage.vue";
 
 const pages = {
   status: StatusPage,
   plugin: PluginSettingsPage,
   ai: AiSettingsPage,
   glossary: GlossaryPage,
+  textures: TexturePage,
   editor: TextEditorPage,
   about: AboutPage
 };

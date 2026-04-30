@@ -5,6 +5,7 @@ import {
   Bot,
   BookOpen,
   FileText,
+  Images,
   Info,
   MonitorCog,
   Moon,
@@ -30,6 +31,7 @@ const pages: Array<{ key: PageKey; label: string; icon: typeof Activity }> = [
   { key: "plugin", label: "插件设置", icon: Plug },
   { key: "ai", label: "AI 翻译设置", icon: Bot },
   { key: "glossary", label: "术语库", icon: BookOpen },
+  { key: "textures", label: "贴图替换", icon: Images },
   { key: "editor", label: "文本编辑", icon: FileText },
   { key: "about", label: "版本信息", icon: Info }
 ];

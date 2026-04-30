@@ -45,6 +45,20 @@ public sealed class NewtonsoftJsonCompatibilityTests
             .BeFalse("Unity games can preload Newtonsoft.Json 12.x, which lacks this Newtonsoft.Json 13.x overload");
     }
 
+    [Fact]
+    public void Openai_compatible_extra_body_normalization_avoids_jtoken_to_string_formatting_overload()
+    {
+        var normalize = typeof(OpenAICompatibleRequestOptions).GetMethod(
+            nameof(OpenAICompatibleRequestOptions.NormalizeExtraBodyJson),
+            BindingFlags.Static | BindingFlags.Public);
+
+        normalize.Should().NotBeNull();
+        GetCalledMethods(normalize!)
+            .Any(IsJTokenToStringFormattingCall)
+            .Should()
+            .BeFalse("Unity games can preload Newtonsoft.Json 12.x, which lacks this Newtonsoft.Json 13.x overload");
+    }
+
     private static bool IsJTokenToStringFormattingCall(MethodBase method)
     {
         var parameters = method.GetParameters();

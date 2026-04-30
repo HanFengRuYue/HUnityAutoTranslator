@@ -11,6 +11,7 @@ using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Prompts;
 using HUnityAutoTranslator.Core.Providers;
 using HUnityAutoTranslator.Core.Queueing;
+using HUnityAutoTranslator.Core.Textures;
 using HUnityAutoTranslator.Plugin.Unity;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -20,6 +21,7 @@ namespace HUnityAutoTranslator.Plugin;
 internal sealed class LocalHttpServer : IDisposable
 {
     private const int ManualWritebackPriority = (int)TranslationPriority.VisibleUi + 100;
+    private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
 
     private readonly ControlPanelService _controlPanel;
     private readonly ITranslationCache _cache;
@@ -27,6 +29,7 @@ internal sealed class LocalHttpServer : IDisposable
     private readonly TranslationJobQueue _queue;
     private readonly ResultDispatcher _dispatcher;
     private readonly UnityTextHighlighter? _highlighter;
+    private readonly UnityTextureReplacementService _textureReplacement;
     private readonly LlamaCppServerManager? _llamaCppServer;
     private readonly LlamaCppModelDownloadManager _llamaCppModelDownloads;
     private readonly HttpClient _httpClient = new();
@@ -44,6 +47,7 @@ internal sealed class LocalHttpServer : IDisposable
         TranslationJobQueue queue,
         ResultDispatcher dispatcher,
         UnityTextHighlighter? highlighter,
+        UnityTextureReplacementService textureReplacement,
         LlamaCppServerManager? llamaCppServer,
         LlamaCppModelDownloadManager llamaCppModelDownloads,
         ManualLogSource logger)
@@ -54,6 +58,7 @@ internal sealed class LocalHttpServer : IDisposable
         _queue = queue;
         _dispatcher = dispatcher;
         _highlighter = highlighter;
+        _textureReplacement = textureReplacement;
         _llamaCppServer = llamaCppServer;
         _llamaCppModelDownloads = llamaCppModelDownloads;
         _providerUtilityClient = new ProviderUtilityClient(_httpClient, _controlPanel.GetApiKey);
@@ -396,6 +401,34 @@ internal sealed class LocalHttpServer : IDisposable
                         importResult.Errors,
                         RefreshQueuedCount = refreshQueued
                     }).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/textures/scan")
+            {
+                await WriteJsonAsync(context.Response, await _textureReplacement.RequestScanAsync().ConfigureAwait(false)).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "GET" && path == "/api/textures")
+            {
+                await WriteJsonAsync(context.Response, _textureReplacement.GetCatalog()).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "GET" && path == "/api/textures/export")
+            {
+                var archive = await _textureReplacement.ExportArchiveAsync().ConfigureAwait(false);
+                context.Response.ContentType = "application/zip";
+                context.Response.Headers["Content-Disposition"] = $"attachment; filename=\"{BuildTextureExportFileName()}\"";
+                await WriteBytesAsync(context.Response, archive).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/textures/import")
+            {
+                _logger.LogInfo("收到贴图包导入请求。");
+                var archive = await ReadBytesAsync(context.Request).ConfigureAwait(false);
+                _logger.LogInfo($"贴图包读取完成：{archive.Length} 字节。");
+                var result = await _textureReplacement.ImportOverridesAsync(archive).ConfigureAwait(false);
+                _logger.LogInfo($"贴图包导入完成：导入 {result.ImportedCount} 张，应用 {result.AppliedCount} 个引用，错误 {result.Errors.Count} 条。");
+                await WriteJsonAsync(context.Response, result).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "DELETE" && path == "/api/textures/overrides")
+            {
+                await WriteJsonAsync(context.Response, await _textureReplacement.ClearOverridesAsync().ConfigureAwait(false)).ConfigureAwait(false);
             }
             else if (path.StartsWith("/api/provider-profiles", StringComparison.Ordinal))
             {
@@ -960,6 +993,48 @@ internal sealed class LocalHttpServer : IDisposable
         return await reader.ReadToEndAsync().ConfigureAwait(false);
     }
 
+    private static Task<byte[]> ReadBytesAsync(HttpListenerRequest request)
+    {
+        using var memory = new MemoryStream();
+        if (request.InputStream.CanTimeout)
+        {
+            request.InputStream.ReadTimeout = 15000;
+        }
+
+        if (request.ContentLength64 >= 0)
+        {
+            var remaining = request.ContentLength64;
+            var buffer = new byte[81920];
+            while (remaining > 0)
+            {
+                var read = request.InputStream.Read(buffer, 0, (int)Math.Min(buffer.Length, remaining));
+                if (read == 0)
+                {
+                    break;
+                }
+
+                memory.Write(buffer, 0, read);
+                remaining -= read;
+            }
+
+            return Task.FromResult(memory.ToArray());
+        }
+
+        var chunk = new byte[81920];
+        while (true)
+        {
+            var read = request.InputStream.Read(chunk, 0, chunk.Length);
+            if (read == 0)
+            {
+                break;
+            }
+
+            memory.Write(chunk, 0, read);
+        }
+
+        return Task.FromResult(memory.ToArray());
+    }
+
     private static async Task WriteJsonAsync(HttpListenerResponse response, object value)
     {
         response.ContentType = "application/json; charset=utf-8";
@@ -974,8 +1049,36 @@ internal sealed class LocalHttpServer : IDisposable
 
     private static async Task WriteTextAsync(HttpListenerResponse response, string value)
     {
-        using var writer = new StreamWriter(response.OutputStream, Encoding.UTF8);
+        using var writer = new StreamWriter(response.OutputStream, Utf8NoBom);
         await writer.WriteAsync(value).ConfigureAwait(false);
+    }
+
+    private static async Task WriteBytesAsync(HttpListenerResponse response, byte[] value)
+    {
+        response.ContentLength64 = value.Length;
+        try
+        {
+            await response.OutputStream.WriteAsync(value, 0, value.Length).ConfigureAwait(false);
+        }
+        finally
+        {
+            response.OutputStream.Close();
+        }
+    }
+
+    private string BuildTextureExportFileName()
+    {
+        var gameTitle = _controlPanel.GetConfig().GameTitle ?? "unknown-game";
+        var safeGameTitle = new string(gameTitle
+            .Select(ch => Path.GetInvalidFileNameChars().Contains(ch) ? '-' : ch)
+            .ToArray())
+            .Trim();
+        if (string.IsNullOrWhiteSpace(safeGameTitle))
+        {
+            safeGameTitle = "unknown-game";
+        }
+
+        return $"hunity-textures-{safeGameTitle}-{DateTime.Now:yyyyMMdd-HHmmss}.zip";
     }
 
     private static bool IsLoopback(HttpListenerContext context)

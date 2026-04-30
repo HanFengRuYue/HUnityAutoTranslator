@@ -202,6 +202,49 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Local_http_server_exposes_texture_export_import_endpoints()
+    {
+        var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+        var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+
+        serverSource.Should().Contain("path == \"/api/textures/scan\"");
+        serverSource.Should().Contain("path == \"/api/textures\"");
+        serverSource.Should().Contain("path == \"/api/textures/export\"");
+        serverSource.Should().Contain("path == \"/api/textures/import\"");
+        serverSource.Should().Contain("path == \"/api/textures/overrides\"");
+        serverSource.Should().Contain("ReadBytesAsync(context.Request)");
+        serverSource.Should().Contain("request.ContentLength64");
+        serverSource.Should().Contain("WriteBytesAsync(context.Response");
+        serverSource.Should().Contain("Content-Disposition");
+        serverSource.Should().Contain("response.OutputStream.Close()");
+        serverSource.Should().Contain("new UTF8Encoding(false)");
+        pluginSource.Should().Contain("texture-overrides");
+        pluginSource.Should().Contain("UnityTextureReplacementService");
+        pluginSource.Should().Contain("new LocalHttpServer(");
+    }
+
+    [Fact]
+    public void Unity_texture_replacement_service_uses_safe_png_capture_and_runtime_replacement_paths()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextureReplacementService.cs"));
+
+        serviceSource.Should().Contain("ImageConversion.EncodeToPNG");
+        serviceSource.Should().Contain("ImageConversion.LoadImage");
+        serviceSource.Should().Contain("RenderTexture.active");
+        serviceSource.Should().Contain("finally");
+        serviceSource.Should().Contain("ReadPixels");
+        serviceSource.Should().Contain("RawImage");
+        serviceSource.Should().Contain("Image.sprite");
+        serviceSource.Should().Contain("SpriteRenderer");
+        serviceSource.Should().Contain("renderer.material.mainTexture");
+        serviceSource.Should().Contain("sharedMaterial");
+        serviceSource.Should().Contain("ConcurrentQueue<Action>");
+        serviceSource.Should().Contain("TaskCreationOptions.RunContinuationsAsynchronously");
+        serviceSource.Should().Contain("SceneManager.GetActiveScene()");
+        serviceSource.Should().Contain("TextureOverrideStore");
+    }
+
+    [Fact]
     public void Translation_editor_save_publishes_manual_writeback_for_known_targets()
     {
         var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));

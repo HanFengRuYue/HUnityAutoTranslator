@@ -73,7 +73,7 @@ public static class OpenAICompatibleRequestOptions
         try
         {
             return JToken.Parse(value) is JObject body
-                ? body.ToString(Formatting.None)
+                ? JsonConvert.SerializeObject(body, Formatting.None)
                 : fallback;
         }
         catch (JsonException)

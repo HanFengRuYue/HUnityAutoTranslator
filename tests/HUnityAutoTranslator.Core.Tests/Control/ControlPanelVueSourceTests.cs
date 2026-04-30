@@ -1023,6 +1023,32 @@ public sealed class ControlPanelVueSourceTests
         tableSource.Should().Contain("sort: \"replacement_font\"");
     }
 
+    [Fact]
+    public void Vue_control_panel_exposes_texture_replacement_page()
+    {
+        var appSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "App.vue"));
+        var sidebarSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "components", "AppSidebar.vue"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+        var texturePageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TexturePage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        apiTypesSource.Should().Contain("| \"textures\"");
+        apiTypesSource.Should().Contain("export interface TextureCatalogItem");
+        apiTypesSource.Should().Contain("export interface TextureImportResult");
+        sidebarSource.Should().Contain("label: \"贴图替换\"");
+        appSource.Should().Contain("TexturePage");
+        texturePageSource.Should().Contain("/api/textures/scan");
+        texturePageSource.Should().Contain("/api/textures/export");
+        texturePageSource.Should().Contain("/api/textures/import");
+        texturePageSource.Should().Contain("/api/textures/overrides");
+        texturePageSource.Should().Contain("id=\"scanTextures\"");
+        texturePageSource.Should().Contain("id=\"exportTextures\"");
+        texturePageSource.Should().Contain("id=\"importTextures\"");
+        texturePageSource.Should().Contain("id=\"clearTextureOverrides\"");
+        cssSource.Should().Contain(".texture-summary");
+        cssSource.Should().Contain(".texture-list");
+    }
+
     private static string FindRepositoryFile(params string[] relativeSegments)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
