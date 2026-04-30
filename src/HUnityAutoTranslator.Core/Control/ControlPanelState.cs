@@ -81,4 +81,7 @@ public sealed record ControlPanelState(
     double FontSizeAdjustmentValue,
     string? LastError,
     LlamaCppConfig LlamaCpp,
-    LlamaCppServerStatus LlamaCppStatus);
+    LlamaCppServerStatus LlamaCppStatus,
+    IReadOnlyList<ProviderProfileState>? ProviderProfiles = null,
+    string? ActiveProviderProfileId = null,
+    string? ActiveProviderProfileName = null);

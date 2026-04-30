@@ -51,10 +51,14 @@ internal sealed class PluginRuntime : IDisposable
         {
             var dataDirectory = Path.Combine(Paths.ConfigPath, MyPluginInfo.PLUGIN_NAME);
             var settingsPath = Path.Combine(Paths.ConfigPath, $"{MyPluginInfo.PLUGIN_GUID}.cfg");
+            var providerProfilesPath = Path.Combine(dataDirectory, "providers");
             var cachePath = Path.Combine(dataDirectory, "translation-cache.sqlite");
             var glossaryPath = Path.Combine(dataDirectory, "translation-glossary.sqlite");
             _metrics = new ControlPanelMetrics();
-            _controlPanel = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(settingsPath), _metrics);
+            _controlPanel = ControlPanelService.CreateDefault(
+                new CfgControlPanelSettingsStore(settingsPath),
+                new EncryptedProviderProfileStore(providerProfilesPath),
+                _metrics);
             _controlPanel.SetAutomaticGameTitle(Application.productName);
             var config = _controlPanel.GetConfig();
             _cache = new SqliteTranslationCache(cachePath);
@@ -94,6 +98,7 @@ internal sealed class PluginRuntime : IDisposable
             _logger.LogInfo($"{MyPluginInfo.PLUGIN_NAME} 已加载。控制面板：{_httpServer.Url}");
             OpenControlPanelIfConfigured();
             _logger.LogInfo($"设置文件：{settingsPath}");
+            _logger.LogInfo($"服务商档案目录：{providerProfilesPath}");
             _logger.LogInfo($"翻译缓存：{cachePath}（{_cache.Count} 条）");
             _logger.LogInfo($"术语库：{glossaryPath}（{_glossary.Count} 条）");
         }

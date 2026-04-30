@@ -18,6 +18,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
     private const string LlamaCppSection = "llama.cpp";
 
     private readonly string _filePath;
+    private string? _legacyProviderSectionText;
 
     public CfgControlPanelSettingsStore(string filePath)
     {
@@ -35,12 +36,12 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
 
         try
         {
-            var values = Parse(File.ReadAllLines(_filePath));
+            var lines = File.ReadAllLines(_filePath);
+            _legacyProviderSectionText = CaptureSection(lines, ProviderSection);
+            var values = Parse(lines);
             return new ControlPanelSettings
             {
-                Config = BuildConfig(values),
-                ApiKey = NullIfWhiteSpace(ReadString(values, ProviderSection, "ApiKey")),
-                EncryptedApiKey = NullIfWhiteSpace(ReadString(values, ProviderSection, "EncryptedApiKey"))
+                Config = BuildConfig(values)
             };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -57,12 +58,11 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             Directory.CreateDirectory(directory);
         }
 
-        File.WriteAllText(_filePath, BuildFile(settings), Encoding.UTF8);
+        File.WriteAllText(_filePath, BuildFile(settings, _legacyProviderSectionText), Encoding.UTF8);
     }
 
     private static UpdateConfigRequest BuildConfig(Dictionary<string, Dictionary<string, string>> values)
     {
-        var temperatureText = ReadString(values, ProviderSection, "Temperature");
         return new UpdateConfigRequest(
             TargetLanguage: ReadString(values, BasicSection, "TargetLanguage"),
             GameTitle: ReadString(values, BasicSection, "GameTitle"),
@@ -75,24 +75,13 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             ToggleTranslationHotkey: ReadString(values, HotkeySection, "ToggleTranslationHotkey"),
             ForceScanHotkey: ReadString(values, HotkeySection, "ForceScanHotkey"),
             ToggleFontHotkey: ReadString(values, HotkeySection, "ToggleFontHotkey"),
-            ProviderKind: ReadEnum<ProviderKind>(values, ProviderSection, "ProviderKind"),
-            BaseUrl: ReadString(values, ProviderSection, "BaseUrl"),
-            Endpoint: ReadString(values, ProviderSection, "Endpoint"),
-            Model: ReadString(values, ProviderSection, "Model"),
-            Style: ReadEnum<TranslationStyle>(values, ProviderSection, "Style"),
+            ProviderKind: ReadEnum<ProviderKind>(values, BasicSection, "ProviderKind"),
+            Style: ReadEnum<TranslationStyle>(values, BasicSection, "Style"),
             MaxBatchCharacters: ReadInt(values, ScanSection, "MaxBatchCharacters"),
             ScanIntervalMilliseconds: ReadInt(values, ScanSection, "ScanIntervalMilliseconds"),
             MaxScanTargetsPerTick: ReadInt(values, ScanSection, "MaxScanTargetsPerTick"),
             MaxWritebacksPerFrame: ReadInt(values, ScanSection, "MaxWritebacksPerFrame"),
-            RequestTimeoutSeconds: ReadInt(values, ProviderSection, "RequestTimeoutSeconds"),
-            ReasoningEffort: ReadString(values, ProviderSection, "ReasoningEffort"),
-            OutputVerbosity: ReadString(values, ProviderSection, "OutputVerbosity"),
-            DeepSeekThinkingMode: ReadString(values, ProviderSection, "DeepSeekThinkingMode"),
-            OpenAICompatibleCustomHeaders: ReadPrompt(values, ProviderSection, "OpenAICompatibleCustomHeaders"),
-            OpenAICompatibleExtraBodyJson: ReadPrompt(values, ProviderSection, "OpenAICompatibleExtraBodyJson"),
-            Temperature: ReadDouble(values, ProviderSection, "Temperature"),
-            ClearTemperature: temperatureText != null && string.IsNullOrWhiteSpace(temperatureText),
-            CustomPrompt: ReadPrompt(values, ProviderSection, "CustomPrompt"),
+            CustomPrompt: null,
             PromptTemplates: BuildPromptTemplates(values),
             MaxSourceTextLength: ReadInt(values, ScanSection, "MaxSourceTextLength"),
             IgnoreInvisibleText: ReadBool(values, ScanSection, "IgnoreInvisibleText"),
@@ -179,11 +168,10 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             ReadPrompt(values, PromptTemplateSection, "GlossaryExtractionUserPrompt"));
     }
 
-    private static string BuildFile(ControlPanelSettings settings)
+    private static string BuildFile(ControlPanelSettings settings, string? legacyProviderSectionText)
     {
         var defaults = RuntimeConfig.CreateDefault();
         var config = settings.Config ?? new UpdateConfigRequest();
-        var providerKind = config.ProviderKind ?? defaults.Provider.Kind;
         var llamaCpp = config.LlamaCpp ?? defaults.LlamaCpp;
         var promptTemplates = config.PromptTemplates ?? PromptTemplateConfig.Empty;
         var builder = new StringBuilder();
@@ -197,6 +185,8 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "是否启用自动翻译。", "true", "true 或 false。", "Enabled", Bool(config.Enabled ?? defaults.Enabled));
         Option(builder, "目标语言。常用：zh-Hans 简体中文，zh-Hant 繁体中文，ja 日文，ko 韩文，en 英文。", "zh-Hans", null, "TargetLanguage", Text(config.TargetLanguage ?? defaults.TargetLanguage));
         Option(builder, "游戏名称。留空会使用当前 Unity 游戏名；填写后会手动覆盖自动检测值。", "留空", "示例：The Glitched Attraction。", "GameTitle", Text(config.GameTitle));
+        Option(builder, "翻译风格。", "Localized", "可选：Faithful 忠实、Natural 自然、Localized 本地化、UiConcise UI短句。", "Style", EnumText(config.Style ?? defaults.Style));
+        Option(builder, "翻译后端。在线服务商使用服务商档案；本地模型使用 LlamaCpp。", "OpenAI", "可选：OpenAI、LlamaCpp。OpenAI 表示按在线服务商档案优先级执行。", "ProviderKind", EnumText(config.ProviderKind ?? defaults.Provider.Kind));
         Option(builder, "启动游戏后是否自动打开控制面板。", "true", "true 或 false。", "AutoOpenControlPanel", Bool(config.AutoOpenControlPanel ?? defaults.AutoOpenControlPanel));
         Option(builder, "控制面板端口。监听地址固定为 127.0.0.1。", "48110", "范围：1 到 65535。", "HttpPort", Int(config.HttpPort ?? defaults.HttpPort));
 
@@ -205,23 +195,6 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "临时启用或暂停翻译的快捷键。写 None 可禁用。", "Alt+F", "格式示例：Alt+F、Ctrl+T、None。", "ToggleTranslationHotkey", Text(config.ToggleTranslationHotkey ?? defaults.ToggleTranslationHotkey));
         Option(builder, "强制重新扫描当前画面文字的快捷键。写 None 可禁用。", "Alt+G", "格式示例：Alt+G、Ctrl+G、None。", "ForceScanHotkey", Text(config.ForceScanHotkey ?? defaults.ForceScanHotkey));
         Option(builder, "临时启用或暂停字体替换的快捷键。写 None 可禁用。", "Alt+D", "格式示例：Alt+D、Shift+F8、None。", "ToggleFontHotkey", Text(config.ToggleFontHotkey ?? defaults.ToggleFontHotkey));
-
-        Section(builder, ProviderSection);
-        Option(builder, "翻译服务商。", "OpenAI", "可选：OpenAI、DeepSeek、OpenAICompatible、LlamaCpp。", "ProviderKind", EnumText(providerKind));
-        Option(builder, "服务根地址。OpenAI 默认 https://api.openai.com；DeepSeek 默认 https://api.deepseek.com；兼容服务填本地或第三方地址。", defaults.Provider.BaseUrl, null, "BaseUrl", Text(config.BaseUrl ?? defaults.Provider.BaseUrl));
-        Option(builder, "请求接口路径。OpenAI Responses 使用 /v1/responses；Chat Completions 通常使用 /v1/chat/completions。", defaults.Provider.Endpoint, null, "Endpoint", Text(config.Endpoint ?? defaults.Provider.Endpoint));
-        Option(builder, "模型名称。", defaults.Provider.Model, "示例：gpt-5.5、deepseek-v4-flash、local-model。", "Model", Text(config.Model ?? defaults.Provider.Model));
-        Option(builder, "翻译风格。", "Localized", "可选：Faithful 忠实、Natural 自然、Localized 本地化、UiConcise UI短句。", "Style", EnumText(config.Style ?? defaults.Style));
-        Option(builder, "单次请求超时时间，单位秒。", "30", "范围：5 到 180。", "RequestTimeoutSeconds", Int(config.RequestTimeoutSeconds ?? defaults.RequestTimeoutSeconds));
-        Option(builder, "OpenAI 推理强度。普通翻译建议 none。", "none", "可选：none、low、medium、high、xhigh、max。", "ReasoningEffort", Text(config.ReasoningEffort ?? defaults.ReasoningEffort));
-        Option(builder, "OpenAI 输出详细程度。普通翻译建议 low。", "low", "可选：low、medium、high。", "OutputVerbosity", Text(config.OutputVerbosity ?? defaults.OutputVerbosity));
-        Option(builder, "DeepSeek 思考模式。普通 UI 翻译建议 disabled。", "disabled", "可选：enabled、disabled。", "DeepSeekThinkingMode", Text(config.DeepSeekThinkingMode ?? defaults.DeepSeekThinkingMode));
-        Option(builder, "OpenAI 兼容模式自定义请求头。每行 Header-Name: value；Authorization 和 Content-Type 由插件维护。", "留空", "示例：HTTP-Referer: http://127.0.0.1\\nX-Title: HUnity。", "OpenAICompatibleCustomHeaders", Prompt(config.OpenAICompatibleCustomHeaders));
-        Option(builder, "OpenAI 兼容模式额外请求体 JSON。必须是 JSON object，且不会覆盖插件生成的 model、messages 等字段。", "留空", "示例：{\"stream\":false}。", "OpenAICompatibleExtraBodyJson", Prompt(config.OpenAICompatibleExtraBodyJson));
-        Option(builder, "采样温度。留空表示使用服务默认值。", "留空", "范围：0 到 2。", "Temperature", NullableDouble(config.Temperature));
-        Option(builder, "自定义系统提示词。留空使用内置提示词；需要换行时写 \\n。", "留空", "可使用 {TargetLanguage}、{StyleInstruction}、{GameTitle}、{GameContext} 占位符。", "CustomPrompt", Prompt(config.CustomPrompt));
-        Option(builder, "API Key 临时填写处。", "留空", "如果你不想打开控制面板，可以把密钥填在这里；插件下次启动会自动加密保存，并清空这一项。", "ApiKey", Text(settings.ApiKey));
-        Option(builder, "已加密的 API Key，插件自动维护。除非你要清空密钥，否则不要手动修改。", "留空", null, "EncryptedApiKey", Text(settings.EncryptedApiKey));
 
         Section(builder, PromptTemplateSection);
         Option(builder, "系统提示词模板。留空使用内置默认；需要换行时写 \\n。", "内置默认", "可用：{TargetLanguage}、{StyleInstruction}、{GameTitle}、{GameContext}、{GlossarySystemPolicy}。", "SystemPrompt", Prompt(promptTemplates.SystemPrompt));
@@ -288,7 +261,41 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "llama.cpp Flash Attention 模式。", "auto", "可选：auto、on、off。", "FlashAttentionMode", Text(llamaCpp.FlashAttentionMode));
         Option(builder, "上次手动启动成功后，下次启动游戏时是否自动启动 llama.cpp。本项会由启动/停止按钮自动维护。", "false", "true 或 false。", "AutoStartOnStartup", Bool(llamaCpp.AutoStartOnStartup));
 
+        if (!string.IsNullOrWhiteSpace(legacyProviderSectionText))
+        {
+            builder.AppendLine();
+            builder.AppendLine("# 以下为旧版服务商配置，当前版本已忽略，仅为避免覆盖你的原始文本而保留。");
+            builder.AppendLine(legacyProviderSectionText.TrimEnd());
+        }
+
         return builder.ToString();
+    }
+
+    private static string? CaptureSection(IReadOnlyList<string> lines, string targetSection)
+    {
+        var captured = new List<string>();
+        var inSection = false;
+        foreach (var rawLine in lines)
+        {
+            var line = rawLine.Trim();
+            if (line.StartsWith("[", StringComparison.Ordinal) && line.EndsWith("]", StringComparison.Ordinal))
+            {
+                var section = line.Substring(1, line.Length - 2).Trim();
+                if (inSection && !string.Equals(section, targetSection, StringComparison.OrdinalIgnoreCase))
+                {
+                    break;
+                }
+
+                inSection = string.Equals(section, targetSection, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (inSection)
+            {
+                captured.Add(rawLine);
+            }
+        }
+
+        return captured.Count == 0 ? null : string.Join(Environment.NewLine, captured);
     }
 
     private static Dictionary<string, Dictionary<string, string>> Parse(IEnumerable<string> lines)

@@ -22,7 +22,11 @@ public sealed class CfgControlPanelSettingsStoreTests
         cfg.Should().Contain("GameTitle =");
         cfg.Should().Contain("EnableTranslationDebugLogs = false");
         cfg.Should().Contain("ProviderKind = OpenAI");
-        cfg.Should().Contain("ApiKey =");
+        cfg.Should().NotContain("[翻译服务]");
+        cfg.Should().NotContain("ApiKey =");
+        cfg.Should().NotContain("EncryptedApiKey =");
+        cfg.Should().NotContain("BaseUrl =");
+        cfg.Should().NotContain("Model = gpt-5.5");
     }
 
     [Fact]
@@ -67,19 +71,18 @@ public sealed class CfgControlPanelSettingsStoreTests
 
         cfg.Should().Contain("[基础]");
         cfg.Should().Contain("[快捷键]");
-        cfg.Should().Contain("[翻译服务]");
         cfg.Should().Contain("[扫描与写回]");
         cfg.Should().Contain("[缓存与上下文]");
         cfg.Should().Contain("[术语库]");
         cfg.Should().Contain("[字体]");
         cfg.Should().Contain("[llama.cpp]");
         cfg.Should().Contain("# 是否启用自动翻译。");
-        cfg.Should().Contain("# 翻译服务商。");
-        cfg.Should().Contain("OpenAICompatibleCustomHeaders = X-App-Title: HUnity");
-        cfg.Should().Contain("OpenAICompatibleExtraBodyJson = {\"stream\":false}");
-        cfg.Should().Contain("# API Key 临时填写处。");
         cfg.Should().Contain("ProviderKind = LlamaCpp");
         cfg.Should().Contain("Style = Localized");
+        cfg.Should().NotContain("[翻译服务]");
+        cfg.Should().NotContain("OpenAICompatibleCustomHeaders =");
+        cfg.Should().NotContain("OpenAICompatibleExtraBodyJson =");
+        cfg.Should().NotContain("ApiKey =");
         cfg.Should().Contain("FontSizeAdjustmentMode = Percent");
         cfg.Should().Contain("BatchSize = 2048");
         cfg.Should().Contain("UBatchSize = 512");
@@ -195,12 +198,12 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.ToggleTranslationHotkey.Should().Be("Alt+T");
         config.ForceScanHotkey.Should().Be("Ctrl+G");
         config.ToggleFontHotkey.Should().Be("Shift+F8");
-        config.Provider.Kind.Should().Be(ProviderKind.DeepSeek);
-        config.Provider.Model.Should().Be("deepseek-v4-pro");
-        config.OpenAICompatibleCustomHeaders.Should().Be("X-App-Title: HUnity\nX-Feature: translation");
-        config.OpenAICompatibleExtraBodyJson.Should().Be("""{"stream":false,"metadata":{"source":"cfg"}}""");
-        config.Style.Should().Be(TranslationStyle.UiConcise);
-        config.RequestTimeoutSeconds.Should().Be(5);
+        config.Provider.Kind.Should().Be(ProviderKind.OpenAI);
+        config.Provider.Model.Should().Be("gpt-5.5");
+        config.OpenAICompatibleCustomHeaders.Should().BeNull();
+        config.OpenAICompatibleExtraBodyJson.Should().BeNull();
+        config.Style.Should().Be(TranslationStyle.Localized);
+        config.RequestTimeoutSeconds.Should().Be(30);
         config.MaxConcurrentRequests.Should().Be(100);
         config.RequestsPerMinute.Should().Be(600);
         config.MaxBatchCharacters.Should().Be(256);
@@ -272,7 +275,7 @@ public sealed class CfgControlPanelSettingsStoreTests
     }
 
     [Fact]
-    public void Plaintext_api_key_is_encrypted_and_removed_after_load()
+    public void Legacy_provider_section_is_ignored_but_preserved_after_save()
     {
         var path = NewCfgPath();
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -285,12 +288,14 @@ public sealed class CfgControlPanelSettingsStoreTests
 
         var service = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
 
-        service.GetApiKey().Should().Be("secret-value");
-        service.GetState().ApiKeyConfigured.Should().BeTrue();
+        service.GetApiKey().Should().BeNull();
+        service.GetState().ApiKeyConfigured.Should().BeFalse();
+        service.UpdateConfig(new UpdateConfigRequest(TargetLanguage: "ja"));
         var cfg = File.ReadAllText(path);
-        cfg.Should().Contain("ApiKey =");
-        cfg.Should().Contain("EncryptedApiKey = ");
-        cfg.Should().NotContain("secret-value");
+        cfg.Should().Contain("[翻译服务]");
+        cfg.Should().Contain("ApiKey = secret-value");
+        cfg.Should().Contain("EncryptedApiKey =");
+        cfg.Should().Contain("TargetLanguage = ja");
     }
 
     private static string NewCfgPath()

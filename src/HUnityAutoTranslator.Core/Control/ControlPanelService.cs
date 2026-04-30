@@ -6,9 +6,14 @@ namespace HUnityAutoTranslator.Core.Control;
 
 public sealed class ControlPanelService
 {
+    private static readonly TimeSpan ProviderCooldownDuration = TimeSpan.FromMinutes(2);
+
     private readonly object _gate = new();
     private readonly IControlPanelSettingsStore? _settingsStore;
+    private readonly IProviderProfileStore? _providerProfileStore;
     private readonly ControlPanelMetrics _metrics;
+    private readonly List<ProviderProfileDefinition> _providerProfiles = new();
+    private readonly Dictionary<string, ProviderFailureState> _providerFailures = new(StringComparer.OrdinalIgnoreCase);
     private RuntimeConfig _config;
     private string? _apiKey;
     private bool _apiKeyConfigured;
@@ -19,10 +24,15 @@ public sealed class ControlPanelService
     private LlamaCppServerStatus _llamaCppStatus;
     private ProviderStatus _providerStatus = new("unchecked", "尚未检测", null);
 
-    private ControlPanelService(RuntimeConfig config, IControlPanelSettingsStore? settingsStore, ControlPanelMetrics metrics)
+    private ControlPanelService(
+        RuntimeConfig config,
+        IControlPanelSettingsStore? settingsStore,
+        IProviderProfileStore? providerProfileStore,
+        ControlPanelMetrics metrics)
     {
         _config = config;
         _settingsStore = settingsStore;
+        _providerProfileStore = providerProfileStore;
         _metrics = metrics;
         _llamaCppStatus = LlamaCppServerStatus.Stopped(config.LlamaCpp);
     }
@@ -34,12 +44,25 @@ public sealed class ControlPanelService
 
     public static ControlPanelService CreateDefault(IControlPanelSettingsStore? settingsStore, ControlPanelMetrics? metrics = null)
     {
-        var service = new ControlPanelService(RuntimeConfig.CreateDefault(), settingsStore, metrics ?? new ControlPanelMetrics());
+        return CreateDefault(settingsStore, providerProfileStore: null, metrics);
+    }
+
+    public static ControlPanelService CreateDefault(
+        IControlPanelSettingsStore? settingsStore,
+        IProviderProfileStore? providerProfileStore,
+        ControlPanelMetrics? metrics = null)
+    {
+        var service = new ControlPanelService(
+            RuntimeConfig.CreateDefault(),
+            settingsStore,
+            providerProfileStore,
+            metrics ?? new ControlPanelMetrics());
         if (settingsStore != null)
         {
             service.Load(settingsStore.Load());
         }
 
+        service.LoadProviderProfiles();
         return service;
     }
 
@@ -49,6 +72,8 @@ public sealed class ControlPanelService
         {
             var metrics = _metrics.Snapshot();
             var config = BuildEffectiveConfig(_config);
+            var activeProfile = ResolveActiveProviderProfile();
+            var providerProfiles = BuildProviderProfileStates(activeProfile?.Id);
             return new ControlPanelState(
                 config.Enabled,
                 config.TargetLanguage,
@@ -127,7 +152,10 @@ public sealed class ControlPanelService
                 config.FontSizeAdjustmentValue,
                 _lastError,
                 config.LlamaCpp,
-                NormalizeLlamaCppStatusForConfig());
+                NormalizeLlamaCppStatusForConfig(),
+                providerProfiles,
+                activeProfile?.Id,
+                activeProfile?.Name);
         }
     }
 
@@ -143,7 +171,230 @@ public sealed class ControlPanelService
     {
         lock (_gate)
         {
-            return _apiKey;
+            return ResolveActiveProviderProfile()?.ApiKey ?? _apiKey;
+        }
+    }
+
+    public IReadOnlyList<ProviderRuntimeProfile> GetReadyProviderRuntimeProfiles()
+    {
+        lock (_gate)
+        {
+            ClearExpiredProviderCooldowns();
+            return _providerProfiles
+                .Select(profile => profile.Normalize())
+                .Where(profile => profile.Enabled)
+                .Where(IsProviderProfileReady)
+                .Where(profile => !IsProviderCooling(profile.Id))
+                .OrderBy(profile => profile.Priority)
+                .ThenBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(ProviderRuntimeProfile.Create)
+                .ToArray();
+        }
+    }
+
+    public bool HasReadyProviderRuntimeProfile()
+    {
+        lock (_gate)
+        {
+            return GetReadyProviderRuntimeProfiles().Count > 0;
+        }
+    }
+
+    public bool TryGetProviderRuntimeProfile(string id, out ProviderRuntimeProfile profile)
+    {
+        lock (_gate)
+        {
+            var definition = _providerProfiles
+                .Select(item => item.Normalize())
+                .FirstOrDefault(item => string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (definition == null)
+            {
+                profile = null!;
+                return false;
+            }
+
+            profile = ProviderRuntimeProfile.Create(definition);
+            return true;
+        }
+    }
+
+    public ProviderProfileState CreateProviderProfile(ProviderProfileUpdateRequest? request)
+    {
+        lock (_gate)
+        {
+            var priority = _providerProfiles.Count == 0 ? 0 : _providerProfiles.Max(profile => profile.Priority) + 1;
+            var kind = request?.Kind ?? ProviderKind.OpenAI;
+            if (kind == ProviderKind.LlamaCpp && HasLlamaCppProfileExcept(null))
+            {
+                throw new InvalidOperationException("只能创建一个本地模型档案。");
+            }
+
+            var profile = ApplyProviderProfileUpdate(
+                ProviderProfileDefinition.CreateDefault(request?.Name, kind, priority),
+                request ?? new ProviderProfileUpdateRequest())
+                .Normalize();
+            if (profile.Kind == ProviderKind.LlamaCpp && HasLlamaCppProfileExcept(profile.Id))
+            {
+                throw new InvalidOperationException("只能创建一个本地模型档案。");
+            }
+
+            _providerProfiles.Add(profile);
+            NormalizeProviderPriorities();
+            SaveProviderProfile(profile);
+            return BuildProviderProfileState(profile, ResolveActiveProviderProfile()?.Id);
+        }
+    }
+
+    public ProviderProfileState UpdateProviderProfile(string id, ProviderProfileUpdateRequest request)
+    {
+        lock (_gate)
+        {
+            var normalizedId = ProviderProfileDefinition.NormalizeId(id);
+            var index = _providerProfiles.FindIndex(profile => string.Equals(profile.Id, normalizedId, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+            {
+                throw new InvalidOperationException("Provider profile was not found.");
+            }
+
+            var updated = ApplyProviderProfileUpdate(_providerProfiles[index], request).Normalize();
+            if (updated.Kind == ProviderKind.LlamaCpp && HasLlamaCppProfileExcept(updated.Id))
+            {
+                throw new InvalidOperationException("只能创建一个本地模型档案。");
+            }
+
+            _providerProfiles[index] = updated;
+            NormalizeProviderPriorities();
+            SaveProviderProfile(updated);
+            return BuildProviderProfileState(updated, ResolveActiveProviderProfile()?.Id);
+        }
+    }
+
+    public bool DeleteProviderProfile(string id)
+    {
+        lock (_gate)
+        {
+            var normalizedId = ProviderProfileDefinition.NormalizeId(id);
+            var removed = _providerProfiles.RemoveAll(profile => string.Equals(profile.Id, normalizedId, StringComparison.OrdinalIgnoreCase)) > 0;
+            if (!removed)
+            {
+                return false;
+            }
+
+            _providerFailures.Remove(normalizedId);
+            _providerProfileStore?.Delete(normalizedId);
+            NormalizeProviderPriorities();
+            return true;
+        }
+    }
+
+    public ProviderProfileState MoveProviderProfile(string id, int direction)
+    {
+        lock (_gate)
+        {
+            var ordered = _providerProfiles
+                .OrderBy(profile => profile.Priority)
+                .ThenBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var normalizedId = ProviderProfileDefinition.NormalizeId(id);
+            var index = ordered.FindIndex(profile => string.Equals(profile.Id, normalizedId, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+            {
+                throw new InvalidOperationException("Provider profile was not found.");
+            }
+
+            var target = Math.Max(0, Math.Min(ordered.Count - 1, index + direction));
+            if (target != index)
+            {
+                var item = ordered[index];
+                ordered.RemoveAt(index);
+                ordered.Insert(target, item);
+                _providerProfiles.Clear();
+                for (var i = 0; i < ordered.Count; i++)
+                {
+                    var updated = ordered[i] with { Priority = i };
+                    _providerProfiles.Add(updated);
+                    SaveProviderProfile(updated);
+                }
+            }
+
+            var moved = _providerProfiles.First(profile => string.Equals(profile.Id, normalizedId, StringComparison.OrdinalIgnoreCase));
+            return BuildProviderProfileState(moved, ResolveActiveProviderProfile()?.Id);
+        }
+    }
+
+    public string ExportProviderProfile(string id)
+    {
+        lock (_gate)
+        {
+            return _providerProfileStore?.Export(ProviderProfileDefinition.NormalizeId(id))
+                ?? throw new InvalidOperationException("Provider profile store is not configured.");
+        }
+    }
+
+    public ProviderProfileImportResult ImportProviderProfile(string content)
+    {
+        lock (_gate)
+        {
+            if (_providerProfileStore == null)
+            {
+                return new ProviderProfileImportResult(false, "服务商档案存储不可用。", null);
+            }
+
+            try
+            {
+                var imported = _providerProfileStore.Import(
+                    content,
+                    _providerProfiles.Select(profile => profile.Id).ToArray()).Normalize();
+                if (imported.Kind == ProviderKind.LlamaCpp && HasLlamaCppProfileExcept(imported.Id))
+                {
+                    _providerProfileStore.Delete(imported.Id);
+                    return new ProviderProfileImportResult(false, "只能创建一个本地模型档案。", null);
+                }
+
+                _providerProfiles.RemoveAll(profile => string.Equals(profile.Id, imported.Id, StringComparison.OrdinalIgnoreCase));
+                _providerProfiles.Add(imported);
+                NormalizeProviderPriorities();
+                return new ProviderProfileImportResult(
+                    true,
+                    "服务商档案已导入。",
+                    BuildProviderProfileState(imported, ResolveActiveProviderProfile()?.Id));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or Newtonsoft.Json.JsonException or FormatException or System.Security.Cryptography.CryptographicException)
+            {
+                return new ProviderProfileImportResult(false, "导入失败：" + ex.Message, null);
+            }
+        }
+    }
+
+    public bool RegisterProviderProfileFailure(ProviderRuntimeProfile profile, string errorMessage)
+    {
+        lock (_gate)
+        {
+            if (!_providerFailures.TryGetValue(profile.Id, out var state))
+            {
+                state = new ProviderFailureState();
+                _providerFailures[profile.Id] = state;
+            }
+
+            state.ConsecutiveFailureCount++;
+            state.LastError = errorMessage;
+            if (state.ConsecutiveFailureCount < 2)
+            {
+                return false;
+            }
+
+            state.CooldownUntilUtc = DateTimeOffset.UtcNow + ProviderCooldownDuration;
+            _providerStatus = new ProviderStatus("warning", $"服务商档案“{profile.Name}”连续失败，已切换到下一优先级。", DateTimeOffset.UtcNow);
+            return true;
+        }
+    }
+
+    public void RegisterProviderProfileSuccess(ProviderRuntimeProfile profile)
+    {
+        lock (_gate)
+        {
+            _providerFailures.Remove(profile.Id);
+            _providerStatus = new ProviderStatus("ok", $"服务商档案“{profile.Name}”连接可用。", DateTimeOffset.UtcNow);
         }
     }
 
@@ -160,8 +411,15 @@ public sealed class ControlPanelService
     {
         lock (_gate)
         {
-            ApplyApiKey(apiKey);
-            SaveSettings();
+            var normalized = SelectOptionalText(apiKey, fallback: null);
+            var profile = ResolveActiveProviderProfile() ??
+                _providerProfiles.OrderBy(item => item.Priority).FirstOrDefault() ??
+                ProviderProfileDefinition.CreateDefault("OpenAI", ProviderKind.OpenAI, _providerProfiles.Count);
+            var updated = profile with { ApiKey = normalized };
+            _providerProfiles.RemoveAll(item => string.Equals(item.Id, updated.Id, StringComparison.OrdinalIgnoreCase));
+            _providerProfiles.Add(updated.Normalize());
+            NormalizeProviderPriorities();
+            SaveProviderProfile(updated.Normalize());
         }
     }
 
@@ -216,6 +474,181 @@ public sealed class ControlPanelService
             _automaticReplacementFontName = SelectOptionalText(name, fallback: null);
             _automaticReplacementFontFile = SelectOptionalText(file, fallback: null);
         }
+    }
+
+    private void LoadProviderProfiles()
+    {
+        if (_providerProfileStore == null)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            _providerProfiles.Clear();
+            _providerProfiles.AddRange(_providerProfileStore.LoadAll().Select(profile => profile.Normalize()));
+            NormalizeProviderPriorities();
+        }
+    }
+
+    private IReadOnlyList<ProviderProfileState> BuildProviderProfileStates(string? activeProfileId)
+    {
+        ClearExpiredProviderCooldowns();
+        return _providerProfiles
+            .Select(profile => profile.Normalize())
+            .OrderBy(profile => profile.Priority)
+            .ThenBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(profile => BuildProviderProfileState(profile, activeProfileId))
+            .ToArray();
+    }
+
+    private ProviderProfileState BuildProviderProfileState(ProviderProfileDefinition profile, string? activeProfileId)
+    {
+        _providerFailures.TryGetValue(profile.Id, out var failure);
+        var cooldownRemaining = 0;
+        if (failure?.CooldownUntilUtc != null)
+        {
+            cooldownRemaining = Math.Max(0, (int)Math.Ceiling((failure.CooldownUntilUtc.Value - DateTimeOffset.UtcNow).TotalSeconds));
+        }
+
+        return new ProviderProfileState(
+            profile.Id,
+            profile.Name,
+            profile.Enabled,
+            profile.Priority,
+            profile.Kind,
+            profile.BaseUrl,
+            profile.Endpoint,
+            profile.Model,
+            profile.Kind == ProviderKind.LlamaCpp || !string.IsNullOrWhiteSpace(profile.ApiKey),
+            ApiKeyPreview: null,
+            profile.MaxConcurrentRequests,
+            profile.RequestsPerMinute,
+            profile.RequestTimeoutSeconds,
+            profile.ReasoningEffort,
+            profile.OutputVerbosity,
+            profile.DeepSeekThinkingMode,
+            profile.OpenAICompatibleCustomHeaders,
+            profile.OpenAICompatibleExtraBodyJson,
+            profile.LlamaCpp,
+            profile.Temperature,
+            string.Equals(profile.Id, activeProfileId, StringComparison.OrdinalIgnoreCase),
+            failure?.ConsecutiveFailureCount ?? 0,
+            cooldownRemaining,
+            failure?.LastError);
+    }
+
+    private ProviderProfileDefinition? ResolveActiveProviderProfile()
+    {
+        ClearExpiredProviderCooldowns();
+        return _providerProfiles
+            .Select(profile => profile.Normalize())
+            .Where(profile => profile.Enabled)
+            .Where(IsProviderProfileReady)
+            .Where(profile => !IsProviderCooling(profile.Id))
+            .OrderBy(profile => profile.Priority)
+            .ThenBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+    }
+
+    private static bool IsProviderProfileReady(ProviderProfileDefinition profile)
+    {
+        return profile.Kind == ProviderKind.LlamaCpp
+            ? !string.IsNullOrWhiteSpace(profile.LlamaCpp?.ModelPath)
+            : profile.Kind == ProviderKind.OpenAICompatible || !string.IsNullOrWhiteSpace(profile.ApiKey);
+    }
+
+    private bool HasLlamaCppProfileExcept(string? id)
+    {
+        return _providerProfiles
+            .Select(profile => profile.Normalize())
+            .Any(profile =>
+                profile.Kind == ProviderKind.LlamaCpp &&
+                !string.Equals(profile.Id, id, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private bool IsProviderCooling(string id)
+    {
+        return _providerFailures.TryGetValue(id, out var state) &&
+            state.CooldownUntilUtc.HasValue &&
+            state.CooldownUntilUtc.Value > DateTimeOffset.UtcNow;
+    }
+
+    private void ClearExpiredProviderCooldowns()
+    {
+        var now = DateTimeOffset.UtcNow;
+        foreach (var pair in _providerFailures.ToArray())
+        {
+            if (pair.Value.CooldownUntilUtc.HasValue && pair.Value.CooldownUntilUtc.Value <= now)
+            {
+                _providerFailures.Remove(pair.Key);
+            }
+        }
+    }
+
+    private void SaveProviderProfile(ProviderProfileDefinition profile)
+    {
+        _providerProfileStore?.Save(profile);
+    }
+
+    private void NormalizeProviderPriorities()
+    {
+        var ordered = _providerProfiles
+            .Select(profile => profile.Normalize())
+            .OrderBy(profile => profile.Priority)
+            .ThenBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        _providerProfiles.Clear();
+        for (var i = 0; i < ordered.Length; i++)
+        {
+            _providerProfiles.Add(ordered[i] with { Priority = i });
+        }
+    }
+
+    private static ProviderProfileDefinition ApplyProviderProfileUpdate(
+        ProviderProfileDefinition current,
+        ProviderProfileUpdateRequest request)
+    {
+        var kind = request.Kind ?? current.Kind;
+        var apiKey = request.ClearApiKey == true
+            ? null
+            : request.ApiKey != null
+                ? SelectOptionalText(request.ApiKey, fallback: null)
+                : current.ApiKey;
+        var temperature = request.ClearTemperature == true
+            ? null
+            : request.Temperature.HasValue
+                ? Math.Min(2.0, Math.Max(0.0, request.Temperature.Value))
+                : current.Temperature;
+        var customHeaders = request.OpenAICompatibleCustomHeaders == null
+            ? current.OpenAICompatibleCustomHeaders
+            : OpenAICompatibleRequestOptions.NormalizeCustomHeaders(request.OpenAICompatibleCustomHeaders, current.OpenAICompatibleCustomHeaders);
+        var extraBodyJson = request.OpenAICompatibleExtraBodyJson == null
+            ? current.OpenAICompatibleExtraBodyJson
+            : OpenAICompatibleRequestOptions.NormalizeExtraBodyJson(request.OpenAICompatibleExtraBodyJson, current.OpenAICompatibleExtraBodyJson);
+
+        return current with
+        {
+            Id = request.Id == null ? current.Id : ProviderProfileDefinition.NormalizeId(request.Id),
+            Name = request.Name == null ? current.Name : SelectOptionalText(request.Name, current.Name) ?? current.Name,
+            Enabled = request.Enabled ?? current.Enabled,
+            Priority = request.Priority ?? current.Priority,
+            Kind = ProviderProfileDefinition.IsSupportedProfileKind(kind) ? kind : current.Kind,
+            BaseUrl = request.BaseUrl == null ? current.BaseUrl : SelectOptionalText(request.BaseUrl, current.BaseUrl) ?? current.BaseUrl,
+            Endpoint = request.Endpoint == null ? current.Endpoint : SelectOptionalText(request.Endpoint, current.Endpoint) ?? current.Endpoint,
+            Model = request.Model == null ? current.Model : SelectOptionalText(request.Model, current.Model) ?? current.Model,
+            ApiKey = apiKey,
+            MaxConcurrentRequests = request.MaxConcurrentRequests ?? current.MaxConcurrentRequests,
+            RequestsPerMinute = request.RequestsPerMinute ?? current.RequestsPerMinute,
+            RequestTimeoutSeconds = request.RequestTimeoutSeconds ?? current.RequestTimeoutSeconds,
+            ReasoningEffort = request.ReasoningEffort ?? current.ReasoningEffort,
+            OutputVerbosity = request.OutputVerbosity ?? current.OutputVerbosity,
+            DeepSeekThinkingMode = request.DeepSeekThinkingMode ?? current.DeepSeekThinkingMode,
+            OpenAICompatibleCustomHeaders = customHeaders,
+            OpenAICompatibleExtraBodyJson = extraBodyJson,
+            LlamaCpp = request.LlamaCpp ?? current.LlamaCpp,
+            Temperature = temperature
+        };
     }
 
     private static int Clamp(int value, int min, int max)
@@ -374,14 +807,7 @@ public sealed class ControlPanelService
     {
         lock (_gate)
         {
-            var encryptedApiKey = ApiKeyProtector.Unprotect(settings.EncryptedApiKey);
-            var legacyApiKey = settings.ApiKey;
-            ApplyApiKey(encryptedApiKey ?? legacyApiKey);
             ApplyConfig(settings.Config ?? new UpdateConfigRequest());
-            if (!string.IsNullOrWhiteSpace(legacyApiKey))
-            {
-                SaveSettings();
-            }
         }
     }
 
@@ -557,21 +983,11 @@ public sealed class ControlPanelService
                 ForceScanHotkey: _config.ForceScanHotkey,
                 ToggleFontHotkey: _config.ToggleFontHotkey,
                 ProviderKind: _config.Provider.Kind,
-                BaseUrl: _config.Provider.BaseUrl,
-                Endpoint: _config.Provider.Endpoint,
-                Model: _config.Provider.Model,
                 Style: _config.Style,
                 MaxBatchCharacters: _config.MaxBatchCharacters,
                 ScanIntervalMilliseconds: (int)_config.ScanInterval.TotalMilliseconds,
                 MaxScanTargetsPerTick: _config.MaxScanTargetsPerTick,
                 MaxWritebacksPerFrame: _config.MaxWritebacksPerFrame,
-                RequestTimeoutSeconds: _config.RequestTimeoutSeconds,
-                ReasoningEffort: _config.ReasoningEffort,
-                OutputVerbosity: _config.OutputVerbosity,
-                DeepSeekThinkingMode: _config.DeepSeekThinkingMode,
-                OpenAICompatibleCustomHeaders: _config.OpenAICompatibleCustomHeaders,
-                OpenAICompatibleExtraBodyJson: _config.OpenAICompatibleExtraBodyJson,
-                Temperature: _config.Temperature,
                 CustomPrompt: _config.CustomPrompt,
                 PromptTemplates: _config.PromptTemplates,
                 MaxSourceTextLength: _config.MaxSourceTextLength,
@@ -601,9 +1017,7 @@ public sealed class ControlPanelService
                 FontSamplingPointSize: _config.FontSamplingPointSize,
                 FontSizeAdjustmentMode: _config.FontSizeAdjustmentMode,
                 FontSizeAdjustmentValue: _config.FontSizeAdjustmentValue,
-                LlamaCpp: _config.LlamaCpp),
-            ApiKey = null,
-            EncryptedApiKey = string.IsNullOrWhiteSpace(_apiKey) ? null : ApiKeyProtector.Protect(_apiKey)
+                LlamaCpp: _config.LlamaCpp)
         });
     }
 
@@ -614,23 +1028,13 @@ public sealed class ControlPanelService
         string? openAICompatibleExtraBodyJson)
     {
         var provider = _config.Provider;
-        if (request.ProviderKind.HasValue && request.ProviderKind.Value != provider.Kind)
+        if (request.ProviderKind == ProviderKind.LlamaCpp)
         {
-            provider = request.ProviderKind.Value switch
-            {
-                ProviderKind.OpenAI => ProviderProfile.DefaultOpenAi(),
-                ProviderKind.DeepSeek => ProviderProfile.DefaultDeepSeek(),
-                ProviderKind.OpenAICompatible => new ProviderProfile(
-                    ProviderKind.OpenAICompatible,
-                    "http://127.0.0.1:8000",
-                    "/v1/chat/completions",
-                    "local-model",
-                    _apiKeyConfigured,
-                    openAICompatibleCustomHeaders,
-                    openAICompatibleExtraBodyJson),
-                ProviderKind.LlamaCpp => ProviderProfile.DefaultLlamaCpp(),
-                _ => provider
-            };
+            provider = ProviderProfile.DefaultLlamaCpp();
+        }
+        else if (request.ProviderKind.HasValue && request.ProviderKind.Value != ProviderKind.LlamaCpp && provider.Kind == ProviderKind.LlamaCpp)
+        {
+            provider = ProviderProfile.DefaultOpenAi();
         }
 
         if (provider.Kind == ProviderKind.LlamaCpp)
@@ -648,12 +1052,9 @@ public sealed class ControlPanelService
 
         return provider with
         {
-            BaseUrl = string.IsNullOrWhiteSpace(request.BaseUrl) ? provider.BaseUrl : request.BaseUrl.Trim(),
-            Endpoint = string.IsNullOrWhiteSpace(request.Endpoint) ? provider.Endpoint : request.Endpoint.Trim(),
-            Model = string.IsNullOrWhiteSpace(request.Model) ? provider.Model : request.Model.Trim(),
-            ApiKeyConfigured = IsApiKeyConfiguredForProvider(provider.Kind),
-            OpenAICompatibleCustomHeaders = provider.Kind == ProviderKind.OpenAICompatible ? openAICompatibleCustomHeaders : null,
-            OpenAICompatibleExtraBodyJson = provider.Kind == ProviderKind.OpenAICompatible ? openAICompatibleExtraBodyJson : null
+            ApiKeyConfigured = false,
+            OpenAICompatibleCustomHeaders = null,
+            OpenAICompatibleExtraBodyJson = null
         };
     }
 
@@ -685,6 +1086,14 @@ public sealed class ControlPanelService
 
         if (effective.Provider.Kind != ProviderKind.LlamaCpp)
         {
+            var activeProfile = ResolveActiveProviderProfile();
+            effective = activeProfile == null
+                ? effective with { Provider = effective.Provider with { ApiKeyConfigured = false } }
+                : ProviderRuntimeProfile.Create(activeProfile).ApplyTo(effective);
+        }
+
+        if (effective.Provider.Kind != ProviderKind.LlamaCpp)
+        {
             return effective;
         }
 
@@ -706,5 +1115,14 @@ public sealed class ControlPanelService
         {
             ModelPath = _config.LlamaCpp.ModelPath
         };
+    }
+
+    private sealed class ProviderFailureState
+    {
+        public int ConsecutiveFailureCount { get; set; }
+
+        public DateTimeOffset? CooldownUntilUtc { get; set; }
+
+        public string? LastError { get; set; }
     }
 }

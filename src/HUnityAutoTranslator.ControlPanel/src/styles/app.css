@@ -736,6 +736,91 @@ button:disabled {
   gap: 12px;
   margin-top: 12px;
 }
+.provider-profile-toolbar,
+.provider-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.provider-profile-toolbar span,
+.provider-editor-head span {
+  display: block;
+  color: var(--muted);
+  font-size: 12px;
+}
+.provider-profile-toolbar strong,
+.provider-editor-head strong {
+  overflow-wrap: anywhere;
+}
+.provider-profile-manager {
+  display: grid;
+  grid-template-columns: minmax(min(280px, 100%), 0.82fr) minmax(0, 1.6fr);
+  gap: 14px;
+  margin-top: 14px;
+  align-items: start;
+}
+.provider-profile-list {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+.provider-profile-card {
+  width: 100%;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--ink);
+  text-align: left;
+}
+.provider-profile-card:hover,
+.provider-profile-card.active {
+  border-color: var(--accent);
+  background: var(--surface);
+}
+.provider-profile-card.current {
+  box-shadow: inset 3px 0 0 var(--ok);
+}
+.provider-profile-card.cooling {
+  box-shadow: inset 3px 0 0 var(--warn);
+}
+.profile-rank {
+  min-width: 34px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+}
+.profile-main {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.profile-main strong,
+.profile-main small,
+.profile-status {
+  overflow-wrap: anywhere;
+}
+.profile-main small,
+.profile-status {
+  color: var(--muted);
+  font-size: 12px;
+}
+.provider-profile-editor {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+}
+.provider-profile-actions {
+  justify-content: flex-start;
+}
 .textarea-field textarea {
   min-height: 96px;
   resize: vertical;
@@ -1070,6 +1155,27 @@ textarea:hover { border-color: var(--line-strong); }
   flex-wrap: wrap;
   min-width: 0;
   max-width: 100%;
+}
+.icon-button {
+  width: 36px;
+  min-width: 36px;
+  min-height: 36px;
+  padding: 7px;
+}
+.icon-button svg {
+  width: 16px;
+  height: 16px;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 .inline-actions {
   justify-content: flex-start;
@@ -1596,6 +1702,9 @@ input.compact-check {
     flex-wrap: wrap;
   }
   .status-command { grid-template-columns: 1fr; }
+  .provider-profile-manager {
+    grid-template-columns: 1fr;
+  }
   .ai-model-row,
   .ai-model-row-local,
   .ai-compatible-advanced,
@@ -1631,6 +1740,7 @@ input.compact-check {
   .about-grid,
   .provider-summary,
   .provider-summary-compact,
+  .provider-profile-manager,
   .ai-provider-grid,
   .ai-endpoint-grid,
   .ai-model-row,

@@ -295,7 +295,7 @@ public sealed class TranslationWorkerPool
 
         if (publishJobs.Count > 0)
         {
-            PublishResults(publishJobs, publishTexts, response.TotalTokens, elapsed);
+            PublishResults(publishJobs, publishTexts, response.TotalTokens, elapsed, response.Provider ?? _config.Provider);
         }
 
         return retryJobs;
@@ -602,7 +602,12 @@ public sealed class TranslationWorkerPool
         return value.All(character => character is '\r' or '\n');
     }
 
-    private int PublishResults(IReadOnlyList<TranslationJob> jobs, IReadOnlyList<string> translatedTexts, int totalTokens, TimeSpan elapsed)
+    private int PublishResults(
+        IReadOnlyList<TranslationJob> jobs,
+        IReadOnlyList<string> translatedTexts,
+        int totalTokens,
+        TimeSpan elapsed,
+        ProviderProfile provider)
     {
         var count = Math.Min(jobs.Count, translatedTexts.Count);
         for (var i = 0; i < count; i++)
@@ -610,7 +615,7 @@ public sealed class TranslationWorkerPool
             var cacheKey = TranslationCacheKey.Create(
                 jobs[i].SourceText,
                 ResolveTargetLanguage(jobs[i]),
-                _config.Provider,
+                provider,
                 TextPipeline.GetPromptPolicyVersion(_config));
             _cache?.Set(cacheKey, translatedTexts[i], jobs[i].Context);
             if (jobs[i].PublishResult)
@@ -633,8 +638,8 @@ public sealed class TranslationWorkerPool
                 jobs[i].SourceText,
                 translatedTexts[i],
                 ResolveTargetLanguage(jobs[i]),
-                _config.Provider.Kind.ToString(),
-                _config.Provider.Model,
+                provider.Kind.ToString(),
+                provider.Model,
                 jobs[i].Context.ComponentHierarchy ?? jobs[i].Context.SceneName ?? jobs[i].Context.ComponentType,
                 DateTimeOffset.UtcNow),
                 itemTokens,

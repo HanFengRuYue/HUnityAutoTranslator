@@ -397,17 +397,35 @@ internal sealed class LocalHttpServer : IDisposable
                         RefreshQueuedCount = refreshQueued
                     }).ConfigureAwait(false);
             }
+            else if (path.StartsWith("/api/provider-profiles", StringComparison.Ordinal))
+            {
+                await HandleProviderProfilesAsync(context, path).ConfigureAwait(false);
+            }
             else if (context.Request.HttpMethod == "GET" && path == "/api/provider/models")
             {
+                var active = _controlPanel.GetReadyProviderRuntimeProfiles().FirstOrDefault();
+                if (active == null)
+                {
+                    await WriteJsonAsync(context.Response, new ProviderModelsResult(false, "没有可用的在线服务商档案。", Array.Empty<ProviderModelInfo>())).ConfigureAwait(false);
+                    return;
+                }
+
                 await WriteJsonAsync(
                     context.Response,
-                    await _providerUtilityClient.FetchModelsAsync(_controlPanel.GetConfig().Provider, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+                    await CreateProviderUtilityClient(active).FetchModelsAsync(active.Profile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "GET" && path == "/api/provider/balance")
             {
+                var active = _controlPanel.GetReadyProviderRuntimeProfiles().FirstOrDefault();
+                if (active == null)
+                {
+                    await WriteJsonAsync(context.Response, new ProviderBalanceResult(false, "没有可用的在线服务商档案。", Array.Empty<ProviderBalanceInfo>())).ConfigureAwait(false);
+                    return;
+                }
+
                 await WriteJsonAsync(
                     context.Response,
-                    await _providerUtilityClient.FetchBalanceAsync(_controlPanel.GetConfig().Provider, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+                    await CreateProviderUtilityClient(active).FetchBalanceAsync(active.Profile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/provider/test")
             {
@@ -425,12 +443,23 @@ internal sealed class LocalHttpServer : IDisposable
                 }
                 else if (config.Provider.Kind == ProviderKind.OpenAICompatible)
                 {
-                    result = await _providerUtilityClient.TestConnectionAsync(config.Provider, CancellationToken.None).ConfigureAwait(false);
+                    var active = _controlPanel.GetReadyProviderRuntimeProfiles().FirstOrDefault();
+                    result = active == null
+                        ? new ProviderTestResult(false, "没有可用的在线服务商档案。")
+                        : await CreateProviderUtilityClient(active).TestConnectionAsync(active.Profile, CancellationToken.None).ConfigureAwait(false);
                 }
                 else
                 {
-                    var models = await _providerUtilityClient.FetchModelsAsync(config.Provider, CancellationToken.None).ConfigureAwait(false);
-                    result = new ProviderTestResult(models.Succeeded, models.Message);
+                    var active = _controlPanel.GetReadyProviderRuntimeProfiles().FirstOrDefault();
+                    if (active == null)
+                    {
+                        result = new ProviderTestResult(false, "没有可用的在线服务商档案。");
+                    }
+                    else
+                    {
+                        var models = await CreateProviderUtilityClient(active).FetchModelsAsync(active.Profile, CancellationToken.None).ConfigureAwait(false);
+                        result = new ProviderTestResult(models.Succeeded, models.Message);
+                    }
                 }
 
                 _controlPanel.SetProviderStatus(new ProviderStatus(result.Succeeded ? "ok" : "error", result.Message, DateTimeOffset.UtcNow));
@@ -462,6 +491,221 @@ internal sealed class LocalHttpServer : IDisposable
         }
 
         await WriteJsonAsync(response, _controlPanel.GetState(_queue.PendingCount, _cache.Count, _dispatcher.PendingCount)).ConfigureAwait(false);
+    }
+
+    private async Task HandleProviderProfilesAsync(HttpListenerContext context, string path)
+    {
+        var request = context.Request;
+        var response = context.Response;
+        var segments = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+        if (request.HttpMethod == "GET" && path == "/api/provider-profiles")
+        {
+            await WriteJsonAsync(response, _controlPanel.GetState(_queue.PendingCount, _cache.Count, _dispatcher.PendingCount).ProviderProfiles ?? Array.Empty<ProviderProfileState>()).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "POST" && path == "/api/provider-profiles")
+        {
+            var createRequest = await ReadJsonAsync<ProviderProfileUpdateRequest>(request).ConfigureAwait(false);
+            _controlPanel.CreateProviderProfile(createRequest);
+            await WriteStateAsync(response).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "POST" && path == "/api/provider-profiles/import")
+        {
+            var content = await ReadBodyAsync(request).ConfigureAwait(false);
+            await WriteJsonAsync(response, _controlPanel.ImportProviderProfile(content)).ConfigureAwait(false);
+            return;
+        }
+
+        if (segments.Length < 3)
+        {
+            response.StatusCode = 404;
+            await WriteTextAsync(response, "未找到服务商档案接口。").ConfigureAwait(false);
+            return;
+        }
+
+        var id = Uri.UnescapeDataString(segments[2]);
+        var action = segments.Length >= 4 ? segments[3] : string.Empty;
+        if (request.HttpMethod == "PUT" && string.IsNullOrEmpty(action))
+        {
+            var updateRequest = await ReadJsonAsync<ProviderProfileUpdateRequest>(request).ConfigureAwait(false);
+            _controlPanel.UpdateProviderProfile(id, updateRequest ?? new ProviderProfileUpdateRequest());
+            await WriteStateAsync(response).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "DELETE" && string.IsNullOrEmpty(action))
+        {
+            var deleted = _controlPanel.DeleteProviderProfile(id);
+            await WriteJsonAsync(response, new { DeletedCount = deleted ? 1 : 0 }).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "POST" && action == "move-up")
+        {
+            _controlPanel.MoveProviderProfile(id, -1);
+            await WriteStateAsync(response).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "POST" && action == "move-down")
+        {
+            _controlPanel.MoveProviderProfile(id, 1);
+            await WriteStateAsync(response).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "GET" && action == "export")
+        {
+            response.ContentType = "application/octet-stream; charset=utf-8";
+            await WriteTextAsync(response, _controlPanel.ExportProviderProfile(id)).ConfigureAwait(false);
+            return;
+        }
+
+        if (!_controlPanel.TryGetProviderRuntimeProfile(id, out var profile))
+        {
+            response.StatusCode = 404;
+            await WriteTextAsync(response, "服务商档案不存在。").ConfigureAwait(false);
+            return;
+        }
+
+        if (profile.Profile.Kind == ProviderKind.LlamaCpp)
+        {
+            await HandleLlamaCppProviderProfileAsync(context, action, profile).ConfigureAwait(false);
+            return;
+        }
+
+        var utilityClient = CreateProviderUtilityClient(profile);
+        if (request.HttpMethod == "POST" && action == "test")
+        {
+            ProviderTestResult result;
+            if (profile.Profile.Kind == ProviderKind.OpenAICompatible)
+            {
+                result = await utilityClient.TestConnectionAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false);
+            }
+            else
+            {
+                var models = await utilityClient.FetchModelsAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false);
+                result = new ProviderTestResult(models.Succeeded, models.Message);
+            }
+
+            _controlPanel.SetProviderStatus(new ProviderStatus(result.Succeeded ? "ok" : "error", result.Message, DateTimeOffset.UtcNow));
+            await WriteJsonAsync(response, result).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "GET" && action == "models")
+        {
+            await WriteJsonAsync(response, await utilityClient.FetchModelsAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "GET" && action == "balance")
+        {
+            await WriteJsonAsync(response, await utilityClient.FetchBalanceAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+            return;
+        }
+
+        response.StatusCode = 404;
+        await WriteTextAsync(response, "未找到服务商档案接口。").ConfigureAwait(false);
+    }
+
+    private async Task HandleLlamaCppProviderProfileAsync(
+        HttpListenerContext context,
+        string action,
+        ProviderRuntimeProfile profile)
+    {
+        var request = context.Request;
+        var response = context.Response;
+        var config = profile.ApplyTo(_controlPanel.GetConfig());
+        if (request.HttpMethod == "POST" && action == "test")
+        {
+            if (_llamaCppServer == null)
+            {
+                await WriteJsonAsync(response, new ProviderTestResult(false, "llama.cpp 本地模型管理器不可用。")).ConfigureAwait(false);
+                return;
+            }
+
+            var ready = await _llamaCppServer.IsReadyAsync(config, CancellationToken.None).ConfigureAwait(false);
+            var status = _llamaCppServer.GetStatus(config);
+            _controlPanel.SetLlamaCppStatus(status);
+            var result = new ProviderTestResult(
+                ready,
+                ready ? "llama.cpp 本地模型连接可用。" : status.Message);
+            _controlPanel.SetProviderStatus(new ProviderStatus(result.Succeeded ? "ok" : "error", result.Message, DateTimeOffset.UtcNow));
+            await WriteJsonAsync(response, result).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "GET" && action == "models")
+        {
+            await WriteJsonAsync(
+                response,
+                new ProviderModelsResult(
+                    true,
+                    "本地模型使用当前 GGUF 文件。",
+                    new[] { new ProviderModelInfo(profile.Profile.Model, "llama.cpp") })).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "GET" && action == "balance")
+        {
+            await WriteJsonAsync(
+                response,
+                new ProviderBalanceResult(true, "本地模型不适用账户余额查询。", Array.Empty<ProviderBalanceInfo>())).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "POST" && action == "start")
+        {
+            var status = _llamaCppServer == null
+                ? LlamaCppServerStatus.Error(config.LlamaCpp, string.Empty, "llama.cpp 本地模型管理器不可用。")
+                : await _llamaCppServer.StartAsync(config, CancellationToken.None).ConfigureAwait(false);
+            _controlPanel.SetLlamaCppStatus(status);
+            await WriteJsonAsync(response, status).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "POST" && action == "stop")
+        {
+            var status = _llamaCppServer == null
+                ? LlamaCppServerStatus.Stopped(config.LlamaCpp)
+                : _llamaCppServer.Stop(config);
+            _controlPanel.SetLlamaCppStatus(status);
+            await WriteJsonAsync(response, status).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "POST" && action == "benchmark")
+        {
+            var result = _llamaCppServer == null
+                ? LlamaCppBenchmarkResult.Failure(config.LlamaCpp, "llama.cpp 本地模型管理器不可用。")
+                : await _llamaCppServer.BenchmarkAsync(config, CancellationToken.None).ConfigureAwait(false);
+            if (result.Saved && result.RecommendedConfig != null)
+            {
+                var current = profile.LlamaCpp ?? config.LlamaCpp;
+                var savedConfig = result.RecommendedConfig with
+                {
+                    ModelPath = current.ModelPath,
+                    AutoStartOnStartup = current.AutoStartOnStartup
+                };
+                _controlPanel.UpdateProviderProfile(profile.Id, new ProviderProfileUpdateRequest(LlamaCpp: savedConfig));
+                result = result with { RecommendedConfig = savedConfig };
+            }
+
+            await WriteJsonAsync(response, result).ConfigureAwait(false);
+            return;
+        }
+
+        response.StatusCode = 404;
+        await WriteTextAsync(response, "未找到本地模型档案接口。").ConfigureAwait(false);
+    }
+
+    private ProviderUtilityClient CreateProviderUtilityClient(ProviderRuntimeProfile profile)
+    {
+        return new ProviderUtilityClient(_httpClient, () => profile.ApiKey);
     }
 
     private static TranslationCacheQuery ParseTranslationQuery(HttpListenerRequest request)

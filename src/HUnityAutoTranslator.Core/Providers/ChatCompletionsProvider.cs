@@ -92,7 +92,8 @@ public sealed class ChatCompletionsProvider : ITranslationProvider
         var text = ProviderJsonParsers.ParseChatCompletionsText(json);
         return TranslationResponse.Success(
             ProviderJsonParsers.ParseAssistantTextAsList(text, request.ProtectedTexts.Count),
-            ProviderJsonParsers.ParseTotalTokens(json));
+            ProviderJsonParsers.ParseTotalTokens(json),
+            _profile);
     }
 
     private HttpRequestMessage CreateRequest(JObject body)

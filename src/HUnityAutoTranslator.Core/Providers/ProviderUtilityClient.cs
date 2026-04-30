@@ -21,6 +21,14 @@ public sealed class ProviderUtilityClient
 
     public async Task<ProviderModelsResult> FetchModelsAsync(ProviderProfile profile, CancellationToken cancellationToken)
     {
+        if (profile.Kind == ProviderKind.LlamaCpp)
+        {
+            return new ProviderModelsResult(
+                true,
+                "本地模型使用当前 GGUF 文件。",
+                new[] { new ProviderModelInfo(profile.Model, "llama.cpp") });
+        }
+
         var path = profile.Kind == ProviderKind.DeepSeek ? "/models" : "/v1/models";
         using var request = CreateGet(profile, path);
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);

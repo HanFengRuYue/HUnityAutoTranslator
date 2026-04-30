@@ -20,6 +20,63 @@ export interface ProviderStatus {
   CheckedUtc: string | null;
 }
 
+export interface ProviderProfileState {
+  Id: string;
+  Name: string;
+  Enabled: boolean;
+  Priority: number;
+  Kind: number | string;
+  BaseUrl: string;
+  Endpoint: string;
+  Model: string;
+  ApiKeyConfigured: boolean;
+  ApiKeyPreview: string | null;
+  MaxConcurrentRequests: number;
+  RequestsPerMinute: number;
+  RequestTimeoutSeconds: number;
+  ReasoningEffort: string;
+  OutputVerbosity: string;
+  DeepSeekThinkingMode: string;
+  OpenAICompatibleCustomHeaders: string | null;
+  OpenAICompatibleExtraBodyJson: string | null;
+  LlamaCpp: LlamaCppConfig | null;
+  Temperature: number | null;
+  IsActive: boolean;
+  ConsecutiveFailureCount: number;
+  CooldownRemainingSeconds: number;
+  LastError: string | null;
+}
+
+export interface ProviderProfileUpdateRequest {
+  Id?: string;
+  Name?: string | null;
+  Enabled?: boolean;
+  Priority?: number;
+  Kind?: number;
+  BaseUrl?: string;
+  Endpoint?: string;
+  Model?: string;
+  ApiKey?: string | null;
+  ClearApiKey?: boolean;
+  MaxConcurrentRequests?: number;
+  RequestsPerMinute?: number;
+  RequestTimeoutSeconds?: number;
+  ReasoningEffort?: string;
+  OutputVerbosity?: string;
+  DeepSeekThinkingMode?: string;
+  OpenAICompatibleCustomHeaders?: string | null;
+  OpenAICompatibleExtraBodyJson?: string | null;
+  LlamaCpp?: LlamaCppConfig | null;
+  Temperature?: number | null;
+  ClearTemperature?: boolean;
+}
+
+export interface ProviderProfileImportResult {
+  Succeeded: boolean;
+  Message: string;
+  Profile: ProviderProfileState | null;
+}
+
 export interface FontPickResult {
   Status: FontPickStatus;
   FilePath: string | null;
@@ -219,6 +276,9 @@ export interface ControlPanelState {
   LastError: string | null;
   LlamaCpp: LlamaCppConfig;
   LlamaCppStatus: LlamaCppServerStatus;
+  ProviderProfiles: ProviderProfileState[] | null;
+  ActiveProviderProfileId: string | null;
+  ActiveProviderProfileName: string | null;
 }
 
 export interface UpdateConfigRequest {

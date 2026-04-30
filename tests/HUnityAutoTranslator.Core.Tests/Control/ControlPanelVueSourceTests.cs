@@ -66,17 +66,20 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
-    public void Vue_ai_settings_documents_online_concurrency_limit_and_effective_capacity()
+    public void Vue_ai_settings_documents_profile_concurrency_limit_and_effective_capacity()
     {
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
         var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
         var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
 
         apiTypesSource.Should().Contain("EffectiveMaxConcurrentRequests: number;");
+        apiTypesSource.Should().Contain("ProviderProfiles: ProviderProfileState[] | null;");
+        apiTypesSource.Should().Contain("MaxConcurrentRequests: number;");
         statusPageSource.Should().Contain("state.value.EffectiveMaxConcurrentRequests");
-        aiPageSource.Should().Contain("在线服务并发请求");
+        aiPageSource.Should().Contain("在线服务商按档案优先级执行");
+        aiPageSource.Should().Contain("id=\"providerProfileMaxConcurrentRequests\"");
         aiPageSource.Should().Contain("max=\"100\"");
-        aiPageSource.Should().Contain("llama.cpp 使用并行槽位");
+        aiPageSource.Should().Contain("llama.cpp 本地模型");
     }
 
     [Fact]
@@ -111,24 +114,25 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("{ value: \"ja\", label: \"日语\" }");
         aiPageSource.Should().Contain("{ value: \"ko\", label: \"韩语\" }");
         aiPageSource.Should().Contain("{ value: \"pt-BR\", label: \"巴西葡萄牙语\" }");
-        aiPageSource.Should().Contain("<select id=\"targetLanguage\" v-model=\"form.TargetLanguage\">");
+        aiPageSource.Should().Contain("<select id=\"targetLanguage\" v-model=\"form.TargetLanguage\" @change=\"markDirty\">");
         aiPageSource.Should().Contain("v-for=\"option in targetLanguageOptions\"");
         aiPageSource.Should().NotContain("id=\"targetLanguage\" v-model=\"form.TargetLanguage\" autocomplete=\"off\"");
     }
 
     [Fact]
-    public void Vue_ai_settings_hides_dependent_options_when_parent_options_are_disabled()
+    public void Vue_ai_settings_hides_profile_dependent_options_when_provider_kind_changes()
     {
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
 
-        aiPageSource.Should().Contain("EnableOpenAiReasoning: false");
-        aiPageSource.Should().Contain("const canShowOpenAiReasoningEffort");
-        aiPageSource.Should().Contain("const canShowDeepSeekReasoningEffort");
+        aiPageSource.Should().Contain("const isProfileOpenAi");
+        aiPageSource.Should().Contain("const isProfileDeepSeek");
+        aiPageSource.Should().Contain("const isProfileOpenAiCompatible");
         aiPageSource.Should().Contain("v-if=\"form.EnableTranslationContext\"");
-        aiPageSource.Should().Contain("v-if=\"canShowOpenAiReasoningEffort\"");
-        aiPageSource.Should().Contain("v-if=\"canShowDeepSeekReasoningEffort\"");
-        aiPageSource.Should().Contain("return canShowOpenAiReasoningEffort.value ? form.ReasoningEffort : \"none\";");
-        aiPageSource.Should().Contain("return canShowDeepSeekReasoningEffort.value ? form.DeepSeekReasoningEffort : \"none\";");
+        aiPageSource.Should().Contain("v-if=\"isProfileOpenAi\"");
+        aiPageSource.Should().Contain("v-if=\"isProfileDeepSeek\"");
+        aiPageSource.Should().Contain("v-if=\"isProfileDeepSeek || isProfileOpenAiCompatible\"");
+        aiPageSource.Should().NotContain("EnableOpenAiReasoning");
+        aiPageSource.Should().NotContain("DeepSeekReasoningEffort");
     }
 
     [Fact]
@@ -144,14 +148,13 @@ public sealed class ControlPanelVueSourceTests
         apiTypesSource.Should().Contain("OpenAICompatibleExtraBodyJson?: string | null;");
         aiPageSource.Should().Contain("OpenAICompatibleCustomHeaders: \"\"");
         aiPageSource.Should().Contain("OpenAICompatibleExtraBodyJson: \"\"");
-        aiPageSource.Should().Contain("const isOpenAiCompatible");
-        aiPageSource.Should().Contain("function validateOpenAiCompatibleAdvancedOptions");
-        aiPageSource.Should().Contain("v-if=\"isOpenAiCompatible\"");
-        aiPageSource.Should().Contain("id=\"openAICompatibleCustomHeaders\"");
-        aiPageSource.Should().Contain("id=\"openAICompatibleExtraBodyJson\"");
-        aiPageSource.Should().Contain("OpenAICompatibleCustomHeaders: form.OpenAICompatibleCustomHeaders.trim()");
-        aiPageSource.Should().Contain("OpenAICompatibleExtraBodyJson: form.OpenAICompatibleExtraBodyJson.trim()");
-        aiPageSource.Should().Contain("Authorization 和 Content-Type 请继续使用内置密钥和 JSON 请求。");
+        aiPageSource.Should().Contain("const isProfileOpenAiCompatible");
+        aiPageSource.Should().Contain("v-if=\"isProfileOpenAiCompatible\"");
+        aiPageSource.Should().Contain("id=\"providerProfileCustomHeaders\"");
+        aiPageSource.Should().Contain("id=\"providerProfileExtraBodyJson\"");
+        aiPageSource.Should().Contain("OpenAICompatibleCustomHeaders: profileForm.OpenAICompatibleCustomHeaders.trim() || null");
+        aiPageSource.Should().Contain("OpenAICompatibleExtraBodyJson: profileForm.OpenAICompatibleExtraBodyJson.trim() || null");
+        aiPageSource.Should().Contain("Authorization 和 Content-Type 由插件维护。");
         cssSource.Should().Contain(".ai-compatible-advanced");
         cssSource.Should().Contain(".textarea-field");
     }
@@ -197,8 +200,8 @@ public sealed class ControlPanelVueSourceTests
         pluginPageSource.Should().Contain("点击后直接监听组合键，按 Backspace 或 Delete 可清空为 None。");
 
         aiPageSource.Should().Contain("class=\"field help-target\"");
-        aiPageSource.Should().Contain("选择要调用的翻译后端，切换后会带入该服务商的默认地址和模型。");
-        aiPageSource.Should().Contain("限制同时发送给在线服务商的翻译请求数，过高可能触发限流或增加费用。");
+        aiPageSource.Should().Contain("在线服务商按档案优先级执行");
+        aiPageSource.Should().Contain("此档案可同时执行的在线请求数。");
         aiPageSource.Should().Contain("help: \"控制模型的总体翻译规则");
         aiPageSource.Should().Contain(":data-help=\"field.help\"");
 
@@ -241,7 +244,9 @@ public sealed class ControlPanelVueSourceTests
         pluginPageSource.Should().Contain("from \"lucide-vue-next\"");
         pluginPageSource.Should().NotContain("class=\"option-icon\"");
         aiPageSource.Should().Contain("from \"lucide-vue-next\"");
-        aiPageSource.Should().Contain("class=\"option-icon\"");
+        aiPageSource.Should().Contain("class=\"field-label-icon\"");
+        aiPageSource.Should().Contain("class=\"provider-profile-card\"");
+        aiPageSource.Should().Contain("class=\"secondary icon-button\"");
         glossaryPageSource.Should().Contain("class=\"option-icon\"");
         cssSource.Should().Contain(".option-icon");
         cssSource.Should().Contain(".field-label-icon");
@@ -388,36 +393,29 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
-    public void Vue_ai_settings_save_and_provider_utility_persist_pending_api_key()
+    public void Vue_ai_settings_manage_provider_profile_crud_and_utility_actions()
     {
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
-        var storeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "state", "controlPanelStore.ts"));
 
-        aiPageSource.Should().Contain("async function saveConfigOnly(options: SaveBehavior = {})");
-        aiPageSource.Should().Contain("async function savePendingApiKey(options: SaveBehavior = {}, pendingApiKey = form.ApiKey.trim())");
-        aiPageSource.Should().Contain("const apiKey = pendingApiKey.trim();");
-        aiPageSource.Should().Contain("await saveConfigOnly();");
-        aiPageSource.Should().Contain("const pendingApiKey = form.ApiKey.trim();");
-        aiPageSource.Should().Contain("await savePendingApiKey({}, pendingApiKey);");
-        aiPageSource.Should().Contain("await saveConfigOnly({ quiet: true });");
-        aiPageSource.Should().Contain("await savePendingApiKey({ quiet: true }, pendingApiKey);");
-        System.Text.RegularExpressions.Regex.IsMatch(
-                aiPageSource,
-                @"async function saveAll\(\): Promise<void>[\s\S]*?const pendingApiKey = form\.ApiKey\.trim\(\);[\s\S]*?await saveConfigOnly\(\);[\s\S]*?await savePendingApiKey\(\{\}, pendingApiKey\);")
-            .Should().BeTrue();
-        System.Text.RegularExpressions.Regex.IsMatch(
-                aiPageSource,
-                @"async function runProviderUtility\(label: string, action: \(\) => Promise<void>\): Promise<void>[\s\S]*?const pendingApiKey = form\.ApiKey\.trim\(\);[\s\S]*?await saveConfigOnly\(\{ quiet: true \}\);[\s\S]*?await savePendingApiKey\(\{ quiet: true \}, pendingApiKey\);")
-            .Should().BeTrue();
-        storeSource.Should().Contain("options: SaveOptions = {}");
-        System.Text.RegularExpressions.Regex.IsMatch(storeSource, @"if \(!options\.quiet\)\s*\{\s*showToast\(""设置已保存"", ""ok""\);\s*\}")
-            .Should().BeTrue();
-        System.Text.RegularExpressions.Regex.IsMatch(storeSource, @"if \(!options\.quiet\)\s*\{\s*showToast\(apiKey\.trim\(\) \? ""API Key 已加密保存"" : ""API Key 已清除"", ""ok""\);\s*\}")
-            .Should().BeTrue();
+        aiPageSource.Should().Contain("async function saveGlobalConfig(options: SaveBehavior = {})");
+        aiPageSource.Should().Contain("async function createProviderProfile(): Promise<void>");
+        aiPageSource.Should().Contain("async function saveProviderProfile(): Promise<void>");
+        aiPageSource.Should().Contain("async function deleteProviderProfile(profile: ProviderProfileState): Promise<void>");
+        aiPageSource.Should().Contain("async function moveProviderProfile(profile: ProviderProfileState, direction: -1 | 1): Promise<void>");
+        aiPageSource.Should().Contain("async function exportProviderProfile(profile: ProviderProfileState): Promise<void>");
+        aiPageSource.Should().Contain("async function importProviderProfile(event: Event): Promise<void>");
+        aiPageSource.Should().Contain("async function runProfileUtility<T>");
+        aiPageSource.Should().Contain("if (profileDirty.value)");
+        aiPageSource.Should().Contain("await saveProviderProfile();");
+        aiPageSource.Should().Contain("/api/provider-profiles");
+        aiPageSource.Should().Contain("/test");
+        aiPageSource.Should().Contain("/models");
+        aiPageSource.Should().Contain("/balance");
+        aiPageSource.Should().NotContain("savePendingApiKey");
     }
 
     [Fact]
-    public void Vue_ai_settings_exposes_game_title_override_and_llamacpp_temperature()
+    public void Vue_ai_settings_exposes_game_title_override_and_profile_temperature()
     {
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
         var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
@@ -432,8 +430,9 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("GameTitle: form.GameTitle.trim()");
         aiPageSource.Should().Contain("id=\"gameTitle\"");
         aiPageSource.Should().Contain(":placeholder=\"automaticGameTitle ||");
-        aiPageSource.Should().Contain("form.ProviderKind === 1 || form.ProviderKind === 2 || form.ProviderKind === 3");
-        aiPageSource.Should().Contain("data-providers=\"1,2,3\"");
+        aiPageSource.Should().Contain("id=\"providerProfileTemperature\"");
+        aiPageSource.Should().Contain("v-if=\"isProfileDeepSeek || isProfileOpenAiCompatible\"");
+        aiPageSource.Should().Contain("Temperature: profileForm.Temperature === \"\" ? null : Number(profileForm.Temperature)");
     }
 
     [Fact]
@@ -460,7 +459,7 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("class=\"prompt-template-tabs\"");
         aiPageSource.Should().Contain("class=\"prompt-editor-field\"");
         aiPageSource.Should().Contain("正在使用内置提示词");
-        aiPageSource.Should().Contain("恢复内置提示词");
+        aiPageSource.Should().Contain("恢复全部内置");
         aiPageSource.Should().NotContain("完整提示词");
         aiPageSource.Should().NotContain("customInstruction");
         aiPageSource.Should().NotContain("CustomInstruction");
@@ -473,9 +472,9 @@ public sealed class ControlPanelVueSourceTests
         var toastSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "components", "ToastHost.vue"));
 
         aiPageSource.Should().Contain("showToast(");
-        aiPageSource.Should().Contain("async function fetchModels()");
-        aiPageSource.Should().Contain("async function fetchBalance()");
-        aiPageSource.Should().Contain("async function testProvider()");
+        aiPageSource.Should().Contain("async function fetchProfileModels()");
+        aiPageSource.Should().Contain("async function fetchProfileBalance()");
+        aiPageSource.Should().Contain("async function testProfile()");
         toastSource.Should().Contain("class=\"toast-host\"");
         aiPageSource.Should().NotContain("providerStatusText");
         aiPageSource.Should().NotContain("providerUtilityMessage");
@@ -490,22 +489,22 @@ public sealed class ControlPanelVueSourceTests
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
 
         aiPageSource.Should().Contain("function formatBalanceToast(result: ProviderBalanceResult): string");
-        aiPageSource.Should().Contain("formatBalanceToast(result)");
+        aiPageSource.Should().Contain("formatBalanceToast);");
         aiPageSource.Should().Contain("balance.TotalBalance");
         aiPageSource.Should().Contain("balance.GrantedBalance");
         aiPageSource.Should().Contain("balance.ToppedUpBalance");
-        aiPageSource.Should().Contain("查询账户余额");
+        aiPageSource.Should().Contain("查询余额");
         aiPageSource.Should().NotContain("查询余额/成本</button>");
     }
 
     [Fact]
-    public void Vue_deepseek_presets_use_current_v4_model_ids()
+    public void Vue_deepseek_profile_defaults_use_current_v4_model_id()
     {
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
 
         aiPageSource.Should().Contain("model: \"deepseek-v4-flash\"");
-        aiPageSource.Should().Contain("value: \"deepseek-v4-flash\", label: \"DeepSeek V4 Flash\"");
-        aiPageSource.Should().Contain("value: \"deepseek-v4-pro\", label: \"DeepSeek V4 Pro\"");
+        aiPageSource.Should().Contain("1: { name: \"DeepSeek\"");
+        aiPageSource.Should().Contain("applyProfileKindDefaults");
     }
 
     [Fact]
@@ -541,13 +540,12 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("v-else id=\"stopLlamaCpp\"");
         aiPageSource.Should().Contain("llamaCppInstallText");
         aiPageSource.Should().Contain("LlamaCppAutoStartOnStartup");
-        aiPageSource.Should().Contain("form.LlamaCppAutoStartOnStartup = state.LlamaCpp?.AutoStartOnStartup ?? false;");
-        aiPageSource.Should().Contain("AutoStartOnStartup: form.LlamaCppAutoStartOnStartup");
-        aiPageSource.Should().Contain("form.LlamaCppAutoStartOnStartup = true;");
-        aiPageSource.Should().Contain("form.LlamaCppAutoStartOnStartup = false;");
-        aiPageSource.Should().Contain("/api/llamacpp/start");
-        aiPageSource.Should().Contain("/api/llamacpp/stop");
-        aiPageSource.Should().Contain("/api/llamacpp/benchmark");
+        aiPageSource.Should().Contain("AutoStartOnStartup: profileForm.LlamaCppAutoStartOnStartup");
+        aiPageSource.Should().Contain("profileForm.LlamaCppAutoStartOnStartup = true;");
+        aiPageSource.Should().Contain("profileForm.LlamaCppAutoStartOnStartup = false;");
+        aiPageSource.Should().Contain("/api/provider-profiles/${encodeURIComponent(profileForm.Id)}/start");
+        aiPageSource.Should().Contain("/api/provider-profiles/${encodeURIComponent(profileForm.Id)}/stop");
+        aiPageSource.Should().Contain("/api/provider-profiles/${encodeURIComponent(profileForm.Id)}/benchmark");
         aiPageSource.Should().Contain("/api/llamacpp/model/pick");
         aiPageSource.Should().NotContain("id=\"llamaCppPort\"");
         aiPageSource.Should().NotContain("<div><span>端口</span>");
@@ -584,7 +582,7 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("/api/llamacpp/model/presets");
         aiPageSource.Should().Contain("/api/llamacpp/model/download");
         aiPageSource.Should().Contain("/api/llamacpp/model/download/cancel");
-        aiPageSource.Should().Contain("form.LlamaCppModelPath = status.LocalPath;");
+        aiPageSource.Should().Contain("profileForm.LlamaCppModelPath = status.LocalPath;");
         aiPageSource.Should().Contain("已下载并填入模型路径");
         aiPageSource.Should().Contain("模型下载");
         aiPageSource.Should().Contain("<div v-if=\"isLlamaCppDownloading\" class=\"llama-download-progress\">");
@@ -625,16 +623,25 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
-    public void Vue_ai_settings_hides_online_model_controls_for_llamacpp()
+    public void Vue_ai_settings_separates_online_profiles_from_llamacpp_runtime()
     {
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
 
-        aiPageSource.Should().Contain("Model: isLlamaCpp.value ? \"local-model\" : form.Model");
-        aiPageSource.Should().Contain("<div v-if=\"!isLlamaCpp\" class=\"ai-model-row\"");
-        aiPageSource.Should().Contain("<button v-if=\"!isLlamaCpp\" id=\"fetchModels\"");
-        aiPageSource.Should().Contain("<label v-if=\"!isLlamaCpp\" class=\"field help-target\"");
-        aiPageSource.Should().Contain("<span class=\"field-label\"><Gauge class=\"field-label-icon\" />在线服务并发请求</span>");
-        aiPageSource.Should().Contain("llama.cpp 使用并行槽位控制本地模型压力。");
+        apiTypesSource.Should().Contain("LlamaCpp: LlamaCppConfig | null;");
+        aiPageSource.Should().Contain("const providerKindOptions = [");
+        aiPageSource.Should().Contain("{ value: 2, label: \"OpenAI 兼容\" }");
+        aiPageSource.Should().Contain("{ value: 3, label: \"llama.cpp 本地模型\" }");
+        aiPageSource.Should().Contain("const hasLlamaCppProfile");
+        aiPageSource.Should().Contain("const isProfileLlamaCpp");
+        aiPageSource.Should().Contain("function buildProfileLlamaCppConfig(): LlamaCppConfig");
+        aiPageSource.Should().Contain("async function createLlamaCppProfile(): Promise<void>");
+        aiPageSource.Should().Contain(":disabled=\"hasLlamaCppProfile\"");
+        aiPageSource.Should().Contain("await saveConfig(buildConfigRequest(0), formKey, { quiet: true })");
+        aiPageSource.Should().NotContain("await saveConfig(buildConfigRequest(3), formKey, { quiet: true })");
+        aiPageSource.Should().Contain("SectionPanel title=\"服务商档案\"");
+        aiPageSource.Should().NotContain("SectionPanel title=\"在线服务商档案\"");
+        aiPageSource.Should().NotContain("SectionPanel title=\"llama.cpp 本地模型\"");
     }
 
     [Fact]
@@ -643,8 +650,9 @@ public sealed class ControlPanelVueSourceTests
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
         var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
 
-        aiPageSource.Should().Contain("class=\"ai-provider-grid\"");
-        aiPageSource.Should().Contain("class=\"ai-model-row\"");
+        aiPageSource.Should().Contain("class=\"provider-profile-manager\"");
+        aiPageSource.Should().Contain("class=\"provider-profile-list\"");
+        aiPageSource.Should().Contain("class=\"provider-profile-editor\"");
         aiPageSource.Should().Contain("class=\"llama-local-panel\"");
         aiPageSource.Should().Contain("llama-model-row");
         aiPageSource.Should().Contain("class=\"llama-status-strip\"");
@@ -656,8 +664,9 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("id=\"stopLlamaCpp\"");
         aiPageSource.Should().NotContain("mini-summary");
         cssSource.Should().NotContain(".mini-summary");
-        cssSource.Should().Contain(".ai-provider-grid");
-        cssSource.Should().Contain(".ai-model-row");
+        cssSource.Should().Contain(".provider-profile-manager");
+        cssSource.Should().Contain(".provider-profile-list");
+        cssSource.Should().Contain(".provider-profile-editor");
         cssSource.Should().Contain(".llama-local-panel");
         cssSource.Should().Contain(".llama-model-row");
         cssSource.Should().Contain(".llama-status-strip");
@@ -674,9 +683,9 @@ public sealed class ControlPanelVueSourceTests
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
 
         aiPageSource.Should().Contain("ReasoningEffort: \"none\"");
-        aiPageSource.Should().Contain("DeepSeekReasoningEffort: \"none\"");
         aiPageSource.Should().Contain("DeepSeekThinkingMode: \"disabled\"");
-        aiPageSource.Should().Contain("applyProviderDefaults");
+        aiPageSource.Should().Contain("OutputVerbosity: \"low\"");
+        aiPageSource.Should().Contain("applyProfileKindDefaults");
     }
 
     [Fact]

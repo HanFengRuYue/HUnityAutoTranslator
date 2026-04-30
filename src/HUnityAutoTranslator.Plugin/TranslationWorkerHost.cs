@@ -92,6 +92,7 @@ internal sealed class TranslationWorkerHost : IDisposable
                     continue;
                 }
 
+                config = _controlPanel.GetConfig();
                 var provider = CreateProvider(config);
                 if (_queue.PendingCount == 0)
                 {
@@ -134,6 +135,24 @@ internal sealed class TranslationWorkerHost : IDisposable
 
     private ITranslationProvider CreateProvider(RuntimeConfig config)
     {
+        if (config.Provider.Kind != ProviderKind.LlamaCpp)
+        {
+            return new FailoverTranslationProvider(
+                _controlPanel.GetReadyProviderRuntimeProfiles,
+                CreateProviderAsync,
+                (profile, error) =>
+                {
+                    var shouldFailOver = _controlPanel.RegisterProviderProfileFailure(profile, error);
+                    if (shouldFailOver)
+                    {
+                        _logger.LogWarning($"服务商档案“{profile.Name}”连续失败，当前批次将切换到下一优先级档案。错误：{error}");
+                    }
+
+                    return shouldFailOver;
+                },
+                profile => _controlPanel.RegisterProviderProfileSuccess(profile));
+        }
+
         return config.Provider.Kind == ProviderKind.OpenAI
             ? new OpenAiResponsesProvider(
                 _httpClient,
@@ -150,6 +169,75 @@ internal sealed class TranslationWorkerHost : IDisposable
                 config.DeepSeekThinkingMode,
                 config.Temperature,
                 TimeSpan.FromSeconds(config.RequestTimeoutSeconds));
+    }
+
+    private ITranslationProvider CreateProvider(ProviderRuntimeProfile runtimeProfile)
+    {
+        return runtimeProfile.Profile.Kind == ProviderKind.OpenAI
+            ? new OpenAiResponsesProvider(
+                _httpClient,
+                runtimeProfile.Profile,
+                () => runtimeProfile.ApiKey,
+                runtimeProfile.ReasoningEffort,
+                runtimeProfile.OutputVerbosity,
+                TimeSpan.FromSeconds(runtimeProfile.RequestTimeoutSeconds))
+            : new ChatCompletionsProvider(
+                _httpClient,
+                runtimeProfile.Profile,
+                () => runtimeProfile.ApiKey,
+                runtimeProfile.ReasoningEffort,
+                runtimeProfile.DeepSeekThinkingMode,
+                runtimeProfile.Temperature,
+                TimeSpan.FromSeconds(runtimeProfile.RequestTimeoutSeconds));
+    }
+
+    private async Task<ITranslationProvider> CreateProviderAsync(ProviderRuntimeProfile runtimeProfile, CancellationToken cancellationToken)
+    {
+        if (runtimeProfile.Profile.Kind != ProviderKind.LlamaCpp)
+        {
+            return CreateProvider(runtimeProfile);
+        }
+
+        if (_llamaCppServer == null)
+        {
+            return new FailureTranslationProvider(runtimeProfile.Profile, "llama.cpp 本地模型管理器不可用。");
+        }
+
+        var config = runtimeProfile.ApplyTo(_controlPanel.GetConfig());
+        var status = _llamaCppServer.GetStatus(config);
+        _controlPanel.SetLlamaCppStatus(status);
+        if (!await _llamaCppServer.IsReadyAsync(config, cancellationToken).ConfigureAwait(false))
+        {
+            status = await _llamaCppServer.StartAsync(config, cancellationToken).ConfigureAwait(false);
+            _controlPanel.SetLlamaCppStatus(status);
+        }
+
+        if (!await _llamaCppServer.IsReadyAsync(config, cancellationToken).ConfigureAwait(false))
+        {
+            var message = string.IsNullOrWhiteSpace(status.Message)
+                ? "llama.cpp 本地模型未能启动。"
+                : status.Message;
+            _controlPanel.SetProviderStatus(new ProviderStatus("error", message, DateTimeOffset.UtcNow));
+            return new FailureTranslationProvider(runtimeProfile.Profile, message);
+        }
+
+        status = _llamaCppServer.GetStatus(config);
+        _controlPanel.SetLlamaCppStatus(status);
+        _controlPanel.SetProviderStatus(new ProviderStatus("ok", "llama.cpp 本地模型运行中。", DateTimeOffset.UtcNow));
+        var profile = runtimeProfile.Profile with
+        {
+            BaseUrl = $"http://127.0.0.1:{status.Port}",
+            Endpoint = "/v1/chat/completions",
+            ApiKeyConfigured = true
+        };
+        return new ChatCompletionsProvider(
+            _httpClient,
+            profile,
+            () => runtimeProfile.ApiKey,
+            runtimeProfile.ReasoningEffort,
+            runtimeProfile.DeepSeekThinkingMode,
+            runtimeProfile.Temperature,
+            TimeSpan.FromSeconds(runtimeProfile.RequestTimeoutSeconds));
     }
 
     private void ReportTranslationDebugSnapshot(RuntimeConfig config, TranslationRequestDebugSnapshot snapshot)
@@ -176,7 +264,7 @@ internal sealed class TranslationWorkerHost : IDisposable
     {
         if (config.Provider.Kind != ProviderKind.LlamaCpp)
         {
-            return config.Provider.ApiKeyConfigured;
+            return _controlPanel.HasReadyProviderRuntimeProfile();
         }
 
         if (_llamaCppServer == null)
@@ -185,6 +273,11 @@ internal sealed class TranslationWorkerHost : IDisposable
             _controlPanel.SetLastError(message);
             _controlPanel.SetProviderStatus(new ProviderStatus("error", message, DateTimeOffset.UtcNow));
             return false;
+        }
+
+        if (!await _llamaCppServer.IsReadyAsync(config, cancellationToken).ConfigureAwait(false))
+        {
+            _controlPanel.SetLlamaCppStatus(await _llamaCppServer.StartAsync(config, cancellationToken).ConfigureAwait(false));
         }
 
         if (await _llamaCppServer.IsReadyAsync(config, cancellationToken).ConfigureAwait(false))
@@ -199,6 +292,25 @@ internal sealed class TranslationWorkerHost : IDisposable
         _controlPanel.SetProviderStatus(new ProviderStatus("warning", notStarted, DateTimeOffset.UtcNow));
         _controlPanel.SetLlamaCppStatus(_llamaCppServer.GetStatus(config));
         return false;
+    }
+
+    private sealed class FailureTranslationProvider : ITranslationProvider
+    {
+        private readonly ProviderProfile _profile;
+        private readonly string _message;
+
+        public FailureTranslationProvider(ProviderProfile profile, string message)
+        {
+            _profile = profile;
+            _message = message;
+        }
+
+        public ProviderKind Kind => _profile.Kind;
+
+        public Task<TranslationResponse> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(TranslationResponse.Failure(_message, _profile));
+        }
     }
 
     private int ResumePendingTranslations(RuntimeConfig config)

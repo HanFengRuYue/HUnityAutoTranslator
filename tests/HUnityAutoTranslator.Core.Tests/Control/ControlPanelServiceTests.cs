@@ -196,15 +196,17 @@ public sealed class ControlPanelServiceTests
     {
         var service = ControlPanelService.CreateDefault();
 
-        service.UpdateConfig(new UpdateConfigRequest(
-            TargetLanguage: "ko",
-            MaxConcurrentRequests: 150,
-            RequestsPerMinute: 700,
-            Enabled: false,
-            ProviderKind: ProviderKind.OpenAICompatible,
+        service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "兼容网关",
+            Kind: ProviderKind.OpenAICompatible,
             BaseUrl: "http://127.0.0.1:9000",
             Endpoint: "/v1/chat/completions",
             Model: "local-model",
+            MaxConcurrentRequests: 150,
+            RequestsPerMinute: 700));
+        service.UpdateConfig(new UpdateConfigRequest(
+            TargetLanguage: "ko",
+            Enabled: false,
             EnableUgui: false,
             EnableTmp: false,
             EnableImgui: true,
@@ -236,8 +238,9 @@ public sealed class ControlPanelServiceTests
     {
         var service = ControlPanelService.CreateDefault();
 
-        service.UpdateConfig(new UpdateConfigRequest(
-            ProviderKind: ProviderKind.OpenAICompatible,
+        service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "兼容网关",
+            Kind: ProviderKind.OpenAICompatible,
             OpenAICompatibleCustomHeaders: """
                 X-App-Title: HUnity
                 Authorization: Bearer wrong
@@ -262,13 +265,13 @@ public sealed class ControlPanelServiceTests
     public void UpdateConfig_rejects_invalid_openai_compatible_advanced_options_without_crashing()
     {
         var service = ControlPanelService.CreateDefault();
-        service.UpdateConfig(new UpdateConfigRequest(
-            ProviderKind: ProviderKind.OpenAICompatible,
+        var profile = service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "兼容网关",
+            Kind: ProviderKind.OpenAICompatible,
             OpenAICompatibleCustomHeaders: "X-Gateway: one",
             OpenAICompatibleExtraBodyJson: """{"stream":false}"""));
 
-        service.UpdateConfig(new UpdateConfigRequest(
-            ProviderKind: ProviderKind.OpenAICompatible,
+        service.UpdateProviderProfile(profile.Id, new ProviderProfileUpdateRequest(
             OpenAICompatibleCustomHeaders: """
                 MissingSeparator
                 Authorization: Bearer wrong
@@ -347,6 +350,111 @@ public sealed class ControlPanelServiceTests
         state.LlamaCpp.UBatchSize.Should().Be(128);
         state.LlamaCpp.FlashAttentionMode.Should().Be("auto");
         state.LlamaCpp.AutoStartOnStartup.Should().BeFalse();
+    }
+
+    [Fact]
+    public void Provider_profiles_allow_one_llamacpp_profile_without_api_key_and_require_model_path_for_ready_queue()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        var local = service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "本地 Qwen",
+            Kind: ProviderKind.LlamaCpp,
+            LlamaCpp: LlamaCppConfig.Default() with { ModelPath = null, ParallelSlots = 3 }));
+
+        var state = service.GetState();
+        state.ProviderProfiles.Should().ContainSingle();
+        state.ProviderProfiles![0].Kind.Should().Be(ProviderKind.LlamaCpp);
+        state.ProviderProfiles[0].ApiKeyConfigured.Should().BeTrue();
+        state.ProviderProfiles[0].LlamaCpp.Should().NotBeNull();
+        service.GetReadyProviderRuntimeProfiles().Should().BeEmpty();
+
+        service.UpdateProviderProfile(local.Id, new ProviderProfileUpdateRequest(
+            LlamaCpp: LlamaCppConfig.Default() with
+            {
+                ModelPath = @"D:\Models\qwen.gguf",
+                ParallelSlots = 2,
+                BatchSize = 4096,
+                UBatchSize = 1024,
+                FlashAttentionMode = "on"
+            }));
+
+        var ready = service.GetReadyProviderRuntimeProfiles().Should().ContainSingle().Which;
+        ready.Profile.Kind.Should().Be(ProviderKind.LlamaCpp);
+        ready.ApiKey.Should().BeNull();
+        ready.LlamaCpp.Should().NotBeNull();
+        ready.LlamaCpp!.ModelPath.Should().Be(@"D:\Models\qwen.gguf");
+        ready.MaxConcurrentRequests.Should().Be(2);
+    }
+
+    [Fact]
+    public void Provider_profiles_reject_second_llamacpp_profile()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "本地模型",
+            Kind: ProviderKind.LlamaCpp,
+            LlamaCpp: LlamaCppConfig.Default() with { ModelPath = @"D:\Models\one.gguf" }));
+
+        var act = () => service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "第二个本地模型",
+            Kind: ProviderKind.LlamaCpp,
+            LlamaCpp: LlamaCppConfig.Default() with { ModelPath = @"D:\Models\two.gguf" }));
+
+        act.Should().Throw<InvalidOperationException>()
+            .WithMessage("*只能创建一个本地模型档案*");
+    }
+
+    [Fact]
+    public void Provider_profiles_mix_online_and_llamacpp_by_priority()
+    {
+        var service = ControlPanelService.CreateDefault();
+        var online = service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "兼容网关",
+            Kind: ProviderKind.OpenAICompatible,
+            BaseUrl: "http://127.0.0.1:9000",
+            Endpoint: "/v1/chat/completions",
+            Model: "gateway-model"));
+        var local = service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "本地模型",
+            Kind: ProviderKind.LlamaCpp,
+            LlamaCpp: LlamaCppConfig.Default() with { ModelPath = @"D:\Models\local.gguf", ParallelSlots = 2 }));
+
+        service.GetReadyProviderRuntimeProfiles().Select(profile => profile.Id)
+            .Should().Equal(online.Id, local.Id);
+
+        service.MoveProviderProfile(local.Id, -1);
+
+        service.GetReadyProviderRuntimeProfiles().Select(profile => profile.Id)
+            .Should().Equal(local.Id, online.Id);
+    }
+
+    [Fact]
+    public void CreateDefault_does_not_migrate_legacy_llamacpp_cfg_into_provider_profiles()
+    {
+        var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(root, "com.hanfeng.hunityautotranslator.cfg");
+        Directory.CreateDirectory(root);
+        File.WriteAllText(path, """
+            [基础]
+
+            ProviderKind = LlamaCpp
+
+            [llama.cpp]
+
+            ModelPath = D:\Models\legacy.gguf
+            ContextSize = 4096
+            GpuLayers = 999
+            ParallelSlots = 1
+            """);
+
+        var service = ControlPanelService.CreateDefault(
+            new CfgControlPanelSettingsStore(path),
+            new EncryptedProviderProfileStore(Path.Combine(root, "providers")));
+
+        service.GetState().ProviderProfiles.Should().BeEmpty();
+        service.GetConfig().LlamaCpp.ModelPath.Should().Be(@"D:\Models\legacy.gguf");
     }
 
     [Fact]
@@ -432,28 +540,32 @@ public sealed class ControlPanelServiceTests
     [Fact]
     public void CreateDefault_loads_saved_config_and_api_key_from_cfg_store()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
-        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+        var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(root, "com.hanfeng.hunityautotranslator.cfg");
+        var profileStore = new EncryptedProviderProfileStore(Path.Combine(root, "providers"));
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path), profileStore);
 
         first.UpdateConfig(new UpdateConfigRequest(
             TargetLanguage: "ja",
-            MaxConcurrentRequests: 7,
-            RequestsPerMinute: 123,
             Enabled: false,
-            ProviderKind: ProviderKind.OpenAICompatible,
-            BaseUrl: "http://127.0.0.1:9000",
-            Endpoint: "/v1/chat/completions",
-            Model: "local-model",
-            OpenAICompatibleCustomHeaders: "X-App-Title: HUnity",
-            OpenAICompatibleExtraBodyJson: """{"stream":false}""",
             EnableUgui: false,
             EnableTmp: true,
             EnableImgui: false,
             MaxScanTargetsPerTick: 33,
             MaxWritebacksPerFrame: 44));
-        first.SetApiKey("secret-value");
+        first.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "兼容网关",
+            Kind: ProviderKind.OpenAICompatible,
+            BaseUrl: "http://127.0.0.1:9000",
+            Endpoint: "/v1/chat/completions",
+            Model: "local-model",
+            ApiKey: "secret-value",
+            MaxConcurrentRequests: 7,
+            RequestsPerMinute: 123,
+            OpenAICompatibleCustomHeaders: "X-App-Title: HUnity",
+            OpenAICompatibleExtraBodyJson: """{"stream":false}"""));
 
-        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path), profileStore);
 
         var state = second.GetState();
         state.Enabled.Should().BeFalse();
@@ -478,22 +590,26 @@ public sealed class ControlPanelServiceTests
     [Fact]
     public void Cfg_store_persists_api_key_encrypted()
     {
-        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
-        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+        var root = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"));
+        var path = Path.Combine(root, "com.hanfeng.hunityautotranslator.cfg");
+        var profileStore = new EncryptedProviderProfileStore(Path.Combine(root, "providers"));
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path), profileStore);
 
         first.SetApiKey("secret-value");
 
         var cfg = File.ReadAllText(path);
-        cfg.Should().Contain("EncryptedApiKey");
+        cfg.Should().NotContain("EncryptedApiKey");
         cfg.Should().NotContain("secret-value");
+        var profileFile = Directory.GetFiles(Path.Combine(root, "providers"), "*.hutprovider").Should().ContainSingle().Which;
+        File.ReadAllText(profileFile).Should().NotContain("secret-value");
 
-        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path), profileStore);
         second.GetApiKey().Should().Be("secret-value");
         second.GetState().ApiKeyConfigured.Should().BeTrue();
     }
 
     [Fact]
-    public void Cfg_store_encrypts_plaintext_api_key_on_load()
+    public void Cfg_store_ignores_legacy_plaintext_api_key_and_preserves_section_on_save()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -507,16 +623,17 @@ public sealed class ControlPanelServiceTests
             """);
 
         var service = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
-        service.GetApiKey().Should().Be("legacy-secret");
+        service.GetApiKey().Should().BeNull();
         service.GetState().TargetLanguage.Should().Be("ja");
+        service.UpdateConfig(new UpdateConfigRequest(TargetLanguage: "ko"));
 
         var cfg = File.ReadAllText(path);
         cfg.Should().Contain("EncryptedApiKey");
-        cfg.Should().NotContain("legacy-secret");
+        cfg.Should().Contain("legacy-secret");
 
         var reloaded = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
-        reloaded.GetApiKey().Should().Be("legacy-secret");
-        reloaded.GetState().TargetLanguage.Should().Be("ja");
+        reloaded.GetApiKey().Should().BeNull();
+        reloaded.GetState().TargetLanguage.Should().Be("ko");
     }
 
     [Fact]
@@ -547,11 +664,11 @@ public sealed class ControlPanelServiceTests
         var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
         var state = second.GetState();
 
-        state.RequestTimeoutSeconds.Should().Be(45);
-        state.ReasoningEffort.Should().Be("low");
+        state.RequestTimeoutSeconds.Should().Be(30);
+        state.ReasoningEffort.Should().Be("none");
         state.OutputVerbosity.Should().Be("low");
         state.DeepSeekThinkingMode.Should().Be("disabled");
-        state.Temperature.Should().Be(0.2);
+        state.Temperature.Should().BeNull();
         state.CustomPrompt.Should().Be("Translate into {TargetLanguage}.");
         state.DefaultSystemPrompt.Should().Contain("Target language: Traditional Chinese.");
         state.DefaultSystemPrompt.Should().Contain("Style: Natural localization is allowed");
