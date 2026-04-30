@@ -757,10 +757,10 @@ button:disabled {
 }
 .provider-profile-manager {
   display: grid;
-  grid-template-columns: minmax(min(280px, 100%), 0.82fr) minmax(0, 1.6fr);
+  grid-template-columns: 1fr;
   gap: 14px;
   margin-top: 14px;
-  align-items: start;
+  align-items: stretch;
 }
 .provider-profile-list {
   display: grid;
@@ -771,10 +771,10 @@ button:disabled {
   width: 100%;
   min-height: 58px;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  padding: 10px;
+  gap: 8px;
+  padding: 0;
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface-2);
@@ -791,6 +791,37 @@ button:disabled {
 }
 .provider-profile-card.cooling {
   box-shadow: inset 3px 0 0 var(--warn);
+}
+.provider-profile-select {
+  width: 100%;
+  min-width: 0;
+  min-height: 58px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  justify-content: stretch;
+  gap: 10px;
+  padding: 10px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.provider-profile-select:hover {
+  background: transparent;
+}
+.provider-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+  padding: 8px 10px 8px 0;
+}
+.provider-card-actions .icon-button {
+  width: 34px;
+  min-width: 34px;
+  min-height: 34px;
 }
 .profile-rank {
   min-width: 34px;
@@ -820,6 +851,33 @@ button:disabled {
 }
 .provider-profile-actions {
   justify-content: flex-start;
+}
+.provider-editor-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 77;
+  display: grid;
+  place-items: start center;
+  padding: 64px 18px 18px;
+  background: color-mix(in srgb, var(--bg), transparent 28%);
+  backdrop-filter: blur(10px);
+}
+.provider-editor-dialog {
+  width: min(1040px, calc(100vw - 36px));
+  max-width: 100%;
+  max-height: calc(100vh - 88px);
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  overflow: auto;
+}
+.provider-editor-dialog .provider-editor-head {
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
 }
 .textarea-field textarea {
   min-height: 96px;
@@ -1765,6 +1823,13 @@ input.compact-check {
   .column-filter-menu {
     width: min(320px, calc(100vw - 24px));
   }
+  .provider-profile-card {
+    grid-template-columns: 1fr;
+  }
+  .provider-card-actions {
+    justify-content: flex-start;
+    padding: 0 10px 10px;
+  }
   .metric[data-help]::after {
     left: 0;
     right: auto;
@@ -1779,10 +1844,21 @@ input.compact-check {
     place-items: start stretch;
     padding-top: 48px;
   }
+  .provider-editor-backdrop {
+    place-items: start stretch;
+    padding-top: 48px;
+  }
   .model-download-dialog {
     width: 100%;
   }
+  .provider-editor-dialog {
+    width: 100%;
+    max-height: calc(100vh - 66px);
+  }
   .model-download-head {
+    flex-direction: column;
+  }
+  .provider-editor-head {
     flex-direction: column;
   }
 }

@@ -66,6 +66,10 @@ interface SaveBehavior {
   quiet?: boolean;
 }
 
+interface ProviderProfileSaveBehavior {
+  closeEditor?: boolean;
+}
+
 const providerKindOptions = [
   { value: 0, label: "OpenAI" },
   { value: 1, label: "DeepSeek" },
@@ -205,6 +209,7 @@ const profileForm = reactive({
 });
 
 const selectedProfileId = ref("");
+const providerEditorOpen = ref(false);
 const profileDirty = ref(false);
 const profileBusy = ref(false);
 const utilityBusy = ref(false);
@@ -645,10 +650,10 @@ async function saveUseOnlineProfiles(): Promise<void> {
   }
 }
 
-function createProfileDefaults(kind = 0): void {
+function createProfileDefaults(kind = 0): boolean {
   if (kind === 3 && hasLlamaCppProfile.value) {
     showToast("只能创建一个本地模型档案。", "warn");
-    return;
+    return false;
   }
 
   const defaults = providerDefaults[kind] ?? providerDefaults[0];
@@ -673,10 +678,37 @@ function createProfileDefaults(kind = 0): void {
   applyProfileLlamaCppConfig(null);
   selectedProfileId.value = "";
   profileDirty.value = true;
+  return true;
+}
+
+function openNewProviderProfile(kind = 0): void {
+  if (createProfileDefaults(kind)) {
+    providerEditorOpen.value = true;
+  }
+}
+
+function openProviderProfileEditor(profile: ProviderProfileState): void {
+  selectedProfileId.value = profile.Id;
+  applySelectedProfile(true);
+  providerEditorOpen.value = true;
+}
+
+function closeProviderProfileEditor(): void {
+  if (profileDirty.value && !window.confirm("放弃未保存的服务商档案修改？")) {
+    return;
+  }
+
+  if (selectedProfileId.value) {
+    applySelectedProfile(true);
+  } else {
+    profileDirty.value = false;
+  }
+
+  providerEditorOpen.value = false;
 }
 
 async function createLlamaCppProfile(): Promise<void> {
-  createProfileDefaults(3);
+  openNewProviderProfile(3);
 }
 
 function applyProfileKindDefaults(): void {
@@ -700,7 +732,7 @@ function applyProfileKindDefaults(): void {
   markProfileDirty();
 }
 
-async function createProviderProfile(): Promise<void> {
+async function createProviderProfile(options: ProviderProfileSaveBehavior = {}): Promise<void> {
   profileBusy.value = true;
   try {
     const state = await api<ControlPanelState>("/api/provider-profiles", { method: "POST", body: buildProviderProfileRequest() });
@@ -709,6 +741,9 @@ async function createProviderProfile(): Promise<void> {
     const profiles = state.ProviderProfiles ?? [];
     selectedProfileId.value = profiles.length ? profiles[profiles.length - 1].Id : selectedProfileId.value;
     applySelectedProfile(true);
+    if (options.closeEditor) {
+      providerEditorOpen.value = false;
+    }
     showToast("服务商档案已添加。", "ok");
   } catch (error) {
     showToast(error instanceof Error ? error.message : "添加服务商档案失败", "error");
@@ -717,9 +752,9 @@ async function createProviderProfile(): Promise<void> {
   }
 }
 
-async function saveProviderProfile(): Promise<void> {
+async function saveProviderProfile(options: ProviderProfileSaveBehavior = {}): Promise<void> {
   if (!profileForm.Id) {
-    await createProviderProfile();
+    await createProviderProfile(options);
     return;
   }
 
@@ -731,6 +766,9 @@ async function saveProviderProfile(): Promise<void> {
     });
     controlPanelStore.state = state;
     applySelectedProfile(true);
+    if (options.closeEditor) {
+      providerEditorOpen.value = false;
+    }
     showToast("服务商档案已保存。", "ok");
   } catch (error) {
     showToast(error instanceof Error ? error.message : "保存服务商档案失败", "error");
@@ -748,6 +786,9 @@ async function deleteProviderProfile(profile: ProviderProfileState): Promise<voi
     await api<{ DeletedCount: number }>(`/api/provider-profiles/${encodeURIComponent(profile.Id)}`, { method: "DELETE" });
     await refreshState({ quiet: true });
     selectFirstProfileIfNeeded();
+    if (profile.Id === profileForm.Id) {
+      providerEditorOpen.value = false;
+    }
     showToast("服务商档案已删除。", "ok");
   } catch (error) {
     showToast(error instanceof Error ? error.message : "删除服务商档案失败", "error");
@@ -1145,7 +1186,7 @@ watch(selectedProfileId, () => applySelectedProfile(true));
           </div>
           <div class="actions inline-actions">
             <button class="secondary" type="button" @click="saveUseOnlineProfiles"><Bot class="button-icon" />使用档案队列</button>
-            <button class="secondary" type="button" @click="createProfileDefaults(0)"><Plus class="button-icon" />新建在线档案</button>
+            <button class="secondary" type="button" @click="openNewProviderProfile(0)"><Plus class="button-icon" />新建在线档案</button>
             <button class="secondary" type="button" :disabled="hasLlamaCppProfile" @click="createLlamaCppProfile"><Server class="button-icon" />新建本地模型</button>
             <button class="secondary" type="button" @click="openImportPicker"><FileInput class="button-icon" />导入</button>
             <input ref="importInput" class="sr-only" type="file" accept=".hutprovider" @change="importProviderProfile">
@@ -1154,191 +1195,28 @@ watch(selectedProfileId, () => applySelectedProfile(true));
 
         <div class="provider-profile-manager">
           <div class="provider-profile-list" aria-label="服务商档案列表">
-            <button
+            <div
               v-for="profile in providerProfiles"
               :key="profile.Id"
               class="provider-profile-card"
-              :class="{ active: selectedProfileId === profile.Id, current: profile.IsActive, cooling: profile.CooldownRemainingSeconds > 0 }"
-              type="button"
-              @click="selectedProfileId = profile.Id">
-              <span class="profile-rank">#{{ profile.Priority + 1 }}</span>
-              <span class="profile-main">
-                <strong>{{ profile.Name }}</strong>
-                <small>{{ formatProviderKind(profile.Kind) }} / {{ profile.Model }}</small>
-              </span>
-              <span class="profile-status">{{ formatProfileStatus(profile) }}</span>
-            </button>
+              :class="{ active: selectedProfileId === profile.Id, current: profile.IsActive, cooling: profile.CooldownRemainingSeconds > 0 }">
+              <button class="provider-profile-select" type="button" @click="selectedProfileId = profile.Id">
+                <span class="profile-rank">#{{ profile.Priority + 1 }}</span>
+                <span class="profile-main">
+                  <strong>{{ profile.Name }}</strong>
+                  <small>{{ formatProviderKind(profile.Kind) }} / {{ profile.Model }}</small>
+                </span>
+                <span class="profile-status">{{ formatProfileStatus(profile) }}</span>
+              </button>
+              <div class="provider-card-actions">
+                <button class="secondary icon-button" type="button" title="编辑" @click.stop="openProviderProfileEditor(profile)"><Settings2 /></button>
+                <button class="secondary icon-button" type="button" :disabled="profile.Priority <= 0" title="上移" @click.stop="moveProviderProfile(profile, -1)"><ArrowUp /></button>
+                <button class="secondary icon-button" type="button" :disabled="profile.Priority >= providerProfiles.length - 1" title="下移" @click.stop="moveProviderProfile(profile, 1)"><ArrowDown /></button>
+                <button class="secondary icon-button" type="button" title="导出" @click.stop="exportProviderProfile(profile)"><FileOutput /></button>
+                <button class="danger icon-button" type="button" title="删除" @click.stop="deleteProviderProfile(profile)"><Trash2 /></button>
+              </div>
+            </div>
             <div v-if="!providerProfiles.length" class="empty-state">还没有服务商档案</div>
-          </div>
-
-          <div class="provider-profile-editor">
-            <div class="provider-editor-head">
-              <div>
-                <span>档案编辑器</span>
-                <strong>{{ profileForm.Id ? profileForm.Name || "未命名档案" : "新建档案" }}</strong>
-              </div>
-              <div class="actions inline-actions">
-                <button class="secondary icon-button" type="button" :disabled="!selectedProfile || selectedProfile.Priority <= 0" title="上移" @click="selectedProfile && moveProviderProfile(selectedProfile, -1)"><ArrowUp /></button>
-                <button class="secondary icon-button" type="button" :disabled="!selectedProfile || selectedProfile.Priority >= providerProfiles.length - 1" title="下移" @click="selectedProfile && moveProviderProfile(selectedProfile, 1)"><ArrowDown /></button>
-                <button class="secondary icon-button" type="button" :disabled="!selectedProfile" title="导出" @click="selectedProfile && exportProviderProfile(selectedProfile)"><FileOutput /></button>
-                <button class="danger icon-button" type="button" :disabled="!selectedProfile" title="删除" @click="selectedProfile && deleteProviderProfile(selectedProfile)"><Trash2 /></button>
-              </div>
-            </div>
-
-            <div class="checks">
-              <label class="check"><input id="providerProfileEnabled" v-model="profileForm.Enabled" type="checkbox" @change="markProfileDirty">启用此档案</label>
-              <label v-if="!isProfileLlamaCpp" class="check"><input id="providerProfileClearKey" v-model="profileForm.ClearApiKey" type="checkbox" @change="markProfileDirty">清空已保存 Key</label>
-            </div>
-
-            <div class="form-grid two">
-              <label class="field help-target" data-help="控制面板中显示的档案名称。">
-                <span class="field-label"><KeyRound class="field-label-icon" />名称</span>
-                <input id="providerProfileName" v-model="profileForm.Name" autocomplete="off" @input="markProfileDirty">
-              </label>
-              <label class="field help-target" data-help="在线档案和本地模型档案会按优先级依次尝试；本地模型最多只能创建一个。">
-                <span class="field-label"><Bot class="field-label-icon" />服务商</span>
-                <select id="providerProfileKind" v-model.number="profileForm.Kind" @change="applyProfileKindDefaults">
-                  <option v-for="option in providerKindOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                </select>
-              </label>
-              <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="服务根地址会写入加密档案文件。">
-                <span class="field-label"><Server class="field-label-icon" />Base URL</span>
-                <input id="providerProfileBaseUrl" v-model="profileForm.BaseUrl" autocomplete="off" @input="markProfileDirty">
-              </label>
-              <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="请求接口路径。">
-                <span class="field-label"><Settings2 class="field-label-icon" />Endpoint</span>
-                <input id="providerProfileEndpoint" v-model="profileForm.Endpoint" autocomplete="off" @input="markProfileDirty">
-              </label>
-              <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="模型名称。">
-                <span class="field-label"><Brain class="field-label-icon" />模型</span>
-                <input id="providerProfileModel" v-model="profileForm.Model" autocomplete="off" @input="markProfileDirty">
-              </label>
-              <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="留空表示不修改已保存 Key；新 Key 会进入加密档案文件。">
-                <span class="field-label"><KeyRound class="field-label-icon" />API Key</span>
-                <input id="providerProfileApiKey" v-model="profileForm.ApiKey" autocomplete="off" type="password" placeholder="留空不修改" @input="markProfileDirty">
-              </label>
-            </div>
-
-            <div class="form-grid four">
-              <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="此档案可同时执行的在线请求数。">
-                <span class="field-label"><Gauge class="field-label-icon" />并发</span>
-                <input id="providerProfileMaxConcurrentRequests" v-model.number="profileForm.MaxConcurrentRequests" type="number" min="1" max="100" @input="markProfileDirty">
-              </label>
-              <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="此档案每分钟最多发送的请求数。">
-                <span class="field-label"><Clock3 class="field-label-icon" />RPM</span>
-                <input id="providerProfileRequestsPerMinute" v-model.number="profileForm.RequestsPerMinute" type="number" min="1" max="600" @input="markProfileDirty">
-              </label>
-              <label class="field help-target" data-help="此档案单次请求超时时间。">
-                <span class="field-label"><Clock3 class="field-label-icon" />超时(秒)</span>
-                <input id="providerProfileRequestTimeoutSeconds" v-model.number="profileForm.RequestTimeoutSeconds" type="number" min="5" max="180" @input="markProfileDirty">
-              </label>
-              <label v-if="isProfileDeepSeek || isProfileOpenAiCompatible" class="field help-target" data-help="留空表示使用服务默认值。">
-                <span class="field-label"><Thermometer class="field-label-icon" />Temperature</span>
-                <input id="providerProfileTemperature" v-model="profileForm.Temperature" type="number" min="0" max="2" step="0.1" @input="markProfileDirty">
-              </label>
-              <label v-if="isProfileOpenAi" class="field help-target" data-help="普通翻译建议 none。">
-                <span class="field-label"><Brain class="field-label-icon" />OpenAI 推理</span>
-                <select id="providerProfileReasoningEffort" v-model="profileForm.ReasoningEffort" @change="markProfileDirty">
-                  <option value="none">none</option>
-                  <option value="low">low</option>
-                  <option value="medium">medium</option>
-                  <option value="high">high</option>
-                  <option value="xhigh">xhigh</option>
-                  <option value="max">max</option>
-                </select>
-              </label>
-              <label v-if="isProfileOpenAi" class="field help-target" data-help="普通翻译建议 low。">
-                <span class="field-label"><Settings2 class="field-label-icon" />输出详细度</span>
-                <select id="providerProfileOutputVerbosity" v-model="profileForm.OutputVerbosity" @change="markProfileDirty">
-                  <option value="low">low</option>
-                  <option value="medium">medium</option>
-                  <option value="high">high</option>
-                </select>
-              </label>
-              <label v-if="isProfileDeepSeek" class="field help-target" data-help="普通 UI 翻译建议 disabled。">
-                <span class="field-label"><Brain class="field-label-icon" />DeepSeek Thinking</span>
-                <select id="providerProfileDeepSeekThinkingMode" v-model="profileForm.DeepSeekThinkingMode" @change="markProfileDirty">
-                  <option value="disabled">disabled</option>
-                  <option value="enabled">enabled</option>
-                </select>
-              </label>
-            </div>
-
-            <div v-if="isProfileOpenAiCompatible" class="ai-compatible-advanced">
-              <label class="field textarea-field help-target" data-help="每行一个 Header-Name: value；Authorization 和 Content-Type 由插件维护。">
-                <span class="field-label"><ListChecks class="field-label-icon" />自定义请求头</span>
-                <textarea id="providerProfileCustomHeaders" v-model="profileForm.OpenAICompatibleCustomHeaders" rows="4" spellcheck="false" @input="markProfileDirty"></textarea>
-              </label>
-              <label class="field textarea-field help-target" data-help="附加到兼容请求体的 JSON object。">
-                <span class="field-label"><Settings2 class="field-label-icon" />额外请求体 JSON</span>
-                <textarea id="providerProfileExtraBodyJson" v-model="profileForm.OpenAICompatibleExtraBodyJson" rows="4" spellcheck="false" @input="markProfileDirty"></textarea>
-              </label>
-            </div>
-
-            <div v-if="isProfileLlamaCpp" class="llama-local-panel">
-              <div class="field llama-model-row help-target" data-help="选择本地 GGUF 模型文件；此档案进入服务商优先级队列后，轮到它时会自动启动 llama.cpp。">
-                <span class="field-label"><FolderOpen class="field-label-icon" />GGUF 模型文件</span>
-                <div class="input-action-row model-path-actions">
-                  <input id="llamaCppModelPath" v-model="profileForm.LlamaCppModelPath" autocomplete="off" placeholder="选择 .gguf 模型文件" @input="markProfileDirty">
-                  <button id="pickLlamaCppModel" class="secondary" type="button" :disabled="llamaCppModelPicking" @click="pickLlamaCppModel">
-                    <FolderOpen class="button-icon" />
-                    {{ llamaCppModelPicking ? "选择中..." : "选择模型" }}
-                  </button>
-                  <button id="openLlamaCppModelDownload" class="secondary" type="button" @click="openLlamaCppDownloadDialog">
-                    <Download class="button-icon" />
-                    模型下载
-                  </button>
-                </div>
-              </div>
-              <div v-if="isLlamaCppDownloading" class="llama-download-progress">
-                <div class="llama-download-bar"><span :style="{ width: `${llamaCppDownloadProgressPercent}%` }"></span></div>
-                <strong>{{ llamaCppDownloadText }}</strong>
-              </div>
-              <div class="llama-status-strip">
-                <div><span>安装</span><strong>{{ llamaCppInstallText }}</strong></div>
-                <div><span>状态</span><strong>{{ llamaCppStateText }}</strong></div>
-                <div class="llama-result-card"><span>结果</span><strong>{{ llamaCppStatusText }}</strong></div>
-              </div>
-              <div class="llama-run-row">
-                <label class="field"><span class="field-label"><MessageSquareText class="field-label-icon" />上下文长度</span><input id="llamaCppContextSize" v-model.number="profileForm.LlamaCppContextSize" type="number" min="512" @input="markProfileDirty"></label>
-                <label class="field"><span class="field-label"><Layers class="field-label-icon" />GPU 层数</span><input id="llamaCppGpuLayers" v-model.number="profileForm.LlamaCppGpuLayers" type="number" min="0" max="999" @input="markProfileDirty"></label>
-                <label class="field"><span class="field-label"><Gauge class="field-label-icon" />并行槽位</span><input id="llamaCppParallelSlots" v-model.number="profileForm.LlamaCppParallelSlots" type="number" min="1" max="16" @input="markProfileDirty"></label>
-                <div class="actions inline-actions llama-run-actions">
-                  <button v-if="!llamaCppIsActive" id="startLlamaCpp" class="primary" type="button" :disabled="llamaCppBusy || !profileForm.Id" @click="startLlamaCpp"><Play class="button-icon" />{{ llamaCppBusy ? "处理中..." : "启动本地模型" }}</button>
-                  <button v-else id="stopLlamaCpp" class="secondary" type="button" :disabled="llamaCppBusy || !profileForm.Id" @click="stopLlamaCpp"><Square class="button-icon" />{{ llamaCppBusy ? "处理中..." : "停止本地模型" }}</button>
-                </div>
-              </div>
-              <div class="llama-tune-row">
-                <label class="field"><span class="field-label"><Gauge class="field-label-icon" />Batch</span><input id="llamaCppBatchSize" v-model.number="profileForm.LlamaCppBatchSize" type="number" min="128" max="8192" @input="markProfileDirty"></label>
-                <label class="field"><span class="field-label"><Gauge class="field-label-icon" />UBatch</span><input id="llamaCppUBatchSize" v-model.number="profileForm.LlamaCppUBatchSize" type="number" min="64" max="4096" @input="markProfileDirty"></label>
-                <label class="field"><span class="field-label"><Zap class="field-label-icon" />Flash Attention</span>
-                  <select id="llamaCppFlashAttentionMode" v-model="profileForm.LlamaCppFlashAttentionMode" @change="markProfileDirty">
-                    <option value="auto">auto</option>
-                    <option value="on">on</option>
-                    <option value="off">off</option>
-                  </select>
-                </label>
-                <div class="actions inline-actions llama-run-actions">
-                  <button id="runLlamaCppBenchmark" class="secondary" type="button" :disabled="llamaCppBenchmarkBusy || llamaCppIsActive || !profileForm.Id" @click="runLlamaCppBenchmark"><Gauge class="button-icon" />{{ llamaCppBenchmarkBusy ? "基准运行中..." : "运行 CUDA 基准" }}</button>
-                </div>
-              </div>
-              <div v-if="llamaCppBenchmarkResult" class="llama-benchmark-result">
-                <div><span>当前配置</span><strong>{{ formatLlamaConfig(llamaCppBenchmarkResult.CurrentConfig) }}</strong></div>
-                <div><span>推荐配置</span><strong>{{ formatLlamaConfig(llamaCppBenchmarkResult.RecommendedConfig) }}</strong></div>
-                <div><span>自动保存</span><strong>{{ llamaCppBenchmarkResult.Saved ? "已保存" : "未保存" }}</strong></div>
-                <div class="llama-benchmark-list">
-                  <span>吞吐结果</span>
-                  <strong v-for="candidate in llamaCppBenchmarkResult.Candidates" :key="`${candidate.Tool}-${candidate.ParallelSlots}-${candidate.BatchSize}-${candidate.UBatchSize}-${candidate.FlashAttentionMode}`">{{ formatBenchmarkCandidate(candidate) }}</strong>
-                </div>
-              </div>
-            </div>
-
-            <div class="actions provider-profile-actions">
-              <button class="primary" type="button" :disabled="profileBusy" @click="saveProviderProfile"><Save class="button-icon" />{{ profileForm.Id ? "保存档案" : "添加档案" }}</button>
-              <button class="secondary" type="button" :disabled="utilityBusy || !profileForm.Id" @click="testProfile"><Zap class="button-icon" />测试连接</button>
-              <button v-if="!isProfileLlamaCpp" class="secondary" type="button" :disabled="utilityBusy || !profileForm.Id" @click="fetchProfileModels"><Download class="button-icon" />获取模型</button>
-              <button v-if="!isProfileLlamaCpp" class="secondary" type="button" :disabled="utilityBusy || !profileForm.Id" @click="fetchProfileBalance"><WalletCards class="button-icon" />查询余额</button>
-            </div>
           </div>
         </div>
       </SectionPanel>
@@ -1372,6 +1250,175 @@ watch(selectedProfileId, () => applySelectedProfile(true));
         <textarea id="customPrompt" class="prompt-editor-field" v-model="activePromptTemplateText" rows="12" spellcheck="false"></textarea>
         <p class="hint">{{ defaultSystemPrompt }}</p>
       </SectionPanel>
+    </div>
+
+    <div v-if="providerEditorOpen" class="provider-editor-backdrop" @click.self="closeProviderProfileEditor">
+      <section class="provider-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="providerEditorTitle">
+        <div class="provider-profile-editor">
+          <div class="provider-editor-head">
+            <div>
+              <span>档案编辑器</span>
+              <strong id="providerEditorTitle">{{ profileForm.Id ? profileForm.Name || "未命名档案" : "新建档案" }}</strong>
+            </div>
+            <button class="secondary" type="button" @click="closeProviderProfileEditor"><X class="button-icon" />关闭</button>
+          </div>
+
+          <div class="checks">
+            <label class="check"><input id="providerProfileEnabled" v-model="profileForm.Enabled" type="checkbox" @change="markProfileDirty">启用此档案</label>
+            <label v-if="!isProfileLlamaCpp" class="check"><input id="providerProfileClearKey" v-model="profileForm.ClearApiKey" type="checkbox" @change="markProfileDirty">清空已保存 Key</label>
+          </div>
+
+          <div class="form-grid two">
+            <label class="field help-target" data-help="控制面板中显示的档案名称。">
+              <span class="field-label"><KeyRound class="field-label-icon" />名称</span>
+              <input id="providerProfileName" v-model="profileForm.Name" autocomplete="off" @input="markProfileDirty">
+            </label>
+            <label class="field help-target" data-help="在线档案和本地模型档案会按优先级依次尝试；本地模型最多只能创建一个。">
+              <span class="field-label"><Bot class="field-label-icon" />服务商</span>
+              <select id="providerProfileKind" v-model.number="profileForm.Kind" @change="applyProfileKindDefaults">
+                <option v-for="option in providerKindOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+              </select>
+            </label>
+            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="服务根地址会写入加密档案文件。">
+              <span class="field-label"><Server class="field-label-icon" />Base URL</span>
+              <input id="providerProfileBaseUrl" v-model="profileForm.BaseUrl" autocomplete="off" @input="markProfileDirty">
+            </label>
+            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="请求接口路径。">
+              <span class="field-label"><Settings2 class="field-label-icon" />Endpoint</span>
+              <input id="providerProfileEndpoint" v-model="profileForm.Endpoint" autocomplete="off" @input="markProfileDirty">
+            </label>
+            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="模型名称。">
+              <span class="field-label"><Brain class="field-label-icon" />模型</span>
+              <input id="providerProfileModel" v-model="profileForm.Model" autocomplete="off" @input="markProfileDirty">
+            </label>
+            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="留空表示不修改已保存 Key；新 Key 会进入加密档案文件。">
+              <span class="field-label"><KeyRound class="field-label-icon" />API Key</span>
+              <input id="providerProfileApiKey" v-model="profileForm.ApiKey" autocomplete="off" type="password" placeholder="留空不修改" @input="markProfileDirty">
+            </label>
+          </div>
+
+          <div class="form-grid four">
+            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="此档案可同时执行的在线请求数。">
+              <span class="field-label"><Gauge class="field-label-icon" />并发</span>
+              <input id="providerProfileMaxConcurrentRequests" v-model.number="profileForm.MaxConcurrentRequests" type="number" min="1" max="100" @input="markProfileDirty">
+            </label>
+            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="此档案每分钟最多发送的请求数。">
+              <span class="field-label"><Clock3 class="field-label-icon" />RPM</span>
+              <input id="providerProfileRequestsPerMinute" v-model.number="profileForm.RequestsPerMinute" type="number" min="1" max="600" @input="markProfileDirty">
+            </label>
+            <label class="field help-target" data-help="此档案单次请求超时时间。">
+              <span class="field-label"><Clock3 class="field-label-icon" />超时(秒)</span>
+              <input id="providerProfileRequestTimeoutSeconds" v-model.number="profileForm.RequestTimeoutSeconds" type="number" min="5" max="180" @input="markProfileDirty">
+            </label>
+            <label v-if="isProfileDeepSeek || isProfileOpenAiCompatible" class="field help-target" data-help="留空表示使用服务默认值。">
+              <span class="field-label"><Thermometer class="field-label-icon" />Temperature</span>
+              <input id="providerProfileTemperature" v-model="profileForm.Temperature" type="number" min="0" max="2" step="0.1" @input="markProfileDirty">
+            </label>
+            <label v-if="isProfileOpenAi" class="field help-target" data-help="普通翻译建议 none。">
+              <span class="field-label"><Brain class="field-label-icon" />OpenAI 推理</span>
+              <select id="providerProfileReasoningEffort" v-model="profileForm.ReasoningEffort" @change="markProfileDirty">
+                <option value="none">none</option>
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+                <option value="xhigh">xhigh</option>
+                <option value="max">max</option>
+              </select>
+            </label>
+            <label v-if="isProfileOpenAi" class="field help-target" data-help="普通翻译建议 low。">
+              <span class="field-label"><Settings2 class="field-label-icon" />输出详细度</span>
+              <select id="providerProfileOutputVerbosity" v-model="profileForm.OutputVerbosity" @change="markProfileDirty">
+                <option value="low">low</option>
+                <option value="medium">medium</option>
+                <option value="high">high</option>
+              </select>
+            </label>
+            <label v-if="isProfileDeepSeek" class="field help-target" data-help="普通 UI 翻译建议 disabled。">
+              <span class="field-label"><Brain class="field-label-icon" />DeepSeek Thinking</span>
+              <select id="providerProfileDeepSeekThinkingMode" v-model="profileForm.DeepSeekThinkingMode" @change="markProfileDirty">
+                <option value="disabled">disabled</option>
+                <option value="enabled">enabled</option>
+              </select>
+            </label>
+          </div>
+
+          <div v-if="isProfileOpenAiCompatible" class="ai-compatible-advanced">
+            <label class="field textarea-field help-target" data-help="每行一个 Header-Name: value；Authorization 和 Content-Type 由插件维护。">
+              <span class="field-label"><ListChecks class="field-label-icon" />自定义请求头</span>
+              <textarea id="providerProfileCustomHeaders" v-model="profileForm.OpenAICompatibleCustomHeaders" rows="4" spellcheck="false" @input="markProfileDirty"></textarea>
+            </label>
+            <label class="field textarea-field help-target" data-help="附加到兼容请求体的 JSON object。">
+              <span class="field-label"><Settings2 class="field-label-icon" />额外请求体 JSON</span>
+              <textarea id="providerProfileExtraBodyJson" v-model="profileForm.OpenAICompatibleExtraBodyJson" rows="4" spellcheck="false" @input="markProfileDirty"></textarea>
+            </label>
+          </div>
+
+          <div v-if="isProfileLlamaCpp" class="llama-local-panel">
+            <div class="field llama-model-row help-target" data-help="选择本地 GGUF 模型文件；此档案进入服务商优先级队列后，轮到它时会自动启动 llama.cpp。">
+              <span class="field-label"><FolderOpen class="field-label-icon" />GGUF 模型文件</span>
+              <div class="input-action-row model-path-actions">
+                <input id="llamaCppModelPath" v-model="profileForm.LlamaCppModelPath" autocomplete="off" placeholder="选择 .gguf 模型文件" @input="markProfileDirty">
+                <button id="pickLlamaCppModel" class="secondary" type="button" :disabled="llamaCppModelPicking" @click="pickLlamaCppModel">
+                  <FolderOpen class="button-icon" />
+                  {{ llamaCppModelPicking ? "选择中..." : "选择模型" }}
+                </button>
+                <button id="openLlamaCppModelDownload" class="secondary" type="button" @click="openLlamaCppDownloadDialog">
+                  <Download class="button-icon" />
+                  模型下载
+                </button>
+              </div>
+            </div>
+            <div v-if="isLlamaCppDownloading" class="llama-download-progress">
+              <div class="llama-download-bar"><span :style="{ width: `${llamaCppDownloadProgressPercent}%` }"></span></div>
+              <strong>{{ llamaCppDownloadText }}</strong>
+            </div>
+            <div class="llama-status-strip">
+              <div><span>安装</span><strong>{{ llamaCppInstallText }}</strong></div>
+              <div><span>状态</span><strong>{{ llamaCppStateText }}</strong></div>
+              <div class="llama-result-card"><span>结果</span><strong>{{ llamaCppStatusText }}</strong></div>
+            </div>
+            <div class="llama-run-row">
+              <label class="field"><span class="field-label"><MessageSquareText class="field-label-icon" />上下文长度</span><input id="llamaCppContextSize" v-model.number="profileForm.LlamaCppContextSize" type="number" min="512" @input="markProfileDirty"></label>
+              <label class="field"><span class="field-label"><Layers class="field-label-icon" />GPU 层数</span><input id="llamaCppGpuLayers" v-model.number="profileForm.LlamaCppGpuLayers" type="number" min="0" max="999" @input="markProfileDirty"></label>
+              <label class="field"><span class="field-label"><Gauge class="field-label-icon" />并行槽位</span><input id="llamaCppParallelSlots" v-model.number="profileForm.LlamaCppParallelSlots" type="number" min="1" max="16" @input="markProfileDirty"></label>
+              <div class="actions inline-actions llama-run-actions">
+                <button v-if="!llamaCppIsActive" id="startLlamaCpp" class="primary" type="button" :disabled="llamaCppBusy || !profileForm.Id" @click="startLlamaCpp"><Play class="button-icon" />{{ llamaCppBusy ? "处理中..." : "启动本地模型" }}</button>
+                <button v-else id="stopLlamaCpp" class="secondary" type="button" :disabled="llamaCppBusy || !profileForm.Id" @click="stopLlamaCpp"><Square class="button-icon" />{{ llamaCppBusy ? "处理中..." : "停止本地模型" }}</button>
+              </div>
+            </div>
+            <div class="llama-tune-row">
+              <label class="field"><span class="field-label"><Gauge class="field-label-icon" />Batch</span><input id="llamaCppBatchSize" v-model.number="profileForm.LlamaCppBatchSize" type="number" min="128" max="8192" @input="markProfileDirty"></label>
+              <label class="field"><span class="field-label"><Gauge class="field-label-icon" />UBatch</span><input id="llamaCppUBatchSize" v-model.number="profileForm.LlamaCppUBatchSize" type="number" min="64" max="4096" @input="markProfileDirty"></label>
+              <label class="field"><span class="field-label"><Zap class="field-label-icon" />Flash Attention</span>
+                <select id="llamaCppFlashAttentionMode" v-model="profileForm.LlamaCppFlashAttentionMode" @change="markProfileDirty">
+                  <option value="auto">auto</option>
+                  <option value="on">on</option>
+                  <option value="off">off</option>
+                </select>
+              </label>
+              <div class="actions inline-actions llama-run-actions">
+                <button id="runLlamaCppBenchmark" class="secondary" type="button" :disabled="llamaCppBenchmarkBusy || llamaCppIsActive || !profileForm.Id" @click="runLlamaCppBenchmark"><Gauge class="button-icon" />{{ llamaCppBenchmarkBusy ? "基准运行中..." : "运行 CUDA 基准" }}</button>
+              </div>
+            </div>
+            <div v-if="llamaCppBenchmarkResult" class="llama-benchmark-result">
+              <div><span>当前配置</span><strong>{{ formatLlamaConfig(llamaCppBenchmarkResult.CurrentConfig) }}</strong></div>
+              <div><span>推荐配置</span><strong>{{ formatLlamaConfig(llamaCppBenchmarkResult.RecommendedConfig) }}</strong></div>
+              <div><span>自动保存</span><strong>{{ llamaCppBenchmarkResult.Saved ? "已保存" : "未保存" }}</strong></div>
+              <div class="llama-benchmark-list">
+                <span>吞吐结果</span>
+                <strong v-for="candidate in llamaCppBenchmarkResult.Candidates" :key="`${candidate.Tool}-${candidate.ParallelSlots}-${candidate.BatchSize}-${candidate.UBatchSize}-${candidate.FlashAttentionMode}`">{{ formatBenchmarkCandidate(candidate) }}</strong>
+              </div>
+            </div>
+          </div>
+
+          <div class="actions provider-profile-actions">
+            <button class="primary" type="button" :disabled="profileBusy" @click="saveProviderProfile({ closeEditor: true })"><Save class="button-icon" />{{ profileForm.Id ? "保存档案" : "添加档案" }}</button>
+            <button class="secondary" type="button" :disabled="utilityBusy || !profileForm.Id" @click="testProfile"><Zap class="button-icon" />测试连接</button>
+            <button v-if="!isProfileLlamaCpp" class="secondary" type="button" :disabled="utilityBusy || !profileForm.Id" @click="fetchProfileModels"><Download class="button-icon" />获取模型</button>
+            <button v-if="!isProfileLlamaCpp" class="secondary" type="button" :disabled="utilityBusy || !profileForm.Id" @click="fetchProfileBalance"><WalletCards class="button-icon" />查询余额</button>
+          </div>
+        </div>
+      </section>
     </div>
 
     <div v-if="llamaCppDownloadDialogOpen" class="model-download-backdrop" @click.self="closeLlamaCppDownloadDialog">

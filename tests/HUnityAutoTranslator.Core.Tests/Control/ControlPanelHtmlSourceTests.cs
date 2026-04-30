@@ -77,6 +77,22 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Generated_control_panel_uses_provider_profile_modal_editor()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("provider-editor-backdrop");
+        htmlSource.Should().Contain("provider-editor-dialog");
+        htmlSource.Should().Contain("provider-card-actions");
+        htmlSource.Should().Contain("档案编辑器");
+        htmlSource.Should().Contain("放弃未保存的服务商档案修改");
+        htmlSource.Should().Contain("aria-labelledby");
+        Regex.IsMatch(htmlSource, @"(?s)\.provider-profile-manager\s*\{[^}]*grid-template-columns:\s*1fr;")
+            .Should().BeTrue("the provider profile manager should stay single-column at desktop widths");
+        htmlSource.Should().NotContain("grid-template-columns:minmax(min(280px,100%),.82fr) minmax(0,1.6fr)");
+    }
+
+    [Fact]
     public void Local_http_server_exposes_glossary_and_translation_editor_endpoints()
     {
         var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
