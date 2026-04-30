@@ -84,8 +84,8 @@ public sealed class ControlPanelHtmlSourceTests
         htmlSource.Should().Contain("provider-editor-backdrop");
         htmlSource.Should().Contain("provider-editor-dialog");
         htmlSource.Should().Contain("provider-card-actions");
-        htmlSource.Should().Contain("档案编辑器");
-        htmlSource.Should().Contain("放弃未保存的服务商档案修改");
+        htmlSource.Should().Contain("配置编辑器");
+        htmlSource.Should().Contain("放弃未保存的服务商配置修改");
         htmlSource.Should().Contain("aria-labelledby");
         Regex.IsMatch(htmlSource, @"(?s)\.provider-profile-manager\s*\{[^}]*grid-template-columns:\s*1fr;")
             .Should().BeTrue("the provider profile manager should stay single-column at desktop widths");

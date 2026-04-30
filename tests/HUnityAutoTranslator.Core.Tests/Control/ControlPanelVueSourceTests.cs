@@ -76,7 +76,7 @@ public sealed class ControlPanelVueSourceTests
         apiTypesSource.Should().Contain("ProviderProfiles: ProviderProfileState[] | null;");
         apiTypesSource.Should().Contain("MaxConcurrentRequests: number;");
         statusPageSource.Should().Contain("state.value.EffectiveMaxConcurrentRequests");
-        aiPageSource.Should().Contain("在线服务商按档案优先级执行");
+        aiPageSource.Should().Contain("在线服务商按配置优先级执行");
         aiPageSource.Should().Contain("id=\"providerProfileMaxConcurrentRequests\"");
         aiPageSource.Should().Contain("max=\"100\"");
         aiPageSource.Should().Contain("llama.cpp 本地模型");
@@ -200,8 +200,8 @@ public sealed class ControlPanelVueSourceTests
         pluginPageSource.Should().Contain("点击后直接监听组合键，按 Backspace 或 Delete 可清空为 None。");
 
         aiPageSource.Should().Contain("class=\"field help-target\"");
-        aiPageSource.Should().Contain("在线服务商按档案优先级执行");
-        aiPageSource.Should().Contain("此档案可同时执行的在线请求数。");
+        aiPageSource.Should().Contain("在线服务商按配置优先级执行");
+        aiPageSource.Should().Contain("此配置可同时执行的在线请求数。");
         aiPageSource.Should().Contain("help: \"控制模型的总体翻译规则");
         aiPageSource.Should().Contain(":data-help=\"field.help\"");
 
@@ -440,7 +440,7 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
-    public void Vue_ai_prompt_editor_shows_default_prompt_and_removes_custom_instruction()
+    public void Vue_ai_prompt_editor_edits_templates_without_duplicate_default_prompt_preview()
     {
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
         var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
@@ -449,10 +449,11 @@ public sealed class ControlPanelVueSourceTests
         apiTypesSource.Should().Contain("PromptTemplates: PromptTemplateConfig;");
         apiTypesSource.Should().Contain("DefaultPromptTemplates: PromptTemplateConfig;");
         apiTypesSource.Should().NotContain("CustomInstruction");
-        aiPageSource.Should().Contain("DefaultSystemPrompt");
+        aiPageSource.Should().Contain("applyPromptTemplates(state.PromptTemplates, state.DefaultPromptTemplates);");
         aiPageSource.Should().Contain("promptTemplateFields");
         aiPageSource.Should().Contain("activePromptTemplateKey");
         aiPageSource.Should().Contain("id=\"customPrompt\"");
+        aiPageSource.Should().Contain("v-model=\"activePromptTemplateText\"");
         aiPageSource.Should().Contain("id=\"restorePromptTemplate\"");
         aiPageSource.Should().Contain("id=\"restoreAllPromptTemplates\"");
         aiPageSource.Should().Contain("function restoreDefaultPrompt");
@@ -464,6 +465,8 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("class=\"prompt-editor-field\"");
         aiPageSource.Should().Contain("正在使用内置提示词");
         aiPageSource.Should().Contain("恢复全部内置");
+        aiPageSource.Should().NotContain("<p class=\"hint\">{{ defaultSystemPrompt }}</p>");
+        aiPageSource.Should().NotContain("defaultSystemPrompt");
         aiPageSource.Should().NotContain("完整提示词");
         aiPageSource.Should().NotContain("customInstruction");
         aiPageSource.Should().NotContain("CustomInstruction");
@@ -643,8 +646,8 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain(":disabled=\"hasLlamaCppProfile\"");
         aiPageSource.Should().Contain("await saveConfig(buildConfigRequest(0), formKey, { quiet: true })");
         aiPageSource.Should().NotContain("await saveConfig(buildConfigRequest(3), formKey, { quiet: true })");
-        aiPageSource.Should().Contain("SectionPanel title=\"服务商档案\"");
-        aiPageSource.Should().NotContain("SectionPanel title=\"在线服务商档案\"");
+        aiPageSource.Should().Contain("SectionPanel title=\"服务商配置\"");
+        aiPageSource.Should().NotContain("SectionPanel title=\"在线服务商配置\"");
         aiPageSource.Should().NotContain("SectionPanel title=\"llama.cpp 本地模型\"");
     }
 
@@ -692,6 +695,31 @@ public sealed class ControlPanelVueSourceTests
         cssSource.Should().NotContain("grid-template-columns: minmax(150px, 1fr) minmax(110px, 0.7fr) minmax(100px, 0.6fr) minmax(260px, 1.55fr);");
         cssSource.Should().Contain(".llama-run-row");
         cssSource.Should().Contain(".llama-result-card");
+    }
+
+    [Fact]
+    public void Vue_provider_profile_editor_uses_configuration_copy_and_adaptive_dialog_layout()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        aiPageSource.Should().Contain("服务商配置");
+        aiPageSource.Should().Contain("配置编辑器");
+        aiPageSource.Should().Contain("新建配置");
+        aiPageSource.Should().Contain("保存配置");
+        aiPageSource.Should().NotContain("档案");
+
+        CssBlock(cssSource, @"\.provider-editor-backdrop")
+            .Should().Contain("overflow-x: clip;").And.Contain("overflow-y: auto;");
+        CssBlock(cssSource, @"\.provider-editor-dialog")
+            .Should().Contain("width: min(1120px, 100%);")
+            .And.Contain("overflow-x: clip;")
+            .And.Contain("overflow-y: auto;");
+        CssBlock(cssSource, @"\.provider-editor-dialog\s+\.field\.help-target\[data-help\]::after,\s*\.provider-editor-dialog\s+\.llama-model-row\.help-target\[data-help\]::after")
+            .Should().Contain("position: static;")
+            .And.Contain("max-height: 0;");
+        cssSource.Should().Contain(".provider-editor-dialog .field.help-target[data-help]:hover::after");
+        cssSource.Should().Contain(".provider-editor-dialog .llama-model-row.help-target[data-help]:focus-within::after");
     }
 
     [Fact]

@@ -186,7 +186,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "目标语言。常用：zh-Hans 简体中文，zh-Hant 繁体中文，ja 日文，ko 韩文，en 英文。", "zh-Hans", null, "TargetLanguage", Text(config.TargetLanguage ?? defaults.TargetLanguage));
         Option(builder, "游戏名称。留空会使用当前 Unity 游戏名；填写后会手动覆盖自动检测值。", "留空", "示例：The Glitched Attraction。", "GameTitle", Text(config.GameTitle));
         Option(builder, "翻译风格。", "Localized", "可选：Faithful 忠实、Natural 自然、Localized 本地化、UiConcise UI短句。", "Style", EnumText(config.Style ?? defaults.Style));
-        Option(builder, "翻译后端。在线服务商使用服务商档案；本地模型使用 LlamaCpp。", "OpenAI", "可选：OpenAI、LlamaCpp。OpenAI 表示按在线服务商档案优先级执行。", "ProviderKind", EnumText(config.ProviderKind ?? defaults.Provider.Kind));
+        Option(builder, "翻译后端。在线服务商使用服务商配置；本地模型使用 LlamaCpp。", "OpenAI", "可选：OpenAI、LlamaCpp。OpenAI 表示按在线服务商配置优先级执行。", "ProviderKind", EnumText(config.ProviderKind ?? defaults.Provider.Kind));
         Option(builder, "启动游戏后是否自动打开控制面板。", "true", "true 或 false。", "AutoOpenControlPanel", Bool(config.AutoOpenControlPanel ?? defaults.AutoOpenControlPanel));
         Option(builder, "控制面板端口。监听地址固定为 127.0.0.1。", "48110", "范围：1 到 65535。", "HttpPort", Int(config.HttpPort ?? defaults.HttpPort));
 

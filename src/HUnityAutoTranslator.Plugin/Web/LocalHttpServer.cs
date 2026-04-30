@@ -406,7 +406,7 @@ internal sealed class LocalHttpServer : IDisposable
                 var active = _controlPanel.GetReadyProviderRuntimeProfiles().FirstOrDefault();
                 if (active == null)
                 {
-                    await WriteJsonAsync(context.Response, new ProviderModelsResult(false, "没有可用的在线服务商档案。", Array.Empty<ProviderModelInfo>())).ConfigureAwait(false);
+                    await WriteJsonAsync(context.Response, new ProviderModelsResult(false, "没有可用的在线服务商配置。", Array.Empty<ProviderModelInfo>())).ConfigureAwait(false);
                     return;
                 }
 
@@ -419,7 +419,7 @@ internal sealed class LocalHttpServer : IDisposable
                 var active = _controlPanel.GetReadyProviderRuntimeProfiles().FirstOrDefault();
                 if (active == null)
                 {
-                    await WriteJsonAsync(context.Response, new ProviderBalanceResult(false, "没有可用的在线服务商档案。", Array.Empty<ProviderBalanceInfo>())).ConfigureAwait(false);
+                    await WriteJsonAsync(context.Response, new ProviderBalanceResult(false, "没有可用的在线服务商配置。", Array.Empty<ProviderBalanceInfo>())).ConfigureAwait(false);
                     return;
                 }
 
@@ -445,7 +445,7 @@ internal sealed class LocalHttpServer : IDisposable
                 {
                     var active = _controlPanel.GetReadyProviderRuntimeProfiles().FirstOrDefault();
                     result = active == null
-                        ? new ProviderTestResult(false, "没有可用的在线服务商档案。")
+                        ? new ProviderTestResult(false, "没有可用的在线服务商配置。")
                         : await CreateProviderUtilityClient(active).TestConnectionAsync(active.Profile, CancellationToken.None).ConfigureAwait(false);
                 }
                 else
@@ -453,7 +453,7 @@ internal sealed class LocalHttpServer : IDisposable
                     var active = _controlPanel.GetReadyProviderRuntimeProfiles().FirstOrDefault();
                     if (active == null)
                     {
-                        result = new ProviderTestResult(false, "没有可用的在线服务商档案。");
+                        result = new ProviderTestResult(false, "没有可用的在线服务商配置。");
                     }
                     else
                     {
@@ -522,7 +522,7 @@ internal sealed class LocalHttpServer : IDisposable
         if (segments.Length < 3)
         {
             response.StatusCode = 404;
-            await WriteTextAsync(response, "未找到服务商档案接口。").ConfigureAwait(false);
+            await WriteTextAsync(response, "未找到服务商配置接口。").ConfigureAwait(false);
             return;
         }
 
@@ -567,7 +567,7 @@ internal sealed class LocalHttpServer : IDisposable
         if (!_controlPanel.TryGetProviderRuntimeProfile(id, out var profile))
         {
             response.StatusCode = 404;
-            await WriteTextAsync(response, "服务商档案不存在。").ConfigureAwait(false);
+            await WriteTextAsync(response, "服务商配置不存在。").ConfigureAwait(false);
             return;
         }
 
@@ -609,7 +609,7 @@ internal sealed class LocalHttpServer : IDisposable
         }
 
         response.StatusCode = 404;
-        await WriteTextAsync(response, "未找到服务商档案接口。").ConfigureAwait(false);
+        await WriteTextAsync(response, "未找到服务商配置接口。").ConfigureAwait(false);
     }
 
     private async Task HandleLlamaCppProviderProfileAsync(
@@ -700,7 +700,7 @@ internal sealed class LocalHttpServer : IDisposable
         }
 
         response.StatusCode = 404;
-        await WriteTextAsync(response, "未找到本地模型档案接口。").ConfigureAwait(false);
+        await WriteTextAsync(response, "未找到本地模型配置接口。").ConfigureAwait(false);
     }
 
     private ProviderUtilityClient CreateProviderUtilityClient(ProviderRuntimeProfile profile)

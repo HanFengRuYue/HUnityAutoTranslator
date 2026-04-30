@@ -226,7 +226,7 @@ public sealed class ControlPanelService
             var kind = request?.Kind ?? ProviderKind.OpenAI;
             if (kind == ProviderKind.LlamaCpp && HasLlamaCppProfileExcept(null))
             {
-                throw new InvalidOperationException("只能创建一个本地模型档案。");
+                throw new InvalidOperationException("只能创建一个本地模型配置。");
             }
 
             var profile = ApplyProviderProfileUpdate(
@@ -235,7 +235,7 @@ public sealed class ControlPanelService
                 .Normalize();
             if (profile.Kind == ProviderKind.LlamaCpp && HasLlamaCppProfileExcept(profile.Id))
             {
-                throw new InvalidOperationException("只能创建一个本地模型档案。");
+                throw new InvalidOperationException("只能创建一个本地模型配置。");
             }
 
             _providerProfiles.Add(profile);
@@ -259,7 +259,7 @@ public sealed class ControlPanelService
             var updated = ApplyProviderProfileUpdate(_providerProfiles[index], request).Normalize();
             if (updated.Kind == ProviderKind.LlamaCpp && HasLlamaCppProfileExcept(updated.Id))
             {
-                throw new InvalidOperationException("只能创建一个本地模型档案。");
+                throw new InvalidOperationException("只能创建一个本地模型配置。");
             }
 
             _providerProfiles[index] = updated;
@@ -337,7 +337,7 @@ public sealed class ControlPanelService
         {
             if (_providerProfileStore == null)
             {
-                return new ProviderProfileImportResult(false, "服务商档案存储不可用。", null);
+                return new ProviderProfileImportResult(false, "服务商配置存储不可用。", null);
             }
 
             try
@@ -348,7 +348,7 @@ public sealed class ControlPanelService
                 if (imported.Kind == ProviderKind.LlamaCpp && HasLlamaCppProfileExcept(imported.Id))
                 {
                     _providerProfileStore.Delete(imported.Id);
-                    return new ProviderProfileImportResult(false, "只能创建一个本地模型档案。", null);
+                    return new ProviderProfileImportResult(false, "只能创建一个本地模型配置。", null);
                 }
 
                 _providerProfiles.RemoveAll(profile => string.Equals(profile.Id, imported.Id, StringComparison.OrdinalIgnoreCase));
@@ -356,7 +356,7 @@ public sealed class ControlPanelService
                 NormalizeProviderPriorities();
                 return new ProviderProfileImportResult(
                     true,
-                    "服务商档案已导入。",
+                    "服务商配置已导入。",
                     BuildProviderProfileState(imported, ResolveActiveProviderProfile()?.Id));
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or Newtonsoft.Json.JsonException or FormatException or System.Security.Cryptography.CryptographicException)
@@ -384,7 +384,7 @@ public sealed class ControlPanelService
             }
 
             state.CooldownUntilUtc = DateTimeOffset.UtcNow + ProviderCooldownDuration;
-            _providerStatus = new ProviderStatus("warning", $"服务商档案“{profile.Name}”连续失败，已切换到下一优先级。", DateTimeOffset.UtcNow);
+            _providerStatus = new ProviderStatus("warning", $"服务商配置“{profile.Name}”连续失败，已切换到下一优先级。", DateTimeOffset.UtcNow);
             return true;
         }
     }
@@ -394,7 +394,7 @@ public sealed class ControlPanelService
         lock (_gate)
         {
             _providerFailures.Remove(profile.Id);
-            _providerStatus = new ProviderStatus("ok", $"服务商档案“{profile.Name}”连接可用。", DateTimeOffset.UtcNow);
+            _providerStatus = new ProviderStatus("ok", $"服务商配置“{profile.Name}”连接可用。", DateTimeOffset.UtcNow);
         }
     }
 

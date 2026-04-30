@@ -46,7 +46,7 @@ public sealed class FailoverTranslationProvider : ITranslationProvider
                 .FirstOrDefault(item => !attempted.Contains(item.Id));
             if (candidate == null)
             {
-                return lastFailure ?? TranslationResponse.Failure("没有可用的在线服务商档案。");
+                return lastFailure ?? TranslationResponse.Failure("没有可用的在线服务商配置。");
             }
 
             attempted.Add(candidate.Id);

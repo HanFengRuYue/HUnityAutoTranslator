@@ -228,7 +228,7 @@ const activePromptTemplateKey = ref<PromptTemplateKey>("SystemPrompt");
 const formDirty = computed(() => controlPanelStore.dirtyForms.has(formKey));
 const providerProfiles = computed(() => controlPanelStore.state?.ProviderProfiles ?? []);
 const selectedProfile = computed(() => providerProfiles.value.find((profile) => profile.Id === selectedProfileId.value) ?? null);
-const activeProviderProfileName = computed(() => controlPanelStore.state?.ActiveProviderProfileName ?? "无可用档案");
+const activeProviderProfileName = computed(() => controlPanelStore.state?.ActiveProviderProfileName ?? "无可用配置");
 const hasLlamaCppProfile = computed(() => providerProfiles.value.some((profile) => providerKindToNumber(profile.Kind) === 3));
 const profileKind = computed(() => numberValue(profileForm.Kind));
 const isProfileOpenAi = computed(() => profileKind.value === 0);
@@ -237,7 +237,6 @@ const isProfileOpenAiCompatible = computed(() => profileKind.value === 2);
 const isProfileLlamaCpp = computed(() => profileKind.value === 3);
 const activeStyleHint = computed(() => styleHints[numberValue(form.Style)] ?? "");
 const automaticGameTitle = computed(() => controlPanelStore.state?.AutomaticGameTitle ?? "");
-const defaultSystemPrompt = computed(() => controlPanelStore.state?.DefaultSystemPrompt ?? "");
 const defaultPromptTemplates = computed(() => controlPanelStore.state?.DefaultPromptTemplates ?? createPromptTemplates());
 const activePromptTemplate = computed(() =>
   promptTemplateFields.find((field) => field.key === activePromptTemplateKey.value) ?? promptTemplateFields[0]);
@@ -587,7 +586,7 @@ function buildProfileLlamaCppConfig(): LlamaCppConfig {
 
 function buildProviderProfileRequest(): ProviderProfileUpdateRequest {
   return {
-    Name: profileForm.Name.trim() || (providerDefaults[profileKind.value]?.name ?? "服务商档案"),
+    Name: profileForm.Name.trim() || (providerDefaults[profileKind.value]?.name ?? "服务商配置"),
     Enabled: profileForm.Enabled,
     Kind: profileKind.value,
     BaseUrl: profileForm.BaseUrl.trim(),
@@ -646,13 +645,13 @@ async function saveUseOnlineProfiles(): Promise<void> {
   const state = await saveConfig(buildConfigRequest(0), formKey, { quiet: true });
   if (state) {
     applyState(state, true);
-    showToast("已切换为按服务商档案优先级翻译。", "ok");
+    showToast("已切换为按服务商配置优先级翻译。", "ok");
   }
 }
 
 function createProfileDefaults(kind = 0): boolean {
   if (kind === 3 && hasLlamaCppProfile.value) {
-    showToast("只能创建一个本地模型档案。", "warn");
+    showToast("只能创建一个本地模型配置。", "warn");
     return false;
   }
 
@@ -694,7 +693,7 @@ function openProviderProfileEditor(profile: ProviderProfileState): void {
 }
 
 function closeProviderProfileEditor(): void {
-  if (profileDirty.value && !window.confirm("放弃未保存的服务商档案修改？")) {
+  if (profileDirty.value && !window.confirm("放弃未保存的服务商配置修改？")) {
     return;
   }
 
@@ -713,7 +712,7 @@ async function createLlamaCppProfile(): Promise<void> {
 
 function applyProfileKindDefaults(): void {
   if (profileKind.value === 3 && hasLlamaCppProfile.value && selectedProfile.value?.Id !== profileForm.Id) {
-    showToast("只能创建一个本地模型档案。", "warn");
+    showToast("只能创建一个本地模型配置。", "warn");
     profileForm.Kind = providerKindToNumber(selectedProfile.value?.Kind ?? 0);
     return;
   }
@@ -744,9 +743,9 @@ async function createProviderProfile(options: ProviderProfileSaveBehavior = {}):
     if (options.closeEditor) {
       providerEditorOpen.value = false;
     }
-    showToast("服务商档案已添加。", "ok");
+    showToast("服务商配置已添加。", "ok");
   } catch (error) {
-    showToast(error instanceof Error ? error.message : "添加服务商档案失败", "error");
+    showToast(error instanceof Error ? error.message : "添加服务商配置失败", "error");
   } finally {
     profileBusy.value = false;
   }
@@ -769,16 +768,16 @@ async function saveProviderProfile(options: ProviderProfileSaveBehavior = {}): P
     if (options.closeEditor) {
       providerEditorOpen.value = false;
     }
-    showToast("服务商档案已保存。", "ok");
+    showToast("服务商配置已保存。", "ok");
   } catch (error) {
-    showToast(error instanceof Error ? error.message : "保存服务商档案失败", "error");
+    showToast(error instanceof Error ? error.message : "保存服务商配置失败", "error");
   } finally {
     profileBusy.value = false;
   }
 }
 
 async function deleteProviderProfile(profile: ProviderProfileState): Promise<void> {
-  if (!window.confirm(`删除服务商档案“${profile.Name}”？`)) {
+  if (!window.confirm(`删除服务商配置“${profile.Name}”？`)) {
     return;
   }
 
@@ -789,9 +788,9 @@ async function deleteProviderProfile(profile: ProviderProfileState): Promise<voi
     if (profile.Id === profileForm.Id) {
       providerEditorOpen.value = false;
     }
-    showToast("服务商档案已删除。", "ok");
+    showToast("服务商配置已删除。", "ok");
   } catch (error) {
-    showToast(error instanceof Error ? error.message : "删除服务商档案失败", "error");
+    showToast(error instanceof Error ? error.message : "删除服务商配置失败", "error");
   }
 }
 
@@ -815,7 +814,7 @@ async function exportProviderProfile(profile: ProviderProfileState): Promise<voi
     anchor.click();
     URL.revokeObjectURL(anchor.href);
   } catch (error) {
-    showToast(error instanceof Error ? error.message : "导出服务商档案失败", "error");
+    showToast(error instanceof Error ? error.message : "导出服务商配置失败", "error");
   }
 }
 
@@ -844,13 +843,13 @@ async function importProviderProfile(event: Event): Promise<void> {
 
     showToast(result.Message, result.Succeeded ? "ok" : "error");
   } catch (error) {
-    showToast(error instanceof Error ? error.message : "导入服务商档案失败", "error");
+    showToast(error instanceof Error ? error.message : "导入服务商配置失败", "error");
   }
 }
 
 async function runProfileUtility<T>(label: string, action: () => Promise<T>, render: (result: T) => string): Promise<void> {
   if (!profileForm.Id) {
-    showToast("请先保存服务商档案。", "warn");
+    showToast("请先保存服务商配置。", "warn");
     return;
   }
 
@@ -915,7 +914,7 @@ function restoreAllPromptTemplates(): void {
 
 async function pickLlamaCppModel(): Promise<void> {
   if (!isProfileLlamaCpp.value) {
-    showToast("请先选择本地模型档案。", "warn");
+    showToast("请先选择本地模型配置。", "warn");
     return;
   }
 
@@ -963,7 +962,7 @@ function applyLlamaCppDownloadStatus(status: LlamaCppModelDownloadStatus): void 
     profileForm.LlamaCppModelPath = status.LocalPath;
     llamaCppCompletedPath.value = status.LocalPath;
     markProfileDirty();
-    showToast("已下载并填入模型路径，请保存本地模型档案。", "ok", 5600);
+    showToast("已下载并填入模型路径，请保存本地模型配置。", "ok", 5600);
     return;
   }
 
@@ -1021,7 +1020,7 @@ async function cancelLlamaCppDownload(): Promise<void> {
 
 async function startLlamaCpp(): Promise<void> {
   if (!isProfileLlamaCpp.value || !profileForm.Id) {
-    showToast("请先保存本地模型档案。", "warn");
+    showToast("请先保存本地模型配置。", "warn");
     return;
   }
 
@@ -1044,7 +1043,7 @@ async function startLlamaCpp(): Promise<void> {
 
 async function stopLlamaCpp(): Promise<void> {
   if (!isProfileLlamaCpp.value || !profileForm.Id) {
-    showToast("请先选择本地模型档案。", "warn");
+    showToast("请先选择本地模型配置。", "warn");
     return;
   }
 
@@ -1061,7 +1060,7 @@ async function stopLlamaCpp(): Promise<void> {
 
 async function runLlamaCppBenchmark(): Promise<void> {
   if (!isProfileLlamaCpp.value || !profileForm.Id) {
-    showToast("请先保存本地模型档案。", "warn");
+    showToast("请先保存本地模型配置。", "warn");
     return;
   }
 
@@ -1112,7 +1111,7 @@ watch(selectedProfileId, () => applySelectedProfile(true));
     <div class="page-head">
       <div>
         <h1>AI 翻译</h1>
-        <p>在线服务商按档案优先级执行，llama.cpp 保持独立本地模型流程。</p>
+        <p>在线服务商按配置优先级执行，llama.cpp 保持独立本地模型流程。</p>
       </div>
       <div class="actions">
         <button class="secondary" type="button" :disabled="controlPanelStore.isRefreshing" @click="refreshState()">
@@ -1178,15 +1177,15 @@ watch(selectedProfileId, () => applySelectedProfile(true));
         </div>
       </SectionPanel>
 
-      <SectionPanel title="服务商档案" :icon="KeyRound">
+      <SectionPanel title="服务商配置" :icon="KeyRound">
         <div class="provider-profile-toolbar">
           <div>
-            <span>当前档案</span>
+            <span>当前配置</span>
             <strong>{{ activeProviderProfileName }}</strong>
           </div>
           <div class="actions inline-actions">
-            <button class="secondary" type="button" @click="saveUseOnlineProfiles"><Bot class="button-icon" />使用档案队列</button>
-            <button class="secondary" type="button" @click="openNewProviderProfile(0)"><Plus class="button-icon" />新建在线档案</button>
+            <button class="secondary" type="button" @click="saveUseOnlineProfiles"><Bot class="button-icon" />使用配置队列</button>
+            <button class="secondary" type="button" @click="openNewProviderProfile(0)"><Plus class="button-icon" />新建在线配置</button>
             <button class="secondary" type="button" :disabled="hasLlamaCppProfile" @click="createLlamaCppProfile"><Server class="button-icon" />新建本地模型</button>
             <button class="secondary" type="button" @click="openImportPicker"><FileInput class="button-icon" />导入</button>
             <input ref="importInput" class="sr-only" type="file" accept=".hutprovider" @change="importProviderProfile">
@@ -1194,7 +1193,7 @@ watch(selectedProfileId, () => applySelectedProfile(true));
         </div>
 
         <div class="provider-profile-manager">
-          <div class="provider-profile-list" aria-label="服务商档案列表">
+          <div class="provider-profile-list" aria-label="服务商配置列表">
             <div
               v-for="profile in providerProfiles"
               :key="profile.Id"
@@ -1216,7 +1215,7 @@ watch(selectedProfileId, () => applySelectedProfile(true));
                 <button class="danger icon-button" type="button" title="删除" @click.stop="deleteProviderProfile(profile)"><Trash2 /></button>
               </div>
             </div>
-            <div v-if="!providerProfiles.length" class="empty-state">还没有服务商档案</div>
+            <div v-if="!providerProfiles.length" class="empty-state">还没有服务商配置</div>
           </div>
         </div>
       </SectionPanel>
@@ -1248,7 +1247,6 @@ watch(selectedProfileId, () => applySelectedProfile(true));
           <span v-if="activePromptTemplate.placeholders.length === 0">无必需占位符</span>
         </div>
         <textarea id="customPrompt" class="prompt-editor-field" v-model="activePromptTemplateText" rows="12" spellcheck="false"></textarea>
-        <p class="hint">{{ defaultSystemPrompt }}</p>
       </SectionPanel>
     </div>
 
@@ -1257,29 +1255,29 @@ watch(selectedProfileId, () => applySelectedProfile(true));
         <div class="provider-profile-editor">
           <div class="provider-editor-head">
             <div>
-              <span>档案编辑器</span>
-              <strong id="providerEditorTitle">{{ profileForm.Id ? profileForm.Name || "未命名档案" : "新建档案" }}</strong>
+              <span>配置编辑器</span>
+              <strong id="providerEditorTitle">{{ profileForm.Id ? profileForm.Name || "未命名配置" : "新建配置" }}</strong>
             </div>
             <button class="secondary" type="button" @click="closeProviderProfileEditor"><X class="button-icon" />关闭</button>
           </div>
 
           <div class="checks">
-            <label class="check"><input id="providerProfileEnabled" v-model="profileForm.Enabled" type="checkbox" @change="markProfileDirty">启用此档案</label>
+            <label class="check"><input id="providerProfileEnabled" v-model="profileForm.Enabled" type="checkbox" @change="markProfileDirty">启用此配置</label>
             <label v-if="!isProfileLlamaCpp" class="check"><input id="providerProfileClearKey" v-model="profileForm.ClearApiKey" type="checkbox" @change="markProfileDirty">清空已保存 Key</label>
           </div>
 
           <div class="form-grid two">
-            <label class="field help-target" data-help="控制面板中显示的档案名称。">
+            <label class="field help-target" data-help="控制面板中显示的配置名称。">
               <span class="field-label"><KeyRound class="field-label-icon" />名称</span>
               <input id="providerProfileName" v-model="profileForm.Name" autocomplete="off" @input="markProfileDirty">
             </label>
-            <label class="field help-target" data-help="在线档案和本地模型档案会按优先级依次尝试；本地模型最多只能创建一个。">
+            <label class="field help-target" data-help="在线配置和本地模型配置会按优先级依次尝试；本地模型最多只能创建一个。">
               <span class="field-label"><Bot class="field-label-icon" />服务商</span>
               <select id="providerProfileKind" v-model.number="profileForm.Kind" @change="applyProfileKindDefaults">
                 <option v-for="option in providerKindOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
               </select>
             </label>
-            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="服务根地址会写入加密档案文件。">
+            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="服务根地址会写入加密配置文件。">
               <span class="field-label"><Server class="field-label-icon" />Base URL</span>
               <input id="providerProfileBaseUrl" v-model="profileForm.BaseUrl" autocomplete="off" @input="markProfileDirty">
             </label>
@@ -1291,22 +1289,22 @@ watch(selectedProfileId, () => applySelectedProfile(true));
               <span class="field-label"><Brain class="field-label-icon" />模型</span>
               <input id="providerProfileModel" v-model="profileForm.Model" autocomplete="off" @input="markProfileDirty">
             </label>
-            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="留空表示不修改已保存 Key；新 Key 会进入加密档案文件。">
+            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="留空表示不修改已保存 Key；新 Key 会进入加密配置文件。">
               <span class="field-label"><KeyRound class="field-label-icon" />API Key</span>
               <input id="providerProfileApiKey" v-model="profileForm.ApiKey" autocomplete="off" type="password" placeholder="留空不修改" @input="markProfileDirty">
             </label>
           </div>
 
           <div class="form-grid four">
-            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="此档案可同时执行的在线请求数。">
+            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="此配置可同时执行的在线请求数。">
               <span class="field-label"><Gauge class="field-label-icon" />并发</span>
               <input id="providerProfileMaxConcurrentRequests" v-model.number="profileForm.MaxConcurrentRequests" type="number" min="1" max="100" @input="markProfileDirty">
             </label>
-            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="此档案每分钟最多发送的请求数。">
+            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="此配置每分钟最多发送的请求数。">
               <span class="field-label"><Clock3 class="field-label-icon" />RPM</span>
               <input id="providerProfileRequestsPerMinute" v-model.number="profileForm.RequestsPerMinute" type="number" min="1" max="600" @input="markProfileDirty">
             </label>
-            <label class="field help-target" data-help="此档案单次请求超时时间。">
+            <label class="field help-target" data-help="此配置单次请求超时时间。">
               <span class="field-label"><Clock3 class="field-label-icon" />超时(秒)</span>
               <input id="providerProfileRequestTimeoutSeconds" v-model.number="profileForm.RequestTimeoutSeconds" type="number" min="5" max="180" @input="markProfileDirty">
             </label>
@@ -1354,7 +1352,7 @@ watch(selectedProfileId, () => applySelectedProfile(true));
           </div>
 
           <div v-if="isProfileLlamaCpp" class="llama-local-panel">
-            <div class="field llama-model-row help-target" data-help="选择本地 GGUF 模型文件；此档案进入服务商优先级队列后，轮到它时会自动启动 llama.cpp。">
+            <div class="field llama-model-row help-target" data-help="选择本地 GGUF 模型文件；此配置进入服务商优先级队列后，轮到它时会自动启动 llama.cpp。">
               <span class="field-label"><FolderOpen class="field-label-icon" />GGUF 模型文件</span>
               <div class="input-action-row model-path-actions">
                 <input id="llamaCppModelPath" v-model="profileForm.LlamaCppModelPath" autocomplete="off" placeholder="选择 .gguf 模型文件" @input="markProfileDirty">
@@ -1412,7 +1410,7 @@ watch(selectedProfileId, () => applySelectedProfile(true));
           </div>
 
           <div class="actions provider-profile-actions">
-            <button class="primary" type="button" :disabled="profileBusy" @click="saveProviderProfile({ closeEditor: true })"><Save class="button-icon" />{{ profileForm.Id ? "保存档案" : "添加档案" }}</button>
+            <button class="primary" type="button" :disabled="profileBusy" @click="saveProviderProfile({ closeEditor: true })"><Save class="button-icon" />{{ profileForm.Id ? "保存配置" : "添加配置" }}</button>
             <button class="secondary" type="button" :disabled="utilityBusy || !profileForm.Id" @click="testProfile"><Zap class="button-icon" />测试连接</button>
             <button v-if="!isProfileLlamaCpp" class="secondary" type="button" :disabled="utilityBusy || !profileForm.Id" @click="fetchProfileModels"><Download class="button-icon" />获取模型</button>
             <button v-if="!isProfileLlamaCpp" class="secondary" type="button" :disabled="utilityBusy || !profileForm.Id" @click="fetchProfileBalance"><WalletCards class="button-icon" />查询余额</button>
@@ -1430,7 +1428,7 @@ watch(selectedProfileId, () => applySelectedProfile(true));
           </div>
           <button class="secondary" type="button" @click="closeLlamaCppDownloadDialog"><X class="button-icon" />关闭</button>
         </div>
-        <div v-if="llamaCppModelPresets.length" class="field help-target" data-help="下载完成后会填入本地模型路径，保存本地模型档案后生效。">
+        <div v-if="llamaCppModelPresets.length" class="field help-target" data-help="下载完成后会填入本地模型路径，保存本地模型配置后生效。">
           <span class="field-label"><Download class="field-label-icon" />模型</span>
           <div id="llamaCppPresetList" class="model-preset-list" role="radiogroup" aria-label="模型下载列表">
             <button

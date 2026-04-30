@@ -98,7 +98,7 @@ internal sealed class PluginRuntime : IDisposable
             _logger.LogInfo($"{MyPluginInfo.PLUGIN_NAME} 已加载。控制面板：{_httpServer.Url}");
             OpenControlPanelIfConfigured();
             _logger.LogInfo($"设置文件：{settingsPath}");
-            _logger.LogInfo($"服务商档案目录：{providerProfilesPath}");
+            _logger.LogInfo($"服务商配置目录：{providerProfilesPath}");
             _logger.LogInfo($"翻译缓存：{cachePath}（{_cache.Count} 条）");
             _logger.LogInfo($"术语库：{glossaryPath}（{_glossary.Count} 条）");
         }

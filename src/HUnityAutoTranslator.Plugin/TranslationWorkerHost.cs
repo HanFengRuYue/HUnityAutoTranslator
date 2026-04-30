@@ -145,7 +145,7 @@ internal sealed class TranslationWorkerHost : IDisposable
                     var shouldFailOver = _controlPanel.RegisterProviderProfileFailure(profile, error);
                     if (shouldFailOver)
                     {
-                        _logger.LogWarning($"服务商档案“{profile.Name}”连续失败，当前批次将切换到下一优先级档案。错误：{error}");
+                        _logger.LogWarning($"服务商配置“{profile.Name}”连续失败，当前批次将切换到下一优先级配置。错误：{error}");
                     }
 
                     return shouldFailOver;

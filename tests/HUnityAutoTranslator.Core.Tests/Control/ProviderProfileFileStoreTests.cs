@@ -11,7 +11,7 @@ public sealed class ProviderProfileFileStoreTests
     {
         var directory = NewDirectory();
         var store = new EncryptedProviderProfileStore(directory);
-        var profile = ProviderProfileDefinition.CreateDefault("OpenAI 主档案", ProviderKind.OpenAI, priority: 10) with
+        var profile = ProviderProfileDefinition.CreateDefault("OpenAI 主配置", ProviderKind.OpenAI, priority: 10) with
         {
             BaseUrl = "https://api.example.test",
             Endpoint = "/v1/responses",

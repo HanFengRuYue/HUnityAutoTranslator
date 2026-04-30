@@ -403,7 +403,7 @@ public sealed class ControlPanelServiceTests
             LlamaCpp: LlamaCppConfig.Default() with { ModelPath = @"D:\Models\two.gguf" }));
 
         act.Should().Throw<InvalidOperationException>()
-            .WithMessage("*只能创建一个本地模型档案*");
+            .WithMessage("*只能创建一个本地模型配置*");
     }
 
     [Fact]

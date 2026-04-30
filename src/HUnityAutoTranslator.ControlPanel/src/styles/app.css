@@ -858,12 +858,14 @@ button:disabled {
   z-index: 77;
   display: grid;
   place-items: start center;
-  padding: 64px 18px 18px;
+  padding: clamp(48px, 8vh, 72px) clamp(12px, 3vw, 24px) 18px;
   background: color-mix(in srgb, var(--bg), transparent 28%);
   backdrop-filter: blur(10px);
+  overflow-x: clip;
+  overflow-y: auto;
 }
 .provider-editor-dialog {
-  width: min(1040px, calc(100vw - 36px));
+  width: min(1120px, 100%);
   max-width: 100%;
   max-height: calc(100vh - 88px);
   display: grid;
@@ -873,11 +875,38 @@ button:disabled {
   border-radius: var(--radius);
   background: var(--surface);
   box-shadow: var(--shadow);
-  overflow: auto;
+  overflow-x: clip;
+  overflow-y: auto;
 }
 .provider-editor-dialog .provider-editor-head {
   padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
+}
+.provider-editor-dialog .field.help-target[data-help]::after,
+.provider-editor-dialog .llama-model-row.help-target[data-help]::after {
+  position: static;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  max-height: 0;
+  grid-column: 1 / -1;
+  padding: 0 8px;
+  border-width: 0;
+  color: var(--muted);
+  background: var(--surface-2);
+  box-shadow: none;
+  overflow: hidden;
+  opacity: 0;
+  transform: none;
+}
+.provider-editor-dialog .field.help-target[data-help]:hover::after,
+.provider-editor-dialog .field.help-target[data-help]:focus-within::after,
+.provider-editor-dialog .llama-model-row.help-target[data-help]:hover::after,
+.provider-editor-dialog .llama-model-row.help-target[data-help]:focus-within::after {
+  max-height: 88px;
+  padding: 6px 8px;
+  border-width: 1px;
+  opacity: 1;
 }
 .textarea-field textarea {
   min-height: 96px;
