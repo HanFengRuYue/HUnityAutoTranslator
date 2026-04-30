@@ -1,0 +1,2 @@
+# HUnity.AutoTranslator
+HUnityAutoTranslator
