@@ -128,7 +128,6 @@ const orderedColumns = computed(() => {
   ];
 });
 const visibleColumns = computed(() => orderedColumns.value.filter((column) => visibleKeys.value.includes(column.key)));
-const visibleColumnSpan = computed(() => Math.max(visibleColumns.value.length, 1));
 const selectedRows = computed(() => selectedRowIndexes().map((index) => rows.value[index]).filter((row): row is GlossaryTerm => Boolean(row)));
 const hasColumnFilters = computed(() => Object.values(columnFilters).some((values) => values.length > 0));
 
@@ -238,6 +237,30 @@ function resetInlineTerm(): void {
   inlineTerm.TargetLanguage = controlPanelStore.state?.TargetLanguage || "zh-Hans";
   inlineTerm.Note = "";
   inlineTerm.Enabled = true;
+}
+
+function inlineTermReadonlyValue(column: GlossaryTableColumn): string {
+  if (column.key === "Source") {
+    return "手动";
+  }
+
+  if (column.key === "UsageCount") {
+    return "0";
+  }
+
+  if (column.key === "CreatedUtc" || column.key === "UpdatedUtc") {
+    return "保存后生成";
+  }
+
+  return "";
+}
+
+function inlineTermCellClass(column: GlossaryTableColumn): Record<string, boolean> {
+  return {
+    "glossary-cell-center": column.align === "center",
+    "glossary-new-input-cell": column.editable,
+    "glossary-new-readonly-cell": !column.editable
+  };
 }
 
 function focusInlineTerm(): void {
@@ -997,6 +1020,7 @@ onBeforeUnmount(() => {
           <table>
             <colgroup id="glossaryColgroup">
               <col v-for="column in visibleColumns" :key="column.key" :style="{ width: `${columnWidth(column)}px` }">
+              <col class="glossary-action-col">
             </colgroup>
             <thead>
               <tr id="glossaryHead">
@@ -1010,19 +1034,56 @@ onBeforeUnmount(() => {
                   </div>
                   <span class="col-resizer" :data-column-key="column.key" @pointerdown.stop.prevent="startColumnResize($event, column)"></span>
                 </th>
+                <th id="glossaryActionHead" class="glossary-action-head" scope="col">操作</th>
               </tr>
             </thead>
             <tbody id="glossaryBody">
               <tr v-if="showInlineTermEditor" id="glossaryNewRow" class="inline-new-row">
-                <td :colspan="visibleColumnSpan">
-                  <div class="glossary-inline-editor">
-                    <label class="check glossary-inline-check"><input v-model="inlineTerm.Enabled" class="compact-check" type="checkbox">启用</label>
-                    <input id="glossarySourceTerm" ref="glossarySourceTermInput" v-model="inlineTerm.SourceTerm" autocomplete="off" placeholder="新增原术语">
-                    <input id="glossaryTargetTerm" v-model="inlineTerm.TargetTerm" autocomplete="off" placeholder="指定译名">
-                    <select id="glossaryTargetLanguage" v-model="inlineTerm.TargetLanguage">
-                      <option v-for="option in targetLanguageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
-                    </select>
-                    <input id="glossaryNote" v-model="inlineTerm.Note" autocomplete="off" placeholder="备注">
+                <td v-for="column in visibleColumns" :key="column.key" :data-column-key="column.key" :class="inlineTermCellClass(column)">
+                  <input
+                    v-if="column.key === 'Enabled'"
+                    v-model="inlineTerm.Enabled"
+                    class="compact-check cell-check"
+                    type="checkbox"
+                    aria-label="启用新增术语"
+                  >
+                  <input
+                    v-else-if="column.key === 'SourceTerm'"
+                    id="glossarySourceTerm"
+                    ref="glossarySourceTermInput"
+                    v-model="inlineTerm.SourceTerm"
+                    class="cell-editor"
+                    autocomplete="off"
+                    placeholder="新增原术语"
+                  >
+                  <input
+                    v-else-if="column.key === 'TargetTerm'"
+                    id="glossaryTargetTerm"
+                    v-model="inlineTerm.TargetTerm"
+                    class="cell-editor"
+                    autocomplete="off"
+                    placeholder="指定译名"
+                  >
+                  <select
+                    v-else-if="column.key === 'TargetLanguage'"
+                    id="glossaryTargetLanguage"
+                    v-model="inlineTerm.TargetLanguage"
+                    class="cell-editor"
+                  >
+                    <option v-for="option in targetLanguageOptions" :key="option.value" :value="option.value">{{ option.label }}</option>
+                  </select>
+                  <input
+                    v-else-if="column.key === 'Note'"
+                    id="glossaryNote"
+                    v-model="inlineTerm.Note"
+                    class="cell-editor"
+                    autocomplete="off"
+                    placeholder="备注"
+                  >
+                  <div v-else class="cell-text new-term-placeholder">{{ inlineTermReadonlyValue(column) }}</div>
+                </td>
+                <td class="glossary-action-cell">
+                  <div class="row-actions">
                     <button id="saveGlossaryInlineRow" type="button" @click="saveGlossaryTerm()"><Save class="button-icon" />保存</button>
                     <button class="secondary" type="button" @click="resetInlineTerm">清空</button>
                   </div>
@@ -1073,6 +1134,11 @@ onBeforeUnmount(() => {
                     @input="updateCell(rowIndex, column, $event)"
                   ></textarea>
                   <div v-else class="cell-text">{{ displayCellValue(row, column) }}</div>
+                </td>
+                <td class="glossary-action-cell">
+                  <div class="row-actions">
+                    <button class="secondary" type="button" @click.stop="deleteGlossaryTerm(row)"><Trash2 class="button-icon" />删除</button>
+                  </div>
                 </td>
               </tr>
             </tbody>

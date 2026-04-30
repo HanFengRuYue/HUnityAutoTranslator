@@ -2045,11 +2045,15 @@ th[data-sort-state="descending"] .sort-icon {
 }
 .inline-new-row td {
   background: var(--surface-3);
+  vertical-align: middle;
 }
-.inline-new-row input,
-.inline-new-row select {
-  min-height: 32px;
+.inline-new-row .cell-editor {
+  min-height: 34px;
   padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--field);
+  resize: none;
 }
 .glossary-enabled-cell {
   text-align: center;
@@ -2062,15 +2066,46 @@ th[data-sort-state="descending"] .sort-icon {
 .glossary-cell-center .cell-text {
   text-align: center;
 }
-.glossary-inline-editor {
-  display: grid;
-  grid-template-columns: auto repeat(4, minmax(130px, 1fr)) auto auto;
-  gap: 8px;
-  align-items: center;
-  min-width: 720px;
+.glossary-new-readonly-cell {
+  color: var(--muted);
 }
-.glossary-inline-check {
+.new-term-placeholder {
+  max-height: none;
+  color: var(--muted);
+}
+.glossary-action-col {
+  width: 148px;
+}
+.glossary-action-head,
+.glossary-action-cell {
+  position: sticky;
+  right: 0;
+  width: 148px;
+  min-width: 148px;
+  text-align: right;
+  vertical-align: middle;
+  box-shadow: -1px 0 0 var(--line);
+}
+.glossary-action-head { z-index: 4; }
+.glossary-action-cell {
+  z-index: 1;
+  white-space: nowrap;
+}
+tbody tr:hover .glossary-action-cell {
+  background: var(--accent-soft);
+}
+.inline-new-row .glossary-action-cell {
+  background: var(--surface-3);
+}
+.glossary-action-cell .row-actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 100%;
+}
+.glossary-action-cell button {
   min-height: 32px;
+  padding: 5px 9px;
 }
 .cell-check {
   display: inline-block;

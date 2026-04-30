@@ -905,11 +905,41 @@ public sealed class ControlPanelVueSourceTests
         glossaryPageSource.Should().Contain("id=\"addGlossaryTerm\"");
         glossaryPageSource.Should().Contain("id=\"glossaryNewRow\"");
         glossaryPageSource.Should().Contain("v-if=\"showInlineTermEditor\"");
-        glossaryPageSource.Should().Contain("class=\"compact-check\"");
+        glossaryPageSource.Should().Contain("class=\"compact-check cell-check\"");
         glossaryPageSource.Should().Contain("id=\"saveGlossaryInlineRow\"");
         glossaryPageSource.Should().NotContain("clearGlossaryForm");
         glossaryPageSource.Should().NotContain("title=\"新增或更新术语\"");
         glossaryPageSource.Should().Contain("/api/glossary");
+    }
+
+    [Fact]
+    public void Vue_glossary_inline_new_row_is_a_real_table_row()
+    {
+        var glossaryPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "GlossaryPage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        var newRowBlock = Regex.Match(
+            glossaryPageSource,
+            @"<tr v-if=""showInlineTermEditor"" id=""glossaryNewRow""[\s\S]*?</tr>");
+
+        newRowBlock.Success.Should().BeTrue("the glossary add editor should stay inside the table body");
+        newRowBlock.Value.Should().Contain("td v-for=\"column in visibleColumns\"");
+        newRowBlock.Value.Should().Contain("inlineTermCellClass(column)");
+        newRowBlock.Value.Should().Contain("id=\"saveGlossaryInlineRow\"");
+        newRowBlock.Value.Should().Contain("class=\"glossary-action-cell\"");
+        newRowBlock.Value.Should().NotContain(":colspan=");
+        glossaryPageSource.Should().Contain("id=\"glossaryActionHead\"");
+        glossaryPageSource.Should().Contain("class=\"glossary-action-col\"");
+        glossaryPageSource.Should().NotContain("glossary-inline-editor");
+        glossaryPageSource.Should().NotContain("visibleColumnSpan");
+        CssBlock(cssSource, @"\.inline-new-row \.cell-editor").Should()
+            .Contain("min-height: 34px;")
+            .And.Contain("resize: none;");
+        CssBlock(cssSource, @"\.glossary-action-cell").Should()
+            .Contain("text-align: right;")
+            .And.Contain("vertical-align: middle;")
+            .And.Contain("position: sticky;")
+            .And.Contain("right: 0;");
     }
 
     [Fact]
@@ -956,6 +986,28 @@ public sealed class ControlPanelVueSourceTests
         CssBlock(cssSource, @"\.glossary-cell-center").Should()
             .Contain("text-align: center;")
             .And.Contain("vertical-align: middle;");
+    }
+
+    [Fact]
+    public void Vue_glossary_table_default_widths_fit_header_controls()
+    {
+        var glossaryTableSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "glossaryTable.ts"));
+
+        var compactHeaderMinimums = new Dictionary<string, int>
+        {
+            ["Enabled"] = 112,
+            ["Source"] = 112,
+            ["UsageCount"] = 112,
+            ["CreatedUtc"] = 120,
+            ["UpdatedUtc"] = 120
+        };
+
+        foreach (var (key, minimumWidth) in compactHeaderMinimums)
+        {
+            var match = Regex.Match(glossaryTableSource, $@"key:\s*""{key}""[^}}]*width:\s*(?<width>\d+)");
+            match.Success.Should().BeTrue($"glossary column {key} should define a default width");
+            int.Parse(match.Groups["width"].Value).Should().BeGreaterThanOrEqualTo(minimumWidth, $"glossary column {key} should fit its header title and controls");
+        }
     }
 
     [Fact]
