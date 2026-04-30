@@ -182,6 +182,10 @@ public sealed class ControlPanelHtmlSourceTests
         serverSource.Should().Contain("_controlPanel.UpdateConfig(new UpdateConfigRequest(LlamaCpp:");
         serverSource.Should().Contain("_controlPanel.SetLlamaCppAutoStartOnStartup(status.State != \"error\")");
         serverSource.Should().Contain("_controlPanel.SetLlamaCppAutoStartOnStartup(false)");
+        serverSource.Should().Contain("_controlPanel.SetProviderProfileLlamaCppAutoStartOnStartup(profile.Id, status.State != \"error\")");
+        serverSource.Should().Contain("_controlPanel.SetProviderProfileLlamaCppAutoStartOnStartup(profile.Id, false)");
+        serverSource.Should().Contain("if (result.Succeeded && result.RecommendedConfig != null)");
+        serverSource.Should().Contain("_controlPanel.UpdateProviderProfile(profile.Id, new ProviderProfileUpdateRequest(LlamaCpp: savedConfig))");
         commandBuilderSource.Should().Contain("\"--host\"");
         commandBuilderSource.Should().Contain("\"127.0.0.1\"");
         commandBuilderSource.Should().Contain("\"--metrics\"");
@@ -440,6 +444,10 @@ public sealed class ControlPanelHtmlSourceTests
         hostSource.Should().Contain("if (_controlPanel.HasReadyProviderRuntimeProfile())");
         hostSource.Should().Contain("return new FailoverTranslationProvider(");
         hostSource.Should().Contain("return CreateLegacyProvider(config);");
+        hostSource.Should().Contain("ProviderProfilesReadyAsync(config, cancellationToken)");
+        hostSource.Should().Contain("runtimeProfile.LlamaCpp?.AutoStartOnStartup == true");
+        hostSource.Should().Contain("return new PendingTranslationProvider(runtimeProfile.Profile, message);");
+        hostSource.Should().Contain("if (profile.Profile.Kind == ProviderKind.LlamaCpp)");
     }
 
     [Fact]

@@ -718,6 +718,7 @@ internal sealed class LocalHttpServer : IDisposable
                 ? LlamaCppServerStatus.Error(config.LlamaCpp, string.Empty, "llama.cpp 本地模型管理器不可用。")
                 : await _llamaCppServer.StartAsync(config, CancellationToken.None).ConfigureAwait(false);
             _controlPanel.SetLlamaCppStatus(status);
+            _controlPanel.SetProviderProfileLlamaCppAutoStartOnStartup(profile.Id, status.State != "error");
             await WriteJsonAsync(response, status).ConfigureAwait(false);
             return;
         }
@@ -728,6 +729,7 @@ internal sealed class LocalHttpServer : IDisposable
                 ? LlamaCppServerStatus.Stopped(config.LlamaCpp)
                 : _llamaCppServer.Stop(config);
             _controlPanel.SetLlamaCppStatus(status);
+            _controlPanel.SetProviderProfileLlamaCppAutoStartOnStartup(profile.Id, false);
             await WriteJsonAsync(response, status).ConfigureAwait(false);
             return;
         }
@@ -737,7 +739,7 @@ internal sealed class LocalHttpServer : IDisposable
             var result = _llamaCppServer == null
                 ? LlamaCppBenchmarkResult.Failure(config.LlamaCpp, "llama.cpp 本地模型管理器不可用。")
                 : await _llamaCppServer.BenchmarkAsync(config, CancellationToken.None).ConfigureAwait(false);
-            if (result.Saved && result.RecommendedConfig != null)
+            if (result.Succeeded && result.RecommendedConfig != null)
             {
                 var current = profile.LlamaCpp ?? config.LlamaCpp;
                 var savedConfig = result.RecommendedConfig with
@@ -746,7 +748,12 @@ internal sealed class LocalHttpServer : IDisposable
                     AutoStartOnStartup = current.AutoStartOnStartup
                 };
                 _controlPanel.UpdateProviderProfile(profile.Id, new ProviderProfileUpdateRequest(LlamaCpp: savedConfig));
-                result = result with { RecommendedConfig = savedConfig };
+                result = result with
+                {
+                    Saved = true,
+                    Message = "基准完成，已自动保存推荐参数。",
+                    RecommendedConfig = savedConfig
+                };
             }
 
             await WriteJsonAsync(response, result).ConfigureAwait(false);

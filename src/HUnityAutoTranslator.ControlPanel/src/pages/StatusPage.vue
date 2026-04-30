@@ -75,12 +75,23 @@ const activeProviderKindLabel = computed(() => {
   return providerNames[String(kind ?? "")] ?? "-";
 });
 
-const activeProviderModelLabel = computed(() =>
-  state.value?.ActiveTranslationProvider?.Model ??
-  state.value?.ActiveProviderProfileModel ??
-  state.value?.Model ??
-  "-"
-);
+const activeProviderModelLabel = computed(() => {
+  const runtimeModel = state.value?.ActiveTranslationProvider?.Model;
+  if (runtimeModel) {
+    return runtimeModel;
+  }
+
+  const profileModel = state.value?.ActiveProviderProfileModel;
+  if (profileModel) {
+    return profileModel;
+  }
+
+  if (!providerProfiles.value.length || !state.value?.ActiveProviderProfileId) {
+    return activeProviderProfileLabel.value;
+  }
+
+  return "-";
+});
 
 function formatInFlightCapacity(inFlight: number, max: number): string {
   return `${formatNumber(inFlight)}/${formatNumber(max)}`;

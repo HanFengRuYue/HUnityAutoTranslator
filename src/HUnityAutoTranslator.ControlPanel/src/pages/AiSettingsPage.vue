@@ -69,6 +69,7 @@ interface SaveBehavior {
 
 interface ProviderProfileSaveBehavior {
   closeEditor?: boolean;
+  quiet?: boolean;
 }
 
 const providerKindOptions = [
@@ -240,6 +241,13 @@ const llamaCppIsActive = computed(() => {
   return state === "starting" || state === "running";
 });
 const llamaCppStatusText = computed(() => llamaCppStatus.value?.Message ?? "本地模型未启动。");
+const llamaCppBenchmarkButtonText = computed(() => {
+  if (llamaCppBenchmarkBusy.value) {
+    return "基准运行中...";
+  }
+
+  return llamaCppIsActive.value ? "停止并运行 CUDA 基准" : "运行 CUDA 基准";
+});
 const llamaCppInstallText = computed(() => {
   const status = llamaCppStatus.value;
   if (!status?.Installed) {
@@ -412,12 +420,28 @@ function formatProviderKind(value: number | string): string {
 }
 
 function formatProfileStatus(profile: ProviderProfileState): string {
-  if (profile.CooldownRemainingSeconds > 0) {
-    return `冷却 ${profile.CooldownRemainingSeconds}s`;
+  if (providerKindToNumber(profile.Kind) === 3) {
+    if (!profile.LlamaCpp?.ModelPath) {
+      return "缺少模型";
+    }
+
+    if (!profile.Enabled) {
+      return "停用";
+    }
+
+    if (profile.IsActive && llamaCppIsActive.value) {
+      return llamaCppStateText.value;
+    }
+
+    if (profile.LastError) {
+      return profile.LastError;
+    }
+
+    return profile.IsActive ? "当前" : "待命";
   }
 
-  if (providerKindToNumber(profile.Kind) === 3 && !profile.LlamaCpp?.ModelPath) {
-    return "缺少模型";
+  if (profile.CooldownRemainingSeconds > 0) {
+    return `冷却 ${profile.CooldownRemainingSeconds}s`;
   }
 
   if (profile.IsActive) {
@@ -734,7 +758,9 @@ async function createProviderProfile(options: ProviderProfileSaveBehavior = {}):
     if (options.closeEditor) {
       providerEditorOpen.value = false;
     }
-    showToast("服务商配置已添加。", "ok");
+    if (!options.quiet) {
+      showToast("服务商配置已添加。", "ok");
+    }
   } catch (error) {
     showToast(error instanceof Error ? error.message : "添加服务商配置失败", "error");
   } finally {
@@ -759,7 +785,9 @@ async function saveProviderProfile(options: ProviderProfileSaveBehavior = {}): P
     if (options.closeEditor) {
       providerEditorOpen.value = false;
     }
-    showToast("服务商配置已保存。", "ok");
+    if (!options.quiet) {
+      showToast("服务商配置已保存。", "ok");
+    }
   } catch (error) {
     showToast(error instanceof Error ? error.message : "保存服务商配置失败", "error");
   } finally {
@@ -1009,19 +1037,33 @@ async function cancelLlamaCppDownload(): Promise<void> {
   }
 }
 
-async function startLlamaCpp(): Promise<void> {
-  if (!isProfileLlamaCpp.value || !profileForm.Id) {
-    showToast("请先保存本地模型配置。", "warn");
-    return;
+async function ensureSavedLlamaCppProfile(): Promise<string | null> {
+  if (!isProfileLlamaCpp.value) {
+    showToast("请先选择本地模型配置。", "warn");
+    return null;
   }
 
+  if (!profileForm.Id || profileDirty.value) {
+    await saveProviderProfile({ quiet: true });
+  }
+
+  if (!profileForm.Id) {
+    showToast("请先保存本地模型配置。", "warn");
+    return null;
+  }
+
+  return profileForm.Id;
+}
+
+async function startLlamaCpp(): Promise<void> {
   llamaCppBusy.value = true;
   try {
-    if (profileDirty.value) {
-      await saveProviderProfile();
+    const profileId = await ensureSavedLlamaCppProfile();
+    if (!profileId) {
+      return;
     }
 
-    const status = await api<LlamaCppServerStatus>(`/api/provider-profiles/${encodeURIComponent(profileForm.Id)}/start`, { method: "POST" });
+    const status = await api<LlamaCppServerStatus>(`/api/provider-profiles/${encodeURIComponent(profileId)}/start`, { method: "POST" });
     if (status.State !== "error") {
       profileForm.LlamaCppAutoStartOnStartup = true;
     }
@@ -1032,10 +1074,10 @@ async function startLlamaCpp(): Promise<void> {
   }
 }
 
-async function stopLlamaCpp(): Promise<void> {
+async function stopLlamaCpp(options: SaveBehavior = {}): Promise<LlamaCppServerStatus | null> {
   if (!isProfileLlamaCpp.value || !profileForm.Id) {
     showToast("请先选择本地模型配置。", "warn");
-    return;
+    return null;
   }
 
   llamaCppBusy.value = true;
@@ -1043,25 +1085,32 @@ async function stopLlamaCpp(): Promise<void> {
     const status = await api<LlamaCppServerStatus>(`/api/provider-profiles/${encodeURIComponent(profileForm.Id)}/stop`, { method: "POST" });
     profileForm.LlamaCppAutoStartOnStartup = false;
     await refreshState({ quiet: true });
-    showToast(status.Message, "ok");
+    if (!options.quiet) {
+      showToast(status.Message, "ok");
+    }
+    return status;
   } finally {
     llamaCppBusy.value = false;
   }
 }
 
 async function runLlamaCppBenchmark(): Promise<void> {
-  if (!isProfileLlamaCpp.value || !profileForm.Id) {
-    showToast("请先保存本地模型配置。", "warn");
-    return;
-  }
-
   llamaCppBenchmarkBusy.value = true;
   try {
-    if (profileDirty.value) {
-      await saveProviderProfile();
+    const profileId = await ensureSavedLlamaCppProfile();
+    if (!profileId) {
+      return;
     }
 
-    llamaCppBenchmarkResult.value = await api<LlamaCppBenchmarkResult>(`/api/provider-profiles/${encodeURIComponent(profileForm.Id)}/benchmark`, { method: "POST" });
+    if (llamaCppIsActive.value && !window.confirm("运行 CUDA 基准需要先停止当前本地模型，是否继续？")) {
+      return;
+    }
+
+    if (llamaCppIsActive.value) {
+      await stopLlamaCpp({ quiet: true });
+    }
+
+    llamaCppBenchmarkResult.value = await api<LlamaCppBenchmarkResult>(`/api/provider-profiles/${encodeURIComponent(profileId)}/benchmark`, { method: "POST" });
     await refreshState({ quiet: true });
     showToast(llamaCppBenchmarkResult.value.Message, llamaCppBenchmarkResult.value.Succeeded ? "ok" : "error", 6200);
   } finally {
@@ -1378,8 +1427,8 @@ watch(selectedProfileId, () => applySelectedProfile(true));
               <label class="field"><span class="field-label"><Layers class="field-label-icon" />GPU 层数</span><input id="llamaCppGpuLayers" v-model.number="profileForm.LlamaCppGpuLayers" type="number" min="0" max="999" @input="markProfileDirty"></label>
               <label class="field"><span class="field-label"><Gauge class="field-label-icon" />并行槽位</span><input id="llamaCppParallelSlots" v-model.number="profileForm.LlamaCppParallelSlots" type="number" min="1" max="16" @input="markProfileDirty"></label>
               <div class="actions inline-actions llama-run-actions">
-                <button v-if="!llamaCppIsActive" id="startLlamaCpp" class="primary" type="button" :disabled="llamaCppBusy || !profileForm.Id" @click="startLlamaCpp"><Play class="button-icon" />{{ llamaCppBusy ? "处理中..." : "启动本地模型" }}</button>
-                <button v-else id="stopLlamaCpp" class="secondary" type="button" :disabled="llamaCppBusy || !profileForm.Id" @click="stopLlamaCpp"><Square class="button-icon" />{{ llamaCppBusy ? "处理中..." : "停止本地模型" }}</button>
+                <button v-if="!llamaCppIsActive" id="startLlamaCpp" class="primary" type="button" :disabled="llamaCppBusy || profileBusy" @click="startLlamaCpp"><Play class="button-icon" />{{ llamaCppBusy ? "处理中..." : "启动本地模型" }}</button>
+                <button v-else id="stopLlamaCpp" class="secondary" type="button" :disabled="llamaCppBusy || !profileForm.Id" @click="stopLlamaCpp()"><Square class="button-icon" />{{ llamaCppBusy ? "处理中..." : "停止本地模型" }}</button>
               </div>
             </div>
             <div class="llama-tune-row">
@@ -1393,7 +1442,7 @@ watch(selectedProfileId, () => applySelectedProfile(true));
                 </select>
               </label>
               <div class="actions inline-actions llama-run-actions">
-                <button id="runLlamaCppBenchmark" class="secondary" type="button" :disabled="llamaCppBenchmarkBusy || llamaCppIsActive || !profileForm.Id" @click="runLlamaCppBenchmark"><Gauge class="button-icon" />{{ llamaCppBenchmarkBusy ? "基准运行中..." : "运行 CUDA 基准" }}</button>
+                <button id="runLlamaCppBenchmark" class="secondary" type="button" :disabled="llamaCppBenchmarkBusy || llamaCppBusy || profileBusy" @click="runLlamaCppBenchmark"><Gauge class="button-icon" />{{ llamaCppBenchmarkButtonText }}</button>
               </div>
             </div>
             <div v-if="llamaCppBenchmarkResult" class="llama-benchmark-result">

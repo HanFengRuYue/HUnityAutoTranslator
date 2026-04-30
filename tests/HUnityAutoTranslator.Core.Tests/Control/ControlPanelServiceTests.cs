@@ -408,6 +408,70 @@ public sealed class ControlPanelServiceTests
     }
 
     [Fact]
+    public void LlamaCpp_provider_profile_failures_do_not_enter_cooldown()
+    {
+        var service = ControlPanelService.CreateDefault();
+        service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "本地 Qwen",
+            Kind: ProviderKind.LlamaCpp,
+            LlamaCpp: LlamaCppConfig.Default() with { ModelPath = @"D:\Models\qwen.gguf" }));
+        var ready = service.GetReadyProviderRuntimeProfiles().Should().ContainSingle().Which;
+
+        service.RegisterProviderProfileFailure(ready, "正在启动 llama.cpp 本地模型。").Should().BeFalse();
+        service.RegisterProviderProfileFailure(ready, "正在启动 llama.cpp 本地模型。").Should().BeFalse();
+
+        var state = service.GetState().ProviderProfiles.Should().ContainSingle().Which;
+        state.ConsecutiveFailureCount.Should().Be(2);
+        state.CooldownRemainingSeconds.Should().Be(0);
+        state.LastError.Should().Be("正在启动 llama.cpp 本地模型。");
+        service.GetReadyProviderRuntimeProfiles().Should().ContainSingle();
+    }
+
+    [Fact]
+    public void Updating_provider_profile_clears_previous_failure_state()
+    {
+        var service = ControlPanelService.CreateDefault();
+        var profile = service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "OpenAI 主配置",
+            Kind: ProviderKind.OpenAI,
+            ApiKey: "sk-test"));
+        var ready = service.GetReadyProviderRuntimeProfiles().Should().ContainSingle().Which;
+        service.RegisterProviderProfileFailure(ready, "第一次失败").Should().BeFalse();
+        service.RegisterProviderProfileFailure(ready, "第二次失败").Should().BeTrue();
+        service.GetState().ProviderProfiles![0].CooldownRemainingSeconds.Should().BeGreaterThan(0);
+
+        service.UpdateProviderProfile(profile.Id, new ProviderProfileUpdateRequest(
+            Name: "OpenAI 主配置已保存",
+            ApiKey: "sk-test"));
+
+        var state = service.GetState().ProviderProfiles.Should().ContainSingle().Which;
+        state.Name.Should().Be("OpenAI 主配置已保存");
+        state.ConsecutiveFailureCount.Should().Be(0);
+        state.CooldownRemainingSeconds.Should().Be(0);
+        state.LastError.Should().BeNull();
+        service.GetReadyProviderRuntimeProfiles().Should().ContainSingle();
+    }
+
+    [Fact]
+    public void SetProviderProfileLlamaCppAutoStartOnStartup_updates_profile_without_changing_global_config()
+    {
+        var service = ControlPanelService.CreateDefault();
+        var local = service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "本地 Qwen",
+            Kind: ProviderKind.LlamaCpp,
+            LlamaCpp: LlamaCppConfig.Default() with { ModelPath = @"D:\Models\qwen.gguf" }));
+
+        service.SetProviderProfileLlamaCppAutoStartOnStartup(local.Id, true);
+
+        var state = service.GetState().ProviderProfiles.Should().ContainSingle().Which;
+        state.LlamaCpp!.AutoStartOnStartup.Should().BeTrue();
+
+        service.SetProviderProfileLlamaCppAutoStartOnStartup(local.Id, false);
+
+        service.GetState().ProviderProfiles![0].LlamaCpp!.AutoStartOnStartup.Should().BeFalse();
+    }
+
+    [Fact]
     public void Provider_profiles_use_provider_specific_high_throughput_default_rpm()
     {
         var service = ControlPanelService.CreateDefault();

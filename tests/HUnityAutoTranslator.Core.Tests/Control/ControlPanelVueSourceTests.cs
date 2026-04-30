@@ -56,6 +56,19 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_status_page_does_not_fall_back_to_legacy_model_when_no_provider_profile_is_ready()
+    {
+        var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
+        var activeProviderModelLabel = Regex.Match(
+            statusPageSource,
+            @"const activeProviderModelLabel = computed\(\(\) => \s*\{(?<body>[\s\S]*?)\}\);");
+
+        activeProviderModelLabel.Success.Should().BeTrue("the status page should explicitly decide when an AI service model is configured");
+        activeProviderModelLabel.Groups["body"].Value.Should().Contain("providerProfiles.value.length");
+        activeProviderModelLabel.Groups["body"].Value.Should().NotContain("state.value?.Model");
+    }
+
+    [Fact]
     public void Vue_status_page_keeps_ai_service_summary_to_requested_four_cards()
     {
         var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
@@ -658,9 +671,16 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("AutoStartOnStartup: profileForm.LlamaCppAutoStartOnStartup");
         aiPageSource.Should().Contain("profileForm.LlamaCppAutoStartOnStartup = true;");
         aiPageSource.Should().Contain("profileForm.LlamaCppAutoStartOnStartup = false;");
-        aiPageSource.Should().Contain("/api/provider-profiles/${encodeURIComponent(profileForm.Id)}/start");
+        aiPageSource.Should().Contain("async function ensureSavedLlamaCppProfile(): Promise<string | null>");
+        aiPageSource.Should().Contain("const profileId = await ensureSavedLlamaCppProfile();");
+        aiPageSource.Should().Contain("llamaCppBenchmarkButtonText");
+        aiPageSource.Should().Contain("停止并运行 CUDA 基准");
+        aiPageSource.Should().Contain("await stopLlamaCpp({ quiet: true });");
+        aiPageSource.Should().Contain("if (llamaCppIsActive.value && !window.confirm");
+        aiPageSource.Should().NotContain(":disabled=\"llamaCppBenchmarkBusy || llamaCppIsActive || !profileForm.Id\"");
+        aiPageSource.Should().Contain("/api/provider-profiles/${encodeURIComponent(profileId)}/start");
         aiPageSource.Should().Contain("/api/provider-profiles/${encodeURIComponent(profileForm.Id)}/stop");
-        aiPageSource.Should().Contain("/api/provider-profiles/${encodeURIComponent(profileForm.Id)}/benchmark");
+        aiPageSource.Should().Contain("/api/provider-profiles/${encodeURIComponent(profileId)}/benchmark");
         aiPageSource.Should().Contain("/api/llamacpp/model/pick");
         aiPageSource.Should().NotContain("id=\"llamaCppPort\"");
         aiPageSource.Should().NotContain("<div><span>端口</span>");
@@ -749,6 +769,12 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("{ value: 3, label: \"llama.cpp 本地模型\" }");
         aiPageSource.Should().Contain("const hasLlamaCppProfile");
         aiPageSource.Should().Contain("const isProfileLlamaCpp");
+        var profileStatusBlock = Regex.Match(
+            aiPageSource,
+            @"function formatProfileStatus\(profile: ProviderProfileState\): string \{(?<body>[\s\S]*?)\n\}");
+        profileStatusBlock.Success.Should().BeTrue("profile cards should format local-model state separately from online cooldowns");
+        profileStatusBlock.Groups["body"].Value.IndexOf("providerKindToNumber(profile.Kind) === 3", StringComparison.Ordinal)
+            .Should().BeLessThan(profileStatusBlock.Groups["body"].Value.IndexOf("profile.CooldownRemainingSeconds > 0", StringComparison.Ordinal));
         aiPageSource.Should().Contain("function buildProfileLlamaCppConfig(): LlamaCppConfig");
         aiPageSource.Should().Contain("function openNewProviderProfile(): void");
         aiPageSource.Should().NotContain("async function createLlamaCppProfile(): Promise<void>");

@@ -142,6 +142,12 @@ internal sealed class TranslationWorkerHost : IDisposable
                 CreateProviderAsync,
                 (profile, error) =>
                 {
+                    if (profile.Profile.Kind == ProviderKind.LlamaCpp)
+                    {
+                        _logger.LogWarning(error);
+                        return false;
+                    }
+
                     var shouldFailOver = _controlPanel.RegisterProviderProfileFailure(profile, error);
                     if (shouldFailOver)
                     {
@@ -210,6 +216,19 @@ internal sealed class TranslationWorkerHost : IDisposable
         }
 
         var config = runtimeProfile.ApplyTo(_controlPanel.GetConfig());
+        if (!await EnsureLlamaCppRuntimeReadyAsync(
+                runtimeProfile,
+                config,
+                runtimeProfile.LlamaCpp?.AutoStartOnStartup == true,
+                cancellationToken).ConfigureAwait(false))
+        {
+            var pendingStatus = _llamaCppServer.GetStatus(config);
+            var message = string.IsNullOrWhiteSpace(pendingStatus.Message)
+                ? "llama.cpp 本地模型未启动。请在控制面板手动启动。"
+                : pendingStatus.Message;
+            return new PendingTranslationProvider(runtimeProfile.Profile, message);
+        }
+
         var status = _llamaCppServer.GetStatus(config);
         _controlPanel.SetLlamaCppStatus(status);
         if (!await _llamaCppServer.IsReadyAsync(config, cancellationToken).ConfigureAwait(false))
@@ -266,11 +285,90 @@ internal sealed class TranslationWorkerHost : IDisposable
         _qualityRetryResumeSuppressions.Suppress(job, DateTimeOffset.UtcNow);
     }
 
+    private async Task<bool> ProviderProfilesReadyAsync(RuntimeConfig config, CancellationToken cancellationToken)
+    {
+        var profiles = _controlPanel.GetReadyProviderRuntimeProfiles();
+        if (profiles.Count == 0)
+        {
+            return false;
+        }
+
+        var runtimeProfile = profiles[0];
+        if (runtimeProfile.Profile.Kind != ProviderKind.LlamaCpp)
+        {
+            return true;
+        }
+
+        var localConfig = runtimeProfile.ApplyTo(config);
+        return await EnsureLlamaCppRuntimeReadyAsync(
+            runtimeProfile,
+            localConfig,
+            runtimeProfile.LlamaCpp?.AutoStartOnStartup == true,
+            cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<bool> EnsureLlamaCppRuntimeReadyAsync(
+        ProviderRuntimeProfile runtimeProfile,
+        RuntimeConfig config,
+        bool allowAutoStart,
+        CancellationToken cancellationToken)
+    {
+        if (_llamaCppServer == null)
+        {
+            const string unavailableMessage = "llama.cpp 本地模型管理器不可用。";
+            _controlPanel.SetLastError(unavailableMessage);
+            _controlPanel.SetProviderStatus(new ProviderStatus("error", unavailableMessage, DateTimeOffset.UtcNow));
+            return false;
+        }
+
+        var status = _llamaCppServer.GetStatus(config);
+        _controlPanel.SetLlamaCppStatus(status);
+        if (await _llamaCppServer.IsReadyAsync(config, cancellationToken).ConfigureAwait(false))
+        {
+            _controlPanel.SetLlamaCppStatus(_llamaCppServer.GetStatus(config));
+            _controlPanel.SetProviderStatus(new ProviderStatus("ok", "llama.cpp 本地模型运行中。", DateTimeOffset.UtcNow));
+            return true;
+        }
+
+        status = _llamaCppServer.GetStatus(config);
+        _controlPanel.SetLlamaCppStatus(status);
+        if (string.Equals(status.State, "starting", StringComparison.OrdinalIgnoreCase))
+        {
+            var startingMessage = string.IsNullOrWhiteSpace(status.Message)
+                ? "llama.cpp 本地模型正在启动。"
+                : status.Message;
+            _controlPanel.SetProviderStatus(new ProviderStatus("warning", startingMessage, DateTimeOffset.UtcNow));
+            return false;
+        }
+
+        if (allowAutoStart)
+        {
+            status = await _llamaCppServer.StartAsync(config, cancellationToken).ConfigureAwait(false);
+            _controlPanel.SetLlamaCppStatus(status);
+            if (await _llamaCppServer.IsReadyAsync(config, cancellationToken).ConfigureAwait(false))
+            {
+                _controlPanel.SetLlamaCppStatus(_llamaCppServer.GetStatus(config));
+                _controlPanel.SetProviderStatus(new ProviderStatus("ok", "llama.cpp 本地模型运行中。", DateTimeOffset.UtcNow));
+                return true;
+            }
+        }
+
+        status = _llamaCppServer.GetStatus(config);
+        _controlPanel.SetLlamaCppStatus(status);
+        var message = string.IsNullOrWhiteSpace(status.Message) || string.Equals(status.State, "stopped", StringComparison.OrdinalIgnoreCase)
+            ? "llama.cpp 本地模型未启动。请在控制面板手动启动。"
+            : status.Message;
+        var state = string.Equals(status.State, "error", StringComparison.OrdinalIgnoreCase) ? "error" : "warning";
+        _controlPanel.SetLastError(message);
+        _controlPanel.SetProviderStatus(new ProviderStatus(state, message, DateTimeOffset.UtcNow));
+        return false;
+    }
+
     private async Task<bool> ProviderReadyAsync(RuntimeConfig config, CancellationToken cancellationToken)
     {
         if (_controlPanel.HasReadyProviderRuntimeProfile())
         {
-            return true;
+            return await ProviderProfilesReadyAsync(config, cancellationToken).ConfigureAwait(false);
         }
 
         if (config.Provider.Kind != ProviderKind.LlamaCpp)
@@ -311,6 +409,25 @@ internal sealed class TranslationWorkerHost : IDisposable
         private readonly string _message;
 
         public FailureTranslationProvider(ProviderProfile profile, string message)
+        {
+            _profile = profile;
+            _message = message;
+        }
+
+        public ProviderKind Kind => _profile.Kind;
+
+        public Task<TranslationResponse> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(TranslationResponse.Failure(_message, _profile));
+        }
+    }
+
+    private sealed class PendingTranslationProvider : ITranslationProvider
+    {
+        private readonly ProviderProfile _profile;
+        private readonly string _message;
+
+        public PendingTranslationProvider(ProviderProfile profile, string message)
         {
             _profile = profile;
             _message = message;

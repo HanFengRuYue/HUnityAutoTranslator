@@ -243,6 +243,7 @@ public sealed class ControlPanelService
 
             _providerProfiles.Add(profile);
             NormalizeProviderPriorities();
+            _providerFailures.Remove(profile.Id);
             SaveProviderProfile(profile);
             return BuildProviderProfileState(profile, ResolveActiveProviderProfile()?.Id);
         }
@@ -267,6 +268,7 @@ public sealed class ControlPanelService
 
             _providerProfiles[index] = updated;
             NormalizeProviderPriorities();
+            _providerFailures.Remove(updated.Id);
             SaveProviderProfile(updated);
             return BuildProviderProfileState(updated, ResolveActiveProviderProfile()?.Id);
         }
@@ -381,6 +383,11 @@ public sealed class ControlPanelService
 
             state.ConsecutiveFailureCount++;
             state.LastError = errorMessage;
+            if (profile.Profile.Kind == ProviderKind.LlamaCpp)
+            {
+                return false;
+            }
+
             if (state.ConsecutiveFailureCount < 2)
             {
                 return false;
@@ -389,6 +396,37 @@ public sealed class ControlPanelService
             state.CooldownUntilUtc = DateTimeOffset.UtcNow + ProviderCooldownDuration;
             _providerStatus = new ProviderStatus("warning", $"服务商配置“{profile.Name}”连续失败，已切换到下一优先级。", DateTimeOffset.UtcNow);
             return true;
+        }
+    }
+
+    public void SetProviderProfileLlamaCppAutoStartOnStartup(string id, bool enabled)
+    {
+        lock (_gate)
+        {
+            var normalizedId = ProviderProfileDefinition.NormalizeId(id);
+            var index = _providerProfiles.FindIndex(profile => string.Equals(profile.Id, normalizedId, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+            {
+                throw new InvalidOperationException("Provider profile was not found.");
+            }
+
+            var profile = _providerProfiles[index].Normalize();
+            if (profile.Kind != ProviderKind.LlamaCpp)
+            {
+                return;
+            }
+
+            var updated = profile with
+            {
+                LlamaCpp = (profile.LlamaCpp ?? LlamaCppConfig.Default()) with
+                {
+                    AutoStartOnStartup = enabled
+                }
+            };
+            updated = updated.Normalize();
+            _providerProfiles[index] = updated;
+            _providerFailures.Remove(updated.Id);
+            SaveProviderProfile(updated);
         }
     }
 
