@@ -255,7 +255,7 @@ onUnmounted(clearScanPoll);
 </script>
 
 <template>
-  <section class="page active" id="page-textures">
+  <section class="page active texture-page" id="page-textures">
     <div class="page-head">
       <div>
         <h1>贴图替换</h1>

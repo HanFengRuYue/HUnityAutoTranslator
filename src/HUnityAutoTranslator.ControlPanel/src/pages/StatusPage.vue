@@ -3,6 +3,7 @@ import { computed } from "vue";
 import {
   Activity,
   Bot,
+  Coins,
   Database,
   History,
   ListTodo,
@@ -12,7 +13,7 @@ import {
 import MetricCard from "../components/MetricCard.vue";
 import SectionPanel from "../components/SectionPanel.vue";
 import { controlPanelStore, refreshState } from "../state/controlPanelStore";
-import { formatDateTime, formatMilliseconds, formatNumber, formatRate } from "../utils/format";
+import { formatDateTime, formatNumber, formatRate } from "../utils/format";
 
 const providerNames: Record<string, string> = {
   "0": "OpenAI",
@@ -65,15 +66,6 @@ const activeProviderProfileLabel = computed(() => {
   return providerProfiles.value.length ? state.value.ActiveProviderProfileName ?? "无可用配置" : "未配置";
 });
 
-const activeTranslationProviderLabel = computed(() => {
-  const active = state.value?.ActiveTranslationProvider;
-  if (active?.Name) {
-    return active.Name;
-  }
-
-  return recentTranslations.value.find((item) => item.ProviderProfileName)?.ProviderProfileName ?? "-";
-});
-
 const activeProviderKindLabel = computed(() => {
   if (!providerProfiles.value.length) {
     return "未配置";
@@ -89,19 +81,6 @@ const activeProviderModelLabel = computed(() =>
   state.value?.Model ??
   "-"
 );
-
-const rpmLabel = computed(() => {
-  if (!providerProfiles.value.length) {
-    return "-";
-  }
-
-  const kind = state.value?.ActiveTranslationProvider?.Kind ?? state.value?.ActiveProviderProfileKind;
-  if (String(kind) === "3" || String(kind) === "LlamaCpp") {
-    return "本地槽位";
-  }
-
-  return formatNumber(state.value?.RequestsPerMinute);
-});
 
 function formatInFlightCapacity(inFlight: number, max: number): string {
   return `${formatNumber(inFlight)}/${formatNumber(max)}`;
@@ -159,6 +138,13 @@ function formatRecentProvider(item: { Provider: string; Model: string; ProviderP
           tone="ok"
           help="已经保存到本地 SQLite，后续可直接复用或编辑的译文数量。"
         />
+        <MetricCard
+          label="预计token用量"
+          :value="formatNumber(state?.TotalTokenCount)"
+          value-id="totalTokenCount"
+          :icon="Coins"
+          help="服务商返回的累计 token 用量，用于粗略判断成本。"
+        />
       </div>
 
       <SectionPanel title="AI 服务" :icon="Bot">
@@ -166,10 +152,6 @@ function formatRecentProvider(item: { Provider: string; Model: string; ProviderP
           <div>
             <span>当前配置</span>
             <strong>{{ activeProviderProfileLabel }}</strong>
-          </div>
-          <div>
-            <span>当前请求/最近使用</span>
-            <strong>{{ activeTranslationProviderLabel }}</strong>
           </div>
           <div>
             <span>服务商</span>
@@ -180,24 +162,8 @@ function formatRecentProvider(item: { Provider: string; Model: string; ProviderP
             <strong>{{ activeProviderModelLabel }}</strong>
           </div>
           <div>
-            <span>并发</span>
-            <strong>{{ formatInFlightCapacity(activeTranslationCapacity.inFlight, activeTranslationCapacity.max) }}</strong>
-          </div>
-          <div>
-            <span>RPM</span>
-            <strong>{{ rpmLabel }}</strong>
-          </div>
-          <div>
-            <span>平均耗时</span>
-            <strong>{{ formatMilliseconds(state?.AverageTranslationMilliseconds) }}</strong>
-          </div>
-          <div>
             <span>处理速度</span>
             <strong>{{ formatRate(state?.AverageCharactersPerSecond) }}</strong>
-          </div>
-          <div>
-            <span>Token 用量</span>
-            <strong>{{ formatNumber(state?.TotalTokenCount) }}</strong>
           </div>
         </div>
       </SectionPanel>

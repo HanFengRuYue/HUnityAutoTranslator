@@ -1426,21 +1426,36 @@ input[type="range"] {
   opacity: 0;
   pointer-events: none;
 }
+.texture-page {
+  display: grid;
+  gap: 18px;
+}
+.texture-page .page-head {
+  margin-bottom: 0;
+}
 .texture-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr));
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 14px;
+  margin-bottom: 0;
 }
 .texture-toolbar {
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
+  gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.texture-toolbar .texture-scan-status {
+  margin-left: auto;
 }
 .texture-scan-status {
-  min-height: 32px;
+  min-height: 34px;
   display: inline-flex;
   align-items: center;
   padding: 5px 9px;
@@ -1459,7 +1474,7 @@ input[type="range"] {
 .texture-errors {
   display: grid;
   gap: 6px;
-  margin-top: 12px;
+  margin-top: 0;
   padding: 10px 12px;
   border: 1px solid color-mix(in srgb, var(--warn), transparent 50%);
   border-radius: var(--radius);
@@ -1476,19 +1491,26 @@ input[type="range"] {
   font-size: 12px;
 }
 .texture-directory-tools {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(240px, 420px) auto;
   align-items: end;
   justify-content: space-between;
-  gap: 10px;
-  flex-wrap: wrap;
-  margin-bottom: 12px;
+  gap: 12px;
+  min-width: 0;
+  margin-bottom: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
 }
 .texture-scene-filter {
-  min-width: min(320px, 100%);
+  width: 100%;
+  min-width: 0;
 }
 .texture-view-toggle {
   display: inline-flex;
   align-items: center;
+  justify-self: end;
   gap: 6px;
   padding: 3px;
   border: 1px solid var(--line);
@@ -1507,7 +1529,7 @@ input[type="range"] {
 }
 .texture-list {
   display: grid;
-  gap: 10px;
+  gap: 12px;
 }
 .texture-item {
   display: grid;
@@ -1599,14 +1621,15 @@ input[type="range"] {
 }
 .texture-gallery {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(142px, 1fr));
+  gap: 12px;
+  align-content: start;
 }
 .texture-card {
   min-width: 0;
   display: grid;
   gap: 8px;
-  padding: 9px;
+  padding: 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--surface-2);
@@ -1661,7 +1684,9 @@ input[type="range"] {
   justify-content: space-between;
   gap: 10px;
   flex-wrap: wrap;
-  margin-top: 12px;
+  margin-top: 0;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
   color: var(--muted);
   font-size: 12px;
 }
@@ -2133,6 +2158,36 @@ input.compact-check {
   .recent-item { grid-template-columns: 1fr; }
   .editor-tools { grid-template-columns: 1fr; }
   .editor-actions { justify-content: flex-start; }
+  .texture-page { gap: 14px; }
+  .texture-toolbar,
+  .texture-directory-tools {
+    padding: 10px;
+  }
+  .texture-toolbar .texture-scan-status {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-start;
+  }
+  .texture-directory-tools {
+    grid-template-columns: 1fr;
+  }
+  .texture-view-toggle {
+    width: 100%;
+    justify-self: stretch;
+  }
+  .texture-view-toggle button {
+    flex: 1 1 0;
+  }
+  .texture-gallery {
+    grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  }
+  .texture-item {
+    grid-template-columns: 42px minmax(0, 1fr);
+  }
+  .texture-status {
+    grid-column: 2;
+    justify-self: start;
+  }
   .column-filter-menu {
     width: min(320px, calc(100vw - 24px));
   }

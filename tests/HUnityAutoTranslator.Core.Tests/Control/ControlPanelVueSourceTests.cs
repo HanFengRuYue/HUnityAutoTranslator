@@ -37,16 +37,43 @@ public sealed class ControlPanelVueSourceTests
 
         statusPageSource.Should().Contain("state.value.QueueCount ?? state.value.QueuedTextCount ?? 0");
         statusPageSource.Should().Contain("activeProviderProfileLabel");
-        statusPageSource.Should().Contain("activeTranslationProviderLabel");
+        statusPageSource.Should().Contain("activeProviderKindLabel");
+        statusPageSource.Should().Contain("activeProviderModelLabel");
         statusPageSource.Should().Contain("MetricCard");
         statusPageSource.Should().Contain("ActiveTranslationProvider");
         statusPageSource.Should().Contain("value-id=\"cacheCount\"");
         statusPageSource.Should().Contain("value-id=\"enabledText\"");
+        statusPageSource.Should().Contain("value-id=\"totalTokenCount\"");
+        statusPageSource.Should().Contain("label=\"预计token用量\"");
         statusPageSource.Should().NotContain("API Key");
+        statusPageSource.Should().NotContain("activeTranslationProviderLabel");
+        statusPageSource.Should().NotContain("const rpmLabel");
+        statusPageSource.Should().NotContain("formatMilliseconds");
         statusPageSource.Should().NotContain("state.value.QueueCount || state.value.QueuedTextCount || 0");
         statusPageSource.Should().NotContain("WritebackQueueCount");
         statusPageSource.Should().NotContain("status-command");
         statusPageSource.Should().NotContain("providerStatusText");
+    }
+
+    [Fact]
+    public void Vue_status_page_keeps_ai_service_summary_to_requested_four_cards()
+    {
+        var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
+        var aiServiceBlock = System.Text.RegularExpressions.Regex.Match(
+            statusPageSource,
+            @"<SectionPanel title=""AI 服务""[\s\S]*?</SectionPanel>");
+
+        aiServiceBlock.Success.Should().BeTrue("status page should render an AI 服务 panel");
+        aiServiceBlock.Value.Should().Contain("<span>当前配置</span>");
+        aiServiceBlock.Value.Should().Contain("<span>服务商</span>");
+        aiServiceBlock.Value.Should().Contain("<span>模型</span>");
+        aiServiceBlock.Value.Should().Contain("<span>处理速度</span>");
+        System.Text.RegularExpressions.Regex.Matches(aiServiceBlock.Value, "<span>").Count.Should().Be(4);
+        aiServiceBlock.Value.Should().NotContain("<span>当前请求/最近使用</span>");
+        aiServiceBlock.Value.Should().NotContain("<span>并发</span>");
+        aiServiceBlock.Value.Should().NotContain("<span>RPM</span>");
+        aiServiceBlock.Value.Should().NotContain("<span>平均耗时</span>");
+        aiServiceBlock.Value.Should().NotContain("<span>Token 用量</span>");
     }
 
     [Fact]
@@ -1063,6 +1090,18 @@ public sealed class ControlPanelVueSourceTests
         cssSource.Should().Contain(".texture-list");
         cssSource.Should().Contain(".texture-gallery");
         cssSource.Should().Contain(".texture-pager");
+    }
+
+    [Fact]
+    public void Vue_texture_page_keeps_panels_visually_separated()
+    {
+        var texturePageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TexturePage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        texturePageSource.Should().Contain("class=\"page active texture-page\"");
+        CssBlock(cssSource, @"\.texture-page").Should().Contain("display: grid;").And.Contain("gap: 18px;");
+        CssBlock(cssSource, @"\.texture-page \.page-head").Should().Contain("margin-bottom: 0;");
+        CssBlock(cssSource, @"\.texture-summary").Should().Contain("margin-bottom: 0;");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)
