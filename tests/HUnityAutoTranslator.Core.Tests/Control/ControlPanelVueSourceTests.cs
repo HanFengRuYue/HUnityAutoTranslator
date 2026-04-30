@@ -1035,18 +1035,34 @@ public sealed class ControlPanelVueSourceTests
         apiTypesSource.Should().Contain("| \"textures\"");
         apiTypesSource.Should().Contain("export interface TextureCatalogItem");
         apiTypesSource.Should().Contain("export interface TextureImportResult");
+        apiTypesSource.Should().Contain("export interface TextureCatalogScanStatus");
+        apiTypesSource.Should().Contain("TotalCount: number;");
+        apiTypesSource.Should().Contain("FilteredCount: number;");
+        apiTypesSource.Should().Contain("Scenes: string[];");
         sidebarSource.Should().Contain("label: \"贴图替换\"");
         appSource.Should().Contain("TexturePage");
         texturePageSource.Should().Contain("/api/textures/scan");
         texturePageSource.Should().Contain("/api/textures/export");
         texturePageSource.Should().Contain("/api/textures/import");
         texturePageSource.Should().Contain("/api/textures/overrides");
+        texturePageSource.Should().Contain("const selectedScene");
+        texturePageSource.Should().Contain("const viewMode");
+        texturePageSource.Should().Contain("const currentPage");
+        texturePageSource.Should().Contain("textureImageUrl(item)");
+        texturePageSource.Should().Contain("loading=\"lazy\"");
+        texturePageSource.Should().Contain("decoding=\"async\"");
+        texturePageSource.Should().Contain("id=\"textureSceneFilter\"");
+        texturePageSource.Should().Contain("class=\"texture-view-toggle\"");
+        texturePageSource.Should().Contain("class=\"texture-gallery\"");
+        texturePageSource.Should().Contain("class=\"texture-pager\"");
         texturePageSource.Should().Contain("id=\"scanTextures\"");
         texturePageSource.Should().Contain("id=\"exportTextures\"");
         texturePageSource.Should().Contain("id=\"importTextures\"");
         texturePageSource.Should().Contain("id=\"clearTextureOverrides\"");
         cssSource.Should().Contain(".texture-summary");
         cssSource.Should().Contain(".texture-list");
+        cssSource.Should().Contain(".texture-gallery");
+        cssSource.Should().Contain(".texture-pager");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)

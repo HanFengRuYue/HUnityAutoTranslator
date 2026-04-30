@@ -20,20 +20,64 @@ public sealed record TextureCatalogItem(
     bool HasOverride,
     DateTimeOffset? OverrideUpdatedUtc);
 
+public sealed record TextureCatalogQuery(
+    string? SceneName,
+    int Offset,
+    int Limit);
+
+public sealed record TextureCatalogQueryResult(
+    int TotalCount,
+    int FilteredCount,
+    int ReferenceCount,
+    int Offset,
+    int Limit,
+    IReadOnlyList<string> Scenes,
+    IReadOnlyList<TextureCatalogItem> Items);
+
+public sealed record TextureCatalogScanStatus(
+    bool IsScanning,
+    string Message,
+    DateTimeOffset? StartedUtc,
+    DateTimeOffset? CompletedUtc,
+    int ProcessedTargets,
+    int DiscoveredTextureCount,
+    int DiscoveredReferenceCount)
+{
+    public static TextureCatalogScanStatus Idle(DateTimeOffset? completedUtc)
+    {
+        return new TextureCatalogScanStatus(
+            false,
+            "空闲",
+            null,
+            completedUtc,
+            0,
+            0,
+            0);
+    }
+}
+
 public sealed record TextureCatalogPage(
     DateTimeOffset? ScannedUtc,
     int TextureCount,
     int ReferenceCount,
     int OverrideCount,
     IReadOnlyList<TextureCatalogItem> Items,
-    IReadOnlyList<string> Errors);
+    IReadOnlyList<string> Errors,
+    int TotalCount,
+    int FilteredCount,
+    int Offset,
+    int Limit,
+    IReadOnlyList<string> Scenes,
+    TextureCatalogScanStatus ScanStatus);
 
 public sealed record TextureScanResult(
     DateTimeOffset ScannedUtc,
     int TextureCount,
     int ReferenceCount,
     int OverrideCount,
-    IReadOnlyList<string> Errors);
+    IReadOnlyList<string> Errors,
+    bool IsScanning,
+    string Message);
 
 public sealed record TextureImportResult(
     int ImportedCount,

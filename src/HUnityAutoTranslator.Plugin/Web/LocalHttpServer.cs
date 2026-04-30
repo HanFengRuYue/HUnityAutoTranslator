@@ -408,14 +408,30 @@ internal sealed class LocalHttpServer : IDisposable
             }
             else if (context.Request.HttpMethod == "GET" && path == "/api/textures")
             {
-                await WriteJsonAsync(context.Response, _textureReplacement.GetCatalog()).ConfigureAwait(false);
+                await WriteJsonAsync(context.Response, _textureReplacement.GetCatalog(ParseTextureCatalogQuery(context.Request))).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "GET" && path == "/api/textures/export")
             {
-                var archive = await _textureReplacement.ExportArchiveAsync().ConfigureAwait(false);
+                var archive = await _textureReplacement.ExportArchiveAsync(context.Request.QueryString["scene"]).ConfigureAwait(false);
                 context.Response.ContentType = "application/zip";
                 context.Response.Headers["Content-Disposition"] = $"attachment; filename=\"{BuildTextureExportFileName()}\"";
                 await WriteBytesAsync(context.Response, archive).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "GET" &&
+                path.StartsWith("/api/textures/", StringComparison.Ordinal) &&
+                path.EndsWith("/image", StringComparison.Ordinal))
+            {
+                var sourceHash = ExtractTextureImageHash(path);
+                if (string.IsNullOrWhiteSpace(sourceHash) || !_textureReplacement.TryGetSourceImage(sourceHash, out var imageBytes))
+                {
+                    context.Response.StatusCode = 404;
+                    await WriteTextAsync(context.Response, "贴图不存在。").ConfigureAwait(false);
+                    return;
+                }
+
+                context.Response.ContentType = "image/png";
+                context.Response.Headers["Cache-Control"] = "public, max-age=60";
+                await WriteBytesAsync(context.Response, imageBytes).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/textures/import")
             {
@@ -762,6 +778,28 @@ internal sealed class LocalHttpServer : IDisposable
             SortDescending: string.Equals(parameters["direction"], "desc", StringComparison.OrdinalIgnoreCase),
             Offset: int.TryParse(parameters["offset"], out var offset) ? offset : 0,
             Limit: int.TryParse(parameters["limit"], out var limit) ? limit : 100);
+    }
+
+    private static TextureCatalogQuery ParseTextureCatalogQuery(HttpListenerRequest request)
+    {
+        var parameters = request.QueryString;
+        return new TextureCatalogQuery(
+            SceneName: parameters["scene"],
+            Offset: int.TryParse(parameters["offset"], out var offset) ? Math.Max(0, offset) : 0,
+            Limit: int.TryParse(parameters["limit"], out var limit) ? limit : 20);
+    }
+
+    private static string? ExtractTextureImageHash(string path)
+    {
+        const string prefix = "/api/textures/";
+        const string suffix = "/image";
+        if (!path.StartsWith(prefix, StringComparison.Ordinal) || !path.EndsWith(suffix, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var encoded = path.Substring(prefix.Length, path.Length - prefix.Length - suffix.Length);
+        return Uri.UnescapeDataString(encoded);
     }
 
     private static TranslationCacheFilterOptionsQuery ParseTranslationFilterOptionsQuery(HttpListenerRequest request)

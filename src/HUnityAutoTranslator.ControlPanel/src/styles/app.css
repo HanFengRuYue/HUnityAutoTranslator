@@ -1439,6 +1439,23 @@ input[type="range"] {
   gap: 8px;
   flex-wrap: wrap;
 }
+.texture-scan-status {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 9px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.texture-scan-status.active {
+  border-color: color-mix(in srgb, var(--accent), transparent 45%);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
 .texture-errors {
   display: grid;
   gap: 6px;
@@ -1458,6 +1475,36 @@ input[type="range"] {
   color: var(--muted);
   font-size: 12px;
 }
+.texture-directory-tools {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+}
+.texture-scene-filter {
+  min-width: min(320px, 100%);
+}
+.texture-view-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+.texture-view-toggle button {
+  min-height: 30px;
+  border-color: transparent;
+  background: transparent;
+}
+.texture-view-toggle button.active {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--accent);
+}
 .texture-list {
   display: grid;
   gap: 10px;
@@ -1470,12 +1517,12 @@ input[type="range"] {
   padding: 11px 12px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--surface-2);
   transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
 }
 .texture-item:hover {
   border-color: var(--line-strong);
-  background: var(--surface-2);
+  background: var(--surface);
   transform: translateY(-1px);
 }
 .texture-item.overridden {
@@ -1496,10 +1543,14 @@ input[type="range"] {
   background-size: 14px 14px;
   background-position: 0 0, 0 7px, 7px -7px, -7px 0;
   color: var(--muted);
+  overflow: hidden;
 }
-.texture-thumb svg {
-  width: 19px;
-  height: 19px;
+.texture-thumb img,
+.texture-gallery-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
 }
 .texture-main {
   display: grid;
@@ -1545,6 +1596,79 @@ input[type="range"] {
   border-color: color-mix(in srgb, var(--accent), transparent 35%);
   background: var(--accent-soft);
   color: var(--accent-strong);
+}
+.texture-gallery {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(132px, 1fr));
+  gap: 10px;
+}
+.texture-card {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  padding: 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+}
+.texture-card:hover {
+  border-color: var(--line-strong);
+  background: var(--surface);
+  transform: translateY(-1px);
+}
+.texture-card.overridden {
+  border-color: color-mix(in srgb, var(--accent), transparent 45%);
+}
+.texture-gallery-thumb {
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background:
+    linear-gradient(45deg, color-mix(in srgb, var(--surface-3), transparent 12%) 25%, transparent 25%),
+    linear-gradient(-45deg, color-mix(in srgb, var(--surface-3), transparent 12%) 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, color-mix(in srgb, var(--surface-3), transparent 12%) 75%),
+    linear-gradient(-45deg, transparent 75%, color-mix(in srgb, var(--surface-3), transparent 12%) 75%);
+  background-size: 14px 14px;
+  background-position: 0 0, 0 7px, 7px -7px, -7px 0;
+  overflow: hidden;
+}
+.texture-card-copy {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.texture-card-copy strong,
+.texture-card-copy span,
+.texture-card-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.texture-card-copy strong {
+  color: var(--ink);
+  font-size: 13px;
+}
+.texture-card-copy span,
+.texture-card-copy small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.texture-pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.texture-pager > div {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 .column-control,
 .export-control { position: relative; }

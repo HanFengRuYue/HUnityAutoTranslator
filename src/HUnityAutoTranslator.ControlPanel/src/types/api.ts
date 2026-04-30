@@ -486,6 +486,16 @@ export interface TextureCatalogItem {
   OverrideUpdatedUtc: string | null;
 }
 
+export interface TextureCatalogScanStatus {
+  IsScanning: boolean;
+  Message: string;
+  StartedUtc: string | null;
+  CompletedUtc: string | null;
+  ProcessedTargets: number;
+  DiscoveredTextureCount: number;
+  DiscoveredReferenceCount: number;
+}
+
 export interface TextureCatalogPage {
   ScannedUtc: string | null;
   TextureCount: number;
@@ -493,6 +503,12 @@ export interface TextureCatalogPage {
   OverrideCount: number;
   Items: TextureCatalogItem[];
   Errors: string[];
+  TotalCount: number;
+  FilteredCount: number;
+  Offset: number;
+  Limit: number;
+  Scenes: string[];
+  ScanStatus: TextureCatalogScanStatus;
 }
 
 export interface TextureScanResult {
@@ -501,6 +517,8 @@ export interface TextureScanResult {
   ReferenceCount: number;
   OverrideCount: number;
   Errors: string[];
+  IsScanning: boolean;
+  Message: string;
 }
 
 export interface TextureImportResult {

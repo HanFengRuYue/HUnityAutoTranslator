@@ -212,6 +212,10 @@ public sealed class ControlPanelHtmlSourceTests
         serverSource.Should().Contain("path == \"/api/textures/export\"");
         serverSource.Should().Contain("path == \"/api/textures/import\"");
         serverSource.Should().Contain("path == \"/api/textures/overrides\"");
+        serverSource.Should().Contain("ParseTextureCatalogQuery");
+        serverSource.Should().Contain("path.StartsWith(\"/api/textures/\", StringComparison.Ordinal)");
+        serverSource.Should().Contain("TryGetSourceImage");
+        serverSource.Should().Contain("context.Request.QueryString[\"scene\"]");
         serverSource.Should().Contain("ReadBytesAsync(context.Request)");
         serverSource.Should().Contain("request.ContentLength64");
         serverSource.Should().Contain("WriteBytesAsync(context.Response");
@@ -219,6 +223,7 @@ public sealed class ControlPanelHtmlSourceTests
         serverSource.Should().Contain("response.OutputStream.Close()");
         serverSource.Should().Contain("new UTF8Encoding(false)");
         pluginSource.Should().Contain("texture-overrides");
+        pluginSource.Should().Contain("texture-catalog");
         pluginSource.Should().Contain("UnityTextureReplacementService");
         pluginSource.Should().Contain("new LocalHttpServer(");
     }
@@ -242,6 +247,19 @@ public sealed class ControlPanelHtmlSourceTests
         serviceSource.Should().Contain("TaskCreationOptions.RunContinuationsAsynchronously");
         serviceSource.Should().Contain("SceneManager.GetActiveScene()");
         serviceSource.Should().Contain("TextureOverrideStore");
+    }
+
+    [Fact]
+    public void Unity_texture_scan_runs_incrementally_and_uses_persistent_catalog()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextureReplacementService.cs"));
+
+        serviceSource.Should().Contain("TextureCatalogStore");
+        serviceSource.Should().Contain("TextureScanSession");
+        serviceSource.Should().Contain("ProcessScanSlice");
+        serviceSource.Should().Contain("MaxTextureScanTargetsPerTick");
+        serviceSource.Should().Contain("_catalogStore.Upsert");
+        serviceSource.Should().NotContain("return EnqueueOnMainThread(() => ScanOnMainThread(applyOverrides: true));");
     }
 
     [Fact]

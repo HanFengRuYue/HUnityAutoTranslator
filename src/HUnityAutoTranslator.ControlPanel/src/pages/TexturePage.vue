@@ -1,14 +1,19 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from "vue";
+import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import {
+  ChevronLeft,
+  ChevronRight,
   Download,
+  Grid2X2,
   Images,
   Layers3,
+  List,
+  RefreshCw,
   ScanLine,
   Trash2,
   Upload
 } from "lucide-vue-next";
-import { api, getJson } from "../api/client";
+import { api, buildQuery, getJson } from "../api/client";
 import MetricCard from "../components/MetricCard.vue";
 import SectionPanel from "../components/SectionPanel.vue";
 import { controlPanelStore, showToast } from "../state/controlPanelStore";
@@ -21,32 +26,89 @@ import type {
 } from "../types/api";
 import { formatDateTime, formatNumber } from "../utils/format";
 
+type TextureViewMode = "list" | "gallery";
+
 const catalog = ref<TextureCatalogPage | null>(null);
-const loading = ref(false);
+const catalogLoading = ref(false);
+const scanStarting = ref(false);
 const importing = ref(false);
 const exporting = ref(false);
 const importFile = ref<HTMLInputElement | null>(null);
 const operationErrors = ref<string[]>([]);
+const selectedScene = ref("");
+const viewMode = ref<TextureViewMode>("list");
+const currentPage = ref(1);
+let scanPollTimer: number | null = null;
 
 const items = computed(() => catalog.value?.Items ?? []);
 const errors = computed(() => catalog.value?.Errors ?? []);
+const scenes = computed(() => catalog.value?.Scenes ?? []);
+const scanStatus = computed(() => catalog.value?.ScanStatus ?? null);
+const isScanning = computed(() => scanStarting.value || scanStatus.value?.IsScanning === true);
+const pageSize = computed(() => viewMode.value === "gallery" ? 48 : 20);
+const filteredCount = computed(() => catalog.value?.FilteredCount ?? 0);
+const totalPages = computed(() => Math.max(1, Math.ceil(filteredCount.value / pageSize.value)));
 const scannedText = computed(() => catalog.value?.ScannedUtc ? formatDateTime(catalog.value.ScannedUtc) : "尚未扫描");
+const scanStatusText = computed(() => {
+  if (!scanStatus.value) {
+    return "等待扫描";
+  }
+
+  if (scanStatus.value.IsScanning) {
+    return `${scanStatus.value.Message} 已处理 ${formatNumber(scanStatus.value.ProcessedTargets)} 个目标`;
+  }
+
+  return "空闲";
+});
+
+function clearScanPoll(): void {
+  if (scanPollTimer !== null) {
+    window.clearTimeout(scanPollTimer);
+    scanPollTimer = null;
+  }
+}
+
+function scheduleScanPoll(): void {
+  clearScanPoll();
+  if (catalog.value?.ScanStatus?.IsScanning) {
+    scanPollTimer = window.setTimeout(() => {
+      void loadCatalog();
+    }, 900);
+  }
+}
 
 async function loadCatalog(): Promise<void> {
-  catalog.value = await getJson<TextureCatalogPage>("/api/textures");
+  catalogLoading.value = true;
+  try {
+    catalog.value = await getJson<TextureCatalogPage>(buildQuery("/api/textures", {
+      scene: selectedScene.value,
+      offset: (currentPage.value - 1) * pageSize.value,
+      limit: pageSize.value
+    }));
+    if (currentPage.value > totalPages.value) {
+      currentPage.value = totalPages.value;
+      return;
+    }
+
+    scheduleScanPoll();
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "贴图目录加载失败。", "error");
+  } finally {
+    catalogLoading.value = false;
+  }
 }
 
 async function scanTextures(): Promise<void> {
-  loading.value = true;
+  scanStarting.value = true;
   operationErrors.value = [];
   try {
     const result = await api<TextureScanResult>("/api/textures/scan", { method: "POST" });
     await loadCatalog();
-    showToast(`贴图扫描完成：${result.TextureCount} 张，${result.ReferenceCount} 个引用。`, result.Errors.length ? "warn" : "ok");
+    showToast(result.Message || "贴图扫描已开始。", result.IsScanning ? "info" : result.Errors.length ? "warn" : "ok");
   } catch (error) {
     showToast(error instanceof Error ? error.message : "贴图扫描失败。", "error");
   } finally {
-    loading.value = false;
+    scanStarting.value = false;
   }
 }
 
@@ -75,7 +137,7 @@ async function exportTextures(): Promise<void> {
   exporting.value = true;
   operationErrors.value = [];
   try {
-    const response = await fetch("/api/textures/export", { cache: "no-store" });
+    const response = await fetch(buildQuery("/api/textures/export", { scene: selectedScene.value }), { cache: "no-store" });
     if (!response.ok) {
       throw new Error(await response.text() || `导出失败：HTTP ${response.status}`);
     }
@@ -100,6 +162,7 @@ function openImportPicker(): void {
   if (importFile.value) {
     importFile.value.value = "";
   }
+
   importFile.value?.click();
 }
 
@@ -118,8 +181,7 @@ async function importTextures(event: Event): Promise<void> {
     });
     await loadCatalog();
     operationErrors.value = [...result.Errors];
-    const message = `已导入 ${result.ImportedCount} 张贴图，已应用 ${result.AppliedCount} 个引用。`;
-    showToast(message, result.Errors.length ? "warn" : "ok");
+    showToast(`已导入 ${result.ImportedCount} 张贴图，已应用 ${result.AppliedCount} 个引用。`, result.Errors.length ? "warn" : "ok");
   } catch (error) {
     showToast(error instanceof Error ? error.message : "贴图包导入失败。", "error");
   } finally {
@@ -135,7 +197,7 @@ async function clearTextureOverrides(): Promise<void> {
     return;
   }
 
-  loading.value = true;
+  scanStarting.value = true;
   operationErrors.value = [];
   try {
     const result = await api<TextureOverrideClearResult>("/api/textures/overrides", { method: "DELETE" });
@@ -145,7 +207,7 @@ async function clearTextureOverrides(): Promise<void> {
   } catch (error) {
     showToast(error instanceof Error ? error.message : "清空贴图覆盖失败。", "error");
   } finally {
-    loading.value = false;
+    scanStarting.value = false;
   }
 }
 
@@ -160,9 +222,36 @@ function primaryReference(item: TextureCatalogItem): string {
     .join(" / ") || reference.TargetId;
 }
 
+function textureImageUrl(item: TextureCatalogItem): string {
+  return `/api/textures/${encodeURIComponent(item.SourceHash)}/image`;
+}
+
+function textureMeta(item: TextureCatalogItem): string {
+  return `${item.Width} x ${item.Height} · ${item.Format} · ${item.ReferenceCount} 个引用`;
+}
+
+function setViewMode(mode: TextureViewMode): void {
+  viewMode.value = mode;
+}
+
+function goToPage(page: number): void {
+  currentPage.value = Math.min(totalPages.value, Math.max(1, page));
+}
+
+watch([selectedScene, viewMode], () => {
+  currentPage.value = 1;
+  void loadCatalog();
+});
+
+watch(currentPage, () => {
+  void loadCatalog();
+});
+
 onMounted(() => {
   void loadCatalog();
 });
+
+onUnmounted(clearScanPoll);
 </script>
 
 <template>
@@ -170,26 +259,39 @@ onMounted(() => {
     <div class="page-head">
       <div>
         <h1>贴图替换</h1>
-        <p>导出当前场景贴图包，并把修改后的 PNG 持久化替换回游戏。</p>
+        <p>扫描并导出已发现贴图，把修改后的 PNG 持久化替换回游戏。</p>
       </div>
       <div class="actions">
-        <button id="scanTextures" class="secondary" type="button" :disabled="loading" @click="scanTextures"><ScanLine class="button-icon" />{{ loading ? "扫描中..." : "扫描贴图" }}</button>
-        <button id="exportTextures" class="primary" type="button" :disabled="exporting" @click="exportTextures"><Download class="button-icon" />{{ exporting ? "导出中..." : "导出贴图包" }}</button>
+        <button id="scanTextures" class="secondary" type="button" :disabled="isScanning" @click="scanTextures">
+          <ScanLine class="button-icon" />
+          {{ isScanning ? "扫描中..." : "扫描贴图" }}
+        </button>
+        <button id="exportTextures" class="primary" type="button" :disabled="exporting" @click="exportTextures">
+          <Download class="button-icon" />
+          {{ exporting ? "导出中..." : "导出贴图包" }}
+        </button>
       </div>
     </div>
 
     <div class="texture-summary">
-      <MetricCard label="贴图" :value="formatNumber(catalog?.TextureCount)" help="去重后的 PNG 贴图数量。" />
-      <MetricCard label="引用" :value="formatNumber(catalog?.ReferenceCount)" help="当前扫描到的场景贴图引用数量。" />
+      <MetricCard label="贴图" :value="formatNumber(catalog?.TextureCount)" help="已记录到贴图目录的去重 PNG 数量。" />
+      <MetricCard label="引用" :value="formatNumber(catalog?.ReferenceCount)" help="已记录到贴图目录的组件引用数量。" />
       <MetricCard label="覆盖" :value="formatNumber(catalog?.OverrideCount)" help="已持久化的覆盖贴图数量。" />
-      <MetricCard label="最近扫描" :value="scannedText" help="本次运行中最近一次贴图扫描时间。" />
+      <MetricCard label="最近扫描" :value="scannedText" help="最近一次完成贴图扫描的时间。" />
     </div>
 
     <SectionPanel title="贴图包" :icon="Images">
       <div class="texture-toolbar">
         <input id="importTextureFile" ref="importFile" class="hidden-file-input" type="file" accept=".zip,application/zip" @change="importTextures">
-        <button id="importTextures" class="secondary" type="button" :disabled="importing" @click="openImportPicker"><Upload class="button-icon" />{{ importing ? "导入中..." : "导入贴图包" }}</button>
-        <button id="clearTextureOverrides" class="secondary danger" type="button" :disabled="loading || (catalog?.OverrideCount ?? 0) === 0" @click="clearTextureOverrides"><Trash2 class="button-icon" />清空覆盖</button>
+        <button id="importTextures" class="secondary" type="button" :disabled="importing" @click="openImportPicker">
+          <Upload class="button-icon" />
+          {{ importing ? "导入中..." : "导入贴图包" }}
+        </button>
+        <button id="clearTextureOverrides" class="secondary danger" type="button" :disabled="scanStarting || (catalog?.OverrideCount ?? 0) === 0" @click="clearTextureOverrides">
+          <Trash2 class="button-icon" />
+          清空覆盖
+        </button>
+        <span class="texture-scan-status" :class="{ active: scanStatus?.IsScanning }">{{ scanStatusText }}</span>
       </div>
       <div v-if="errors.length" class="texture-errors">
         <strong>扫描警告</strong>
@@ -202,20 +304,75 @@ onMounted(() => {
     </SectionPanel>
 
     <SectionPanel title="贴图目录" :icon="Layers3">
+      <template #actions>
+        <button class="secondary" type="button" :disabled="catalogLoading" @click="loadCatalog">
+          <RefreshCw class="button-icon" />
+          {{ catalogLoading ? "刷新中" : "刷新" }}
+        </button>
+      </template>
+
+      <div class="texture-directory-tools">
+        <label class="field texture-scene-filter">
+          <span class="field-label">场景</span>
+          <select id="textureSceneFilter" v-model="selectedScene">
+            <option value="">全部场景</option>
+            <option v-for="scene in scenes" :key="scene" :value="scene">{{ scene }}</option>
+          </select>
+        </label>
+        <div class="texture-view-toggle" role="group" aria-label="贴图目录视图">
+          <button class="secondary" :class="{ active: viewMode === 'list' }" type="button" @click="setViewMode('list')">
+            <List class="button-icon" />
+            列表
+          </button>
+          <button class="secondary" :class="{ active: viewMode === 'gallery' }" type="button" @click="setViewMode('gallery')">
+            <Grid2X2 class="button-icon" />
+            图库
+          </button>
+        </div>
+      </div>
+
       <div v-if="!items.length" class="empty-state">
-        <p>当前没有贴图记录。</p>
+        <p>{{ catalogLoading ? "正在加载贴图目录。" : "当前没有贴图记录。" }}</p>
+      </div>
+      <div v-else-if="viewMode === 'gallery'" class="texture-gallery">
+        <article v-for="item in items" :key="item.SourceHash" class="texture-card" :class="{ overridden: item.HasOverride }">
+          <div class="texture-gallery-thumb">
+            <img :src="textureImageUrl(item)" :alt="item.TextureName" loading="lazy" decoding="async">
+          </div>
+          <div class="texture-card-copy">
+            <strong>{{ item.TextureName }}</strong>
+            <span>{{ item.Width }} x {{ item.Height }}</span>
+            <small>{{ item.HasOverride ? "已覆盖" : "原图" }}</small>
+          </div>
+        </article>
       </div>
       <div v-else class="texture-list">
         <article v-for="item in items" :key="item.SourceHash" class="texture-item" :class="{ overridden: item.HasOverride }">
-          <div class="texture-thumb"><Images /></div>
+          <div class="texture-thumb">
+            <img :src="textureImageUrl(item)" :alt="item.TextureName" loading="lazy" decoding="async">
+          </div>
           <div class="texture-main">
             <h3>{{ item.TextureName }}</h3>
-            <p>{{ item.Width }} x {{ item.Height }} · {{ item.Format }} · {{ item.ReferenceCount }} 个引用</p>
+            <p>{{ textureMeta(item) }}</p>
             <small>{{ primaryReference(item) }}</small>
             <code>{{ item.SourceHash }}</code>
           </div>
           <span class="texture-status">{{ item.HasOverride ? "已覆盖" : "原图" }}</span>
         </article>
+      </div>
+
+      <div class="texture-pager">
+        <span>共 {{ formatNumber(filteredCount) }} 张，当前 {{ currentPage }} / {{ totalPages }} 页。</span>
+        <div>
+          <button class="secondary" type="button" :disabled="currentPage <= 1" @click="goToPage(currentPage - 1)">
+            <ChevronLeft class="button-icon" />
+            上一页
+          </button>
+          <button class="secondary" type="button" :disabled="currentPage >= totalPages" @click="goToPage(currentPage + 1)">
+            下一页
+            <ChevronRight class="button-icon" />
+          </button>
+        </div>
       </div>
     </SectionPanel>
   </section>

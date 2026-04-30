@@ -58,6 +58,7 @@ internal sealed class PluginRuntime : IDisposable
             var cachePath = Path.Combine(dataDirectory, "translation-cache.sqlite");
             var glossaryPath = Path.Combine(dataDirectory, "translation-glossary.sqlite");
             var textureOverridesPath = Path.Combine(dataDirectory, "texture-overrides");
+            var textureCatalogPath = Path.Combine(dataDirectory, "texture-catalog");
             _metrics = new ControlPanelMetrics();
             _controlPanel = ControlPanelService.CreateDefault(
                 new CfgControlPanelSettingsStore(settingsPath),
@@ -74,6 +75,7 @@ internal sealed class PluginRuntime : IDisposable
             _textureOverrides = new TextureOverrideStore(textureOverridesPath);
             _textureReplacement = new UnityTextureReplacementService(
                 _textureOverrides,
+                new TextureCatalogStore(textureCatalogPath),
                 () => _controlPanel?.GetConfig().GameTitle ?? Application.productName,
                 _logger);
             var pluginDirectory = _pluginDirectory ?? Path.GetDirectoryName(typeof(PluginRuntime).Assembly.Location) ?? Paths.PluginPath;
