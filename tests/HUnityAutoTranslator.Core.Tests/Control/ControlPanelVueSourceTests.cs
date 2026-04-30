@@ -36,10 +36,13 @@ public sealed class ControlPanelVueSourceTests
         var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
 
         statusPageSource.Should().Contain("state.value.QueueCount ?? state.value.QueuedTextCount ?? 0");
-        statusPageSource.Should().Contain("providerLabel");
+        statusPageSource.Should().Contain("activeProviderProfileLabel");
+        statusPageSource.Should().Contain("activeTranslationProviderLabel");
         statusPageSource.Should().Contain("MetricCard");
+        statusPageSource.Should().Contain("ActiveTranslationProvider");
         statusPageSource.Should().Contain("value-id=\"cacheCount\"");
         statusPageSource.Should().Contain("value-id=\"enabledText\"");
+        statusPageSource.Should().NotContain("API Key");
         statusPageSource.Should().NotContain("state.value.QueueCount || state.value.QueuedTextCount || 0");
         statusPageSource.Should().NotContain("WritebackQueueCount");
         statusPageSource.Should().NotContain("status-command");
@@ -74,11 +77,16 @@ public sealed class ControlPanelVueSourceTests
 
         apiTypesSource.Should().Contain("EffectiveMaxConcurrentRequests: number;");
         apiTypesSource.Should().Contain("ProviderProfiles: ProviderProfileState[] | null;");
+        apiTypesSource.Should().Contain("ActiveProviderProfileKind: string | number | null;");
+        apiTypesSource.Should().Contain("ActiveProviderProfileModel: string | null;");
+        apiTypesSource.Should().Contain("ActiveTranslationProvider: ProviderActivityPreview | null;");
         apiTypesSource.Should().Contain("MaxConcurrentRequests: number;");
         statusPageSource.Should().Contain("state.value.EffectiveMaxConcurrentRequests");
-        aiPageSource.Should().Contain("在线服务商按配置优先级执行");
         aiPageSource.Should().Contain("id=\"providerProfileMaxConcurrentRequests\"");
         aiPageSource.Should().Contain("max=\"100\"");
+        aiPageSource.Should().Contain("type=\"range\"");
+        aiPageSource.Should().Contain("id=\"providerProfileRequestsPerMinute\"");
+        aiPageSource.Should().Contain("max=\"15000\"");
         aiPageSource.Should().Contain("llama.cpp 本地模型");
     }
 
@@ -132,7 +140,7 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("v-if=\"isProfileDeepSeek\"");
         aiPageSource.Should().Contain("v-if=\"isProfileDeepSeek || isProfileOpenAiCompatible\"");
         aiPageSource.Should().NotContain("EnableOpenAiReasoning");
-        aiPageSource.Should().NotContain("DeepSeekReasoningEffort");
+        aiPageSource.Should().Contain("providerProfileDeepSeekReasoningEffort");
     }
 
     [Fact]
@@ -200,7 +208,7 @@ public sealed class ControlPanelVueSourceTests
         pluginPageSource.Should().Contain("点击后直接监听组合键，按 Backspace 或 Delete 可清空为 None。");
 
         aiPageSource.Should().Contain("class=\"field help-target\"");
-        aiPageSource.Should().Contain("在线服务商按配置优先级执行");
+        aiPageSource.Should().Contain("服务商配置按优先级执行");
         aiPageSource.Should().Contain("此配置可同时执行的在线请求数。");
         aiPageSource.Should().Contain("help: \"控制模型的总体翻译规则");
         aiPageSource.Should().Contain(":data-help=\"field.help\"");
@@ -240,7 +248,7 @@ public sealed class ControlPanelVueSourceTests
         metricCardSource.Should().Contain("icon?: Component");
         metricCardSource.Should().Contain("class=\"metric-icon\"");
         statusPageSource.Should().Contain(":icon=\"Activity\"");
-        statusPageSource.Should().Contain(":icon=\"Gauge\"");
+        statusPageSource.Should().Contain(":icon=\"Bot\"");
         pluginPageSource.Should().Contain("from \"lucide-vue-next\"");
         pluginPageSource.Should().NotContain("class=\"option-icon\"");
         aiPageSource.Should().Contain("from \"lucide-vue-next\"");
@@ -407,7 +415,7 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("async function runProfileUtility<T>");
         aiPageSource.Should().Contain("const providerEditorOpen = ref(false);");
         aiPageSource.Should().Contain("function openProviderProfileEditor(profile: ProviderProfileState): void");
-        aiPageSource.Should().Contain("function openNewProviderProfile(kind = 0): void");
+        aiPageSource.Should().Contain("function openNewProviderProfile(): void");
         aiPageSource.Should().Contain("function closeProviderProfileEditor(): void");
         aiPageSource.Should().Contain("if (profileDirty.value)");
         aiPageSource.Should().Contain("await saveProviderProfile();");
@@ -415,6 +423,10 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("/test");
         aiPageSource.Should().Contain("/models");
         aiPageSource.Should().Contain("/balance");
+        aiPageSource.Should().NotContain("saveUseOnlineProfiles");
+        aiPageSource.Should().NotContain("createLlamaCppProfile");
+        aiPageSource.Should().NotContain("openNewProviderProfile(0)");
+        aiPageSource.Should().NotContain("openNewProviderProfile(3)");
         aiPageSource.Should().NotContain("savePendingApiKey");
     }
 
@@ -435,6 +447,8 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("id=\"gameTitle\"");
         aiPageSource.Should().Contain(":placeholder=\"automaticGameTitle ||");
         aiPageSource.Should().Contain("id=\"providerProfileTemperature\"");
+        aiPageSource.Should().Contain("setProfileTemperatureFromRange");
+        aiPageSource.Should().Contain("formatTemperatureValue");
         aiPageSource.Should().Contain("v-if=\"isProfileDeepSeek || isProfileOpenAiCompatible\"");
         aiPageSource.Should().Contain("Temperature: profileForm.Temperature === \"\" ? null : Number(profileForm.Temperature)");
     }
@@ -642,9 +656,11 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("const hasLlamaCppProfile");
         aiPageSource.Should().Contain("const isProfileLlamaCpp");
         aiPageSource.Should().Contain("function buildProfileLlamaCppConfig(): LlamaCppConfig");
-        aiPageSource.Should().Contain("async function createLlamaCppProfile(): Promise<void>");
-        aiPageSource.Should().Contain(":disabled=\"hasLlamaCppProfile\"");
-        aiPageSource.Should().Contain("await saveConfig(buildConfigRequest(0), formKey, { quiet: true })");
+        aiPageSource.Should().Contain("function openNewProviderProfile(): void");
+        aiPageSource.Should().NotContain("async function createLlamaCppProfile(): Promise<void>");
+        aiPageSource.Should().NotContain("saveUseOnlineProfiles");
+        aiPageSource.Should().NotContain(":disabled=\"hasLlamaCppProfile\"");
+        aiPageSource.Should().NotContain("await saveConfig(buildConfigRequest(0), formKey, { quiet: true })");
         aiPageSource.Should().NotContain("await saveConfig(buildConfigRequest(3), formKey, { quiet: true })");
         aiPageSource.Should().Contain("SectionPanel title=\"服务商配置\"");
         aiPageSource.Should().NotContain("SectionPanel title=\"在线服务商配置\"");
@@ -716,8 +732,11 @@ public sealed class ControlPanelVueSourceTests
             .And.Contain("overflow-x: clip;")
             .And.Contain("overflow-y: auto;");
         CssBlock(cssSource, @"\.provider-editor-dialog\s+\.field\.help-target\[data-help\]::after,\s*\.provider-editor-dialog\s+\.llama-model-row\.help-target\[data-help\]::after")
-            .Should().Contain("position: static;")
-            .And.Contain("max-height: 0;");
+            .Should().Contain("position: absolute;")
+            .And.Contain("z-index: 90;");
+        CssBlock(cssSource, @"\.provider-editor-dialog\s+\.field\.help-target\[data-help\]::after,\s*\.provider-editor-dialog\s+\.llama-model-row\.help-target\[data-help\]::after")
+            .Should().NotContain("position: static;")
+            .And.NotContain("max-height: 0;");
         cssSource.Should().Contain(".provider-editor-dialog .field.help-target[data-help]:hover::after");
         cssSource.Should().Contain(".provider-editor-dialog .llama-model-row.help-target[data-help]:focus-within::after");
     }

@@ -3,14 +3,11 @@ import { computed } from "vue";
 import {
   Activity,
   Bot,
-  Coins,
   Database,
-  Gauge,
   History,
   ListTodo,
   LoaderPinwheel,
-  RefreshCw,
-  Timer
+  RefreshCw
 } from "lucide-vue-next";
 import MetricCard from "../components/MetricCard.vue";
 import SectionPanel from "../components/SectionPanel.vue";
@@ -30,6 +27,8 @@ const providerNames: Record<string, string> = {
 
 const state = computed(() => controlPanelStore.state);
 const isOffline = computed(() => controlPanelStore.connection === "offline");
+const providerProfiles = computed(() => state.value?.ProviderProfiles ?? []);
+const recentTranslations = computed(() => state.value?.RecentTranslations ?? []);
 
 const enabledText = computed(() => {
   if (isOffline.value) {
@@ -57,11 +56,59 @@ const activeTranslationCapacity = computed(() => {
   const max = state.value ? Math.max(1, state.value.EffectiveMaxConcurrentRequests ?? 1) : 0;
   return { inFlight, max };
 });
-const providerLabel = computed(() => providerNames[String(state.value?.ProviderKind ?? "")] ?? "-");
-const recentTranslations = computed(() => state.value?.RecentTranslations ?? []);
+
+const activeProviderProfileLabel = computed(() => {
+  if (!state.value) {
+    return "-";
+  }
+
+  return providerProfiles.value.length ? state.value.ActiveProviderProfileName ?? "无可用配置" : "未配置";
+});
+
+const activeTranslationProviderLabel = computed(() => {
+  const active = state.value?.ActiveTranslationProvider;
+  if (active?.Name) {
+    return active.Name;
+  }
+
+  return recentTranslations.value.find((item) => item.ProviderProfileName)?.ProviderProfileName ?? "-";
+});
+
+const activeProviderKindLabel = computed(() => {
+  if (!providerProfiles.value.length) {
+    return "未配置";
+  }
+
+  const kind = state.value?.ActiveTranslationProvider?.Kind ?? state.value?.ActiveProviderProfileKind;
+  return providerNames[String(kind ?? "")] ?? "-";
+});
+
+const activeProviderModelLabel = computed(() =>
+  state.value?.ActiveTranslationProvider?.Model ??
+  state.value?.ActiveProviderProfileModel ??
+  state.value?.Model ??
+  "-"
+);
+
+const rpmLabel = computed(() => {
+  if (!providerProfiles.value.length) {
+    return "-";
+  }
+
+  const kind = state.value?.ActiveTranslationProvider?.Kind ?? state.value?.ActiveProviderProfileKind;
+  if (String(kind) === "3" || String(kind) === "LlamaCpp") {
+    return "本地槽位";
+  }
+
+  return formatNumber(state.value?.RequestsPerMinute);
+});
 
 function formatInFlightCapacity(inFlight: number, max: number): string {
   return `${formatNumber(inFlight)}/${formatNumber(max)}`;
+}
+
+function formatRecentProvider(item: { Provider: string; Model: string; ProviderProfileName: string | null }): string {
+  return `${item.ProviderProfileName ?? item.Provider} / ${item.Model}`;
 }
 </script>
 
@@ -86,7 +133,7 @@ function formatInFlightCapacity(inFlight: number, max: number): string {
           value-id="enabledText"
           :icon="Activity"
           :tone="enabledTone"
-          help="当前插件是否启用，连接中断时会显示离线状态。"
+          help="当前插件是否启用；连接中断时会显示离线状态。"
         />
         <MetricCard
           label="等待翻译"
@@ -112,42 +159,45 @@ function formatInFlightCapacity(inFlight: number, max: number): string {
           tone="ok"
           help="已经保存到本地 SQLite，后续可直接复用或编辑的译文数量。"
         />
-        <MetricCard
-          label="平均耗时"
-          :value="formatMilliseconds(state?.AverageTranslationMilliseconds)"
-          value-id="averageTranslationMilliseconds"
-          :icon="Timer"
-          help="有耗时记录的翻译请求平均完成时间。"
-        />
-        <MetricCard
-          label="处理速度"
-          :value="formatRate(state?.AverageCharactersPerSecond)"
-          value-id="averageCharactersPerSecond"
-          :icon="Gauge"
-          help="按源文本字符数估算的平均翻译吞吐。"
-        />
-        <MetricCard
-          label="令牌用量"
-          :value="formatNumber(state?.TotalTokenCount)"
-          value-id="totalTokenCount"
-          :icon="Coins"
-          help="服务商返回的累计 token 用量，用于粗略判断成本。"
-        />
       </div>
 
       <SectionPanel title="AI 服务" :icon="Bot">
         <div class="provider-summary provider-summary-compact">
           <div>
+            <span>当前配置</span>
+            <strong>{{ activeProviderProfileLabel }}</strong>
+          </div>
+          <div>
+            <span>当前请求/最近使用</span>
+            <strong>{{ activeTranslationProviderLabel }}</strong>
+          </div>
+          <div>
             <span>服务商</span>
-            <strong>{{ providerLabel }}</strong>
+            <strong>{{ activeProviderKindLabel }}</strong>
           </div>
           <div>
             <span>模型</span>
-            <strong>{{ state?.Model ?? "-" }}</strong>
+            <strong>{{ activeProviderModelLabel }}</strong>
           </div>
           <div>
-            <span>API Key</span>
-            <strong>{{ state?.ApiKeyConfigured ? (state.ApiKeyPreview ?? "已配置") : "未配置" }}</strong>
+            <span>并发</span>
+            <strong>{{ formatInFlightCapacity(activeTranslationCapacity.inFlight, activeTranslationCapacity.max) }}</strong>
+          </div>
+          <div>
+            <span>RPM</span>
+            <strong>{{ rpmLabel }}</strong>
+          </div>
+          <div>
+            <span>平均耗时</span>
+            <strong>{{ formatMilliseconds(state?.AverageTranslationMilliseconds) }}</strong>
+          </div>
+          <div>
+            <span>处理速度</span>
+            <strong>{{ formatRate(state?.AverageCharactersPerSecond) }}</strong>
+          </div>
+          <div>
+            <span>Token 用量</span>
+            <strong>{{ formatNumber(state?.TotalTokenCount) }}</strong>
           </div>
         </div>
       </SectionPanel>
@@ -156,7 +206,7 @@ function formatInFlightCapacity(inFlight: number, max: number): string {
         <div v-if="recentTranslations.length" class="recent-list">
           <article v-for="item in recentTranslations" :key="`${item.SourceText}-${item.CompletedUtc}`" class="recent-item">
             <div>
-              <span>{{ item.TargetLanguage }} · {{ item.Provider }} / {{ item.Model }}</span>
+              <span>{{ item.TargetLanguage }} · {{ formatRecentProvider(item) }}</span>
               <strong>{{ item.TranslatedText }}</strong>
               <p>{{ item.SourceText }}</p>
             </div>

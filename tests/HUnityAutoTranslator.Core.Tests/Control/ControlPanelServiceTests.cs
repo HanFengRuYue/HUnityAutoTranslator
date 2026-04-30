@@ -23,7 +23,10 @@ public sealed class ControlPanelServiceTests
             Provider: "OpenAI",
             Model: "gpt-5.5",
             Context: "MainMenu/Button",
-            CompletedUtc: DateTimeOffset.Parse("2026-04-26T00:00:00Z")),
+            CompletedUtc: DateTimeOffset.Parse("2026-04-26T00:00:00Z"),
+            ProviderProfileId: "primary",
+            ProviderProfileName: "OpenAI 主配置",
+            ProviderProfileKind: "OpenAI"),
             totalTokens: 123,
             elapsed: TimeSpan.FromMilliseconds(250));
         metrics.RecordTranslationRequestFinished();
@@ -40,6 +43,8 @@ public sealed class ControlPanelServiceTests
         state.AverageCharactersPerSecond.Should().BeGreaterThan(0);
         state.RecentTranslations.Should().ContainSingle();
         state.RecentTranslations[0].TranslatedText.Should().Be("Start translated");
+        state.RecentTranslations[0].ProviderProfileName.Should().Be("OpenAI 主配置");
+        state.RecentTranslations[0].ProviderProfileKind.Should().Be("OpenAI");
     }
 
     [Fact]
@@ -54,6 +59,21 @@ public sealed class ControlPanelServiceTests
         state.ApiKeyPreview.Should().BeNull();
         service.GetApiKey().Should().Be("secret-value");
         state.TargetLanguage.Should().Be("zh-Hans");
+    }
+
+    [Fact]
+    public void Snapshot_reports_no_active_provider_profile_when_queue_is_empty()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        var state = service.GetState();
+
+        state.ProviderProfiles.Should().BeEmpty();
+        state.ActiveProviderProfileId.Should().BeNull();
+        state.ActiveProviderProfileName.Should().BeNull();
+        state.ActiveProviderProfileKind.Should().BeNull();
+        state.ActiveProviderProfileModel.Should().BeNull();
+        state.ApiKeyConfigured.Should().BeFalse();
     }
 
     [Fact]
@@ -225,7 +245,7 @@ public sealed class ControlPanelServiceTests
         state.CacheCount.Should().Be(9);
         state.MaxConcurrentRequests.Should().Be(100);
         state.EffectiveMaxConcurrentRequests.Should().Be(100);
-        state.RequestsPerMinute.Should().Be(600);
+        state.RequestsPerMinute.Should().Be(700);
         config.EnableUgui.Should().BeFalse();
         config.EnableTmp.Should().BeFalse();
         config.EnableImgui.Should().BeTrue();
@@ -385,6 +405,68 @@ public sealed class ControlPanelServiceTests
         ready.LlamaCpp.Should().NotBeNull();
         ready.LlamaCpp!.ModelPath.Should().Be(@"D:\Models\qwen.gguf");
         ready.MaxConcurrentRequests.Should().Be(2);
+    }
+
+    [Fact]
+    public void Provider_profiles_use_provider_specific_high_throughput_default_rpm()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        var openAi = service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "OpenAI",
+            Kind: ProviderKind.OpenAI));
+        var deepSeek = service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "DeepSeek",
+            Kind: ProviderKind.DeepSeek));
+        var compatible = service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "兼容网关",
+            Kind: ProviderKind.OpenAICompatible));
+
+        openAi.RequestsPerMinute.Should().Be(500);
+        deepSeek.RequestsPerMinute.Should().Be(15000);
+        compatible.RequestsPerMinute.Should().Be(15000);
+    }
+
+    [Fact]
+    public void Provider_profiles_report_active_profile_details_for_status_page()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "DeepSeek 主配置",
+            Kind: ProviderKind.DeepSeek,
+            Model: "deepseek-v4-flash",
+            ApiKey: "secret"));
+
+        var state = service.GetState();
+
+        state.ActiveProviderProfileName.Should().Be("DeepSeek 主配置");
+        state.ActiveProviderProfileKind.Should().Be(ProviderKind.DeepSeek);
+        state.ActiveProviderProfileModel.Should().Be("deepseek-v4-flash");
+    }
+
+    [Fact]
+    public void Snapshot_reports_current_runtime_provider_only_while_translation_is_in_flight()
+    {
+        var metrics = new ControlPanelMetrics();
+        var service = ControlPanelService.CreateDefault(metrics);
+        var runtimeProfile = ProviderRuntimeProfile.Create(
+            ProviderProfileDefinition.CreateDefault("DeepSeek runtime", ProviderKind.DeepSeek, priority: 0) with
+            {
+                ApiKey = "key"
+            });
+
+        metrics.RecordTranslationStarted();
+        metrics.RecordProviderAttempt(runtimeProfile);
+
+        var activeState = service.GetState();
+        activeState.ActiveTranslationProvider.Should().NotBeNull();
+        activeState.ActiveTranslationProvider!.Name.Should().Be("DeepSeek runtime");
+        activeState.ActiveTranslationProvider.Kind.Should().Be(ProviderKind.DeepSeek);
+
+        metrics.RecordTranslationRequestFinished();
+
+        service.GetState().ActiveTranslationProvider.Should().BeNull();
     }
 
     [Fact]

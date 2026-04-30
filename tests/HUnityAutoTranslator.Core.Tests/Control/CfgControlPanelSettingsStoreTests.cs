@@ -205,7 +205,7 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.Style.Should().Be(TranslationStyle.Localized);
         config.RequestTimeoutSeconds.Should().Be(30);
         config.MaxConcurrentRequests.Should().Be(100);
-        config.RequestsPerMinute.Should().Be(600);
+        config.RequestsPerMinute.Should().Be(700);
         config.MaxBatchCharacters.Should().Be(256);
         config.ScanInterval.TotalMilliseconds.Should().Be(100);
         config.MaxScanTargetsPerTick.Should().Be(1);

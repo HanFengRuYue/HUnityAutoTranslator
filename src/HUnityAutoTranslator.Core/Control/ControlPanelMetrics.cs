@@ -1,4 +1,5 @@
 using HUnityAutoTranslator.Core.Caching;
+using HUnityAutoTranslator.Core.Configuration;
 
 namespace HUnityAutoTranslator.Core.Control;
 
@@ -15,6 +16,7 @@ public sealed class ControlPanelMetrics
     private long _timedTranslationCount;
     private long _totalTranslationMilliseconds;
     private long _translatedCharacterCount;
+    private ProviderActivityPreview? _activeTranslationProvider;
 
     public void RecordCaptured()
     {
@@ -40,6 +42,19 @@ public sealed class ControlPanelMetrics
     public void RecordTranslationStarted()
     {
         Interlocked.Increment(ref _inFlightTranslationCount);
+    }
+
+    public void RecordProviderAttempt(ProviderRuntimeProfile profile)
+    {
+        lock (_gate)
+        {
+            _activeTranslationProvider = new ProviderActivityPreview(
+                profile.Id,
+                profile.Name,
+                profile.Profile.Kind,
+                profile.Profile.Model,
+                DateTimeOffset.UtcNow);
+        }
     }
 
     public void RecordTranslationCompleted(RecentTranslationPreview preview, int totalTokens = 0, TimeSpan? elapsed = null)
@@ -75,6 +90,13 @@ public sealed class ControlPanelMetrics
     public void RecordTranslationRequestFinished()
     {
         DecrementInFlight();
+        if (Interlocked.Read(ref _inFlightTranslationCount) == 0)
+        {
+            lock (_gate)
+            {
+                _activeTranslationProvider = null;
+            }
+        }
     }
 
     public ControlPanelMetricsSnapshot Snapshot()
@@ -84,15 +106,17 @@ public sealed class ControlPanelMetrics
             var timedTranslationCount = Interlocked.Read(ref _timedTranslationCount);
             var totalTranslationMilliseconds = Interlocked.Read(ref _totalTranslationMilliseconds);
             var translatedCharacterCount = Interlocked.Read(ref _translatedCharacterCount);
+            var inFlightTranslationCount = Interlocked.Read(ref _inFlightTranslationCount);
             return new ControlPanelMetricsSnapshot(
                 CapturedTextCount: Interlocked.Read(ref _capturedTextCount),
                 QueuedTextCount: Interlocked.Read(ref _queuedTextCount),
-                InFlightTranslationCount: Interlocked.Read(ref _inFlightTranslationCount),
+                InFlightTranslationCount: inFlightTranslationCount,
                 CompletedTranslationCount: Interlocked.Read(ref _completedTranslationCount),
                 TotalTokenCount: Interlocked.Read(ref _totalTokenCount),
                 AverageTranslationMilliseconds: timedTranslationCount == 0 ? 0 : (double)totalTranslationMilliseconds / timedTranslationCount,
                 AverageCharactersPerSecond: totalTranslationMilliseconds == 0 ? 0 : translatedCharacterCount / (totalTranslationMilliseconds / 1000.0),
-                RecentTranslations: _recentTranslations.Reverse().ToArray());
+                RecentTranslations: _recentTranslations.Reverse().ToArray(),
+                ActiveTranslationProvider: inFlightTranslationCount > 0 ? _activeTranslationProvider : null);
         }
     }
 
@@ -114,4 +138,12 @@ public sealed record ControlPanelMetricsSnapshot(
     long TotalTokenCount,
     double AverageTranslationMilliseconds,
     double AverageCharactersPerSecond,
-    IReadOnlyList<RecentTranslationPreview> RecentTranslations);
+    IReadOnlyList<RecentTranslationPreview> RecentTranslations,
+    ProviderActivityPreview? ActiveTranslationProvider = null);
+
+public sealed record ProviderActivityPreview(
+    string Id,
+    string Name,
+    ProviderKind Kind,
+    string Model,
+    DateTimeOffset StartedUtc);

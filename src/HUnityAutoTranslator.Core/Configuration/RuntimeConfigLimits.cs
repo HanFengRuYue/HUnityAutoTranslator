@@ -6,7 +6,7 @@ public static class RuntimeConfigLimits
     public const int DefaultMaxConcurrentRequests = 4;
     public const int MaxOnlineConcurrentRequests = 100;
     public const int MinRequestsPerMinute = 1;
-    public const int MaxRequestsPerMinute = 600;
+    public const int MaxRequestsPerMinute = 15000;
     public const int MaxLlamaCppParallelSlots = 16;
     public const int MinLlamaCppBatchSize = 128;
     public const int MaxLlamaCppBatchSize = 8192;

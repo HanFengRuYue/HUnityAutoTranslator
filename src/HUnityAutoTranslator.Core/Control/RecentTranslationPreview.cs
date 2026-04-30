@@ -7,4 +7,7 @@ public sealed record RecentTranslationPreview(
     string Provider,
     string Model,
     string? Context,
-    DateTimeOffset CompletedUtc);
+    DateTimeOffset CompletedUtc,
+    string? ProviderProfileId = null,
+    string? ProviderProfileName = null,
+    string? ProviderProfileKind = null);

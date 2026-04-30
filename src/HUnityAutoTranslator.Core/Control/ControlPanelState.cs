@@ -84,4 +84,7 @@ public sealed record ControlPanelState(
     LlamaCppServerStatus LlamaCppStatus,
     IReadOnlyList<ProviderProfileState>? ProviderProfiles = null,
     string? ActiveProviderProfileId = null,
-    string? ActiveProviderProfileName = null);
+    string? ActiveProviderProfileName = null,
+    ProviderKind? ActiveProviderProfileKind = null,
+    string? ActiveProviderProfileModel = null,
+    ProviderActivityPreview? ActiveTranslationProvider = null);

@@ -155,7 +155,10 @@ public sealed class ControlPanelService
                 NormalizeLlamaCppStatusForConfig(),
                 providerProfiles,
                 activeProfile?.Id,
-                activeProfile?.Name);
+                activeProfile?.Name,
+                activeProfile?.Kind,
+                activeProfile?.Model,
+                metrics.ActiveTranslationProvider);
         }
     }
 
@@ -1084,12 +1087,14 @@ public sealed class ControlPanelService
             GameTitle = SelectOptionalText(config.GameTitle, _automaticGameTitle)
         };
 
-        if (effective.Provider.Kind != ProviderKind.LlamaCpp)
+        var activeProfile = ResolveActiveProviderProfile();
+        if (activeProfile != null)
         {
-            var activeProfile = ResolveActiveProviderProfile();
-            effective = activeProfile == null
-                ? effective with { Provider = effective.Provider with { ApiKeyConfigured = false } }
-                : ProviderRuntimeProfile.Create(activeProfile).ApplyTo(effective);
+            effective = ProviderRuntimeProfile.Create(activeProfile).ApplyTo(effective);
+        }
+        else if (effective.Provider.Kind != ProviderKind.LlamaCpp)
+        {
+            effective = effective with { Provider = effective.Provider with { ApiKeyConfigured = false } };
         }
 
         if (effective.Provider.Kind != ProviderKind.LlamaCpp)

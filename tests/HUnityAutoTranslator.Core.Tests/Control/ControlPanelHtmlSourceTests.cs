@@ -348,6 +348,16 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Translation_worker_host_uses_failover_provider_for_ready_profile_queue()
+    {
+        var hostSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "TranslationWorkerHost.cs"));
+
+        hostSource.Should().Contain("if (_controlPanel.HasReadyProviderRuntimeProfile())");
+        hostSource.Should().Contain("return new FailoverTranslationProvider(");
+        hostSource.Should().Contain("return CreateLegacyProvider(config);");
+    }
+
+    [Fact]
     public void Font_replacement_automatic_candidates_preserve_priority_and_use_regular_face_for_variable_fonts()
     {
         var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));

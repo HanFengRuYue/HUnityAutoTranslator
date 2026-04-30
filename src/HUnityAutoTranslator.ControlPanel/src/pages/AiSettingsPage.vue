@@ -77,11 +77,11 @@ const providerKindOptions = [
   { value: 3, label: "llama.cpp 本地模型" }
 ];
 
-const providerDefaults: Record<number, { name: string; baseUrl: string; endpoint: string; model: string }> = {
-  0: { name: "OpenAI", baseUrl: "https://api.openai.com", endpoint: "/v1/responses", model: "gpt-5.5" },
-  1: { name: "DeepSeek", baseUrl: "https://api.deepseek.com", endpoint: "/chat/completions", model: "deepseek-v4-flash" },
-  2: { name: "OpenAI 兼容", baseUrl: "http://127.0.0.1:8000", endpoint: "/v1/chat/completions", model: "local-model" },
-  3: { name: "llama.cpp 本地模型", baseUrl: "http://127.0.0.1:0", endpoint: "/v1/chat/completions", model: "local-model" }
+const providerDefaults: Record<number, { name: string; baseUrl: string; endpoint: string; model: string; requestsPerMinute: number }> = {
+  0: { name: "OpenAI", baseUrl: "https://api.openai.com", endpoint: "/v1/responses", model: "gpt-5.5", requestsPerMinute: 500 },
+  1: { name: "DeepSeek", baseUrl: "https://api.deepseek.com", endpoint: "/chat/completions", model: "deepseek-v4-flash", requestsPerMinute: 15000 },
+  2: { name: "OpenAI 兼容", baseUrl: "http://127.0.0.1:8000", endpoint: "/v1/chat/completions", model: "local-model", requestsPerMinute: 15000 },
+  3: { name: "llama.cpp 本地模型", baseUrl: "http://127.0.0.1:0", endpoint: "/v1/chat/completions", model: "local-model", requestsPerMinute: 15000 }
 };
 
 const llamaCppStateLabels: Record<string, string> = {
@@ -190,7 +190,7 @@ const profileForm = reactive({
   ApiKey: "",
   ClearApiKey: false,
   MaxConcurrentRequests: 4,
-  RequestsPerMinute: 60,
+  RequestsPerMinute: 500,
   RequestTimeoutSeconds: 30,
   ReasoningEffort: "none",
   OutputVerbosity: "low",
@@ -228,13 +228,17 @@ const activePromptTemplateKey = ref<PromptTemplateKey>("SystemPrompt");
 const formDirty = computed(() => controlPanelStore.dirtyForms.has(formKey));
 const providerProfiles = computed(() => controlPanelStore.state?.ProviderProfiles ?? []);
 const selectedProfile = computed(() => providerProfiles.value.find((profile) => profile.Id === selectedProfileId.value) ?? null);
-const activeProviderProfileName = computed(() => controlPanelStore.state?.ActiveProviderProfileName ?? "无可用配置");
+const activeProviderProfileName = computed(() => controlPanelStore.state?.ActiveProviderProfileName ?? "未配置");
 const hasLlamaCppProfile = computed(() => providerProfiles.value.some((profile) => providerKindToNumber(profile.Kind) === 3));
 const profileKind = computed(() => numberValue(profileForm.Kind));
 const isProfileOpenAi = computed(() => profileKind.value === 0);
 const isProfileDeepSeek = computed(() => profileKind.value === 1);
 const isProfileOpenAiCompatible = computed(() => profileKind.value === 2);
 const isProfileLlamaCpp = computed(() => profileKind.value === 3);
+const profileTemperatureValue = computed(() => {
+  const parsed = Number(profileForm.Temperature);
+  return Number.isFinite(parsed) ? Math.max(0, Math.min(2, parsed)) : 0.2;
+});
 const activeStyleHint = computed(() => styleHints[numberValue(form.Style)] ?? "");
 const automaticGameTitle = computed(() => controlPanelStore.state?.AutomaticGameTitle ?? "");
 const defaultPromptTemplates = computed(() => controlPanelStore.state?.DefaultPromptTemplates ?? createPromptTemplates());
@@ -297,6 +301,33 @@ function markProfileDirty(): void {
 function numberValue(value: number | string): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function setProfileTemperatureFromRange(event: Event): void {
+  const target = event.target as HTMLInputElement | null;
+  profileForm.Temperature = target?.value ?? "0.2";
+  markProfileDirty();
+}
+
+function clearProfileTemperature(): void {
+  profileForm.Temperature = "";
+  markProfileDirty();
+}
+
+function onDeepSeekThinkingModeChange(): void {
+  if (profileForm.DeepSeekThinkingMode === "enabled" && !["high", "max"].includes(profileForm.ReasoningEffort)) {
+    profileForm.ReasoningEffort = "high";
+  }
+
+  markProfileDirty();
+}
+
+function formatTemperatureValue(): string {
+  return profileForm.Temperature === "" ? "默认" : Number(profileTemperatureValue.value).toFixed(1);
+}
+
+function formatRpmValue(value: number | string): string {
+  return `${Math.max(1, Math.round(numberValue(value))).toLocaleString()} RPM`;
 }
 
 function formatBytes(value: number | null | undefined): string {
@@ -640,15 +671,6 @@ async function saveGlobalConfig(options: SaveBehavior = {}): Promise<void> {
   }
 }
 
-async function saveUseOnlineProfiles(): Promise<void> {
-  form.ProviderKind = 0;
-  const state = await saveConfig(buildConfigRequest(0), formKey, { quiet: true });
-  if (state) {
-    applyState(state, true);
-    showToast("已切换为按服务商配置优先级翻译。", "ok");
-  }
-}
-
 function createProfileDefaults(kind = 0): boolean {
   if (kind === 3 && hasLlamaCppProfile.value) {
     showToast("只能创建一个本地模型配置。", "warn");
@@ -666,9 +688,9 @@ function createProfileDefaults(kind = 0): boolean {
   profileForm.ApiKey = "";
   profileForm.ClearApiKey = false;
   profileForm.MaxConcurrentRequests = 4;
-  profileForm.RequestsPerMinute = 60;
+  profileForm.RequestsPerMinute = defaults.requestsPerMinute;
   profileForm.RequestTimeoutSeconds = 30;
-  profileForm.ReasoningEffort = "none";
+  profileForm.ReasoningEffort = kind === 1 ? "high" : "none";
   profileForm.OutputVerbosity = "low";
   profileForm.DeepSeekThinkingMode = "disabled";
   profileForm.Temperature = "";
@@ -680,8 +702,8 @@ function createProfileDefaults(kind = 0): boolean {
   return true;
 }
 
-function openNewProviderProfile(kind = 0): void {
-  if (createProfileDefaults(kind)) {
+function openNewProviderProfile(): void {
+  if (createProfileDefaults(0)) {
     providerEditorOpen.value = true;
   }
 }
@@ -706,10 +728,6 @@ function closeProviderProfileEditor(): void {
   providerEditorOpen.value = false;
 }
 
-async function createLlamaCppProfile(): Promise<void> {
-  openNewProviderProfile(3);
-}
-
 function applyProfileKindDefaults(): void {
   if (profileKind.value === 3 && hasLlamaCppProfile.value && selectedProfile.value?.Id !== profileForm.Id) {
     showToast("只能创建一个本地模型配置。", "warn");
@@ -723,6 +741,10 @@ function applyProfileKindDefaults(): void {
   profileForm.BaseUrl = defaults.baseUrl;
   profileForm.Endpoint = defaults.endpoint;
   profileForm.Model = defaults.model;
+  profileForm.RequestsPerMinute = defaults.requestsPerMinute;
+  profileForm.ReasoningEffort = profileKind.value === 1 ? "high" : "none";
+  profileForm.OutputVerbosity = "low";
+  profileForm.DeepSeekThinkingMode = "disabled";
   profileForm.Name = currentName || defaults.name;
   profileForm.Id = currentId;
   if (profileKind.value === 3) {
@@ -1111,7 +1133,7 @@ watch(selectedProfileId, () => applySelectedProfile(true));
     <div class="page-head">
       <div>
         <h1>AI 翻译</h1>
-        <p>在线服务商按配置优先级执行，llama.cpp 保持独立本地模型流程。</p>
+        <p>服务商配置按优先级执行，在线与本地模型统一参与失败切换。</p>
       </div>
       <div class="actions">
         <button class="secondary" type="button" :disabled="controlPanelStore.isRefreshing" @click="refreshState()">
@@ -1184,9 +1206,7 @@ watch(selectedProfileId, () => applySelectedProfile(true));
             <strong>{{ activeProviderProfileName }}</strong>
           </div>
           <div class="actions inline-actions">
-            <button class="secondary" type="button" @click="saveUseOnlineProfiles"><Bot class="button-icon" />使用配置队列</button>
-            <button class="secondary" type="button" @click="openNewProviderProfile(0)"><Plus class="button-icon" />新建在线配置</button>
-            <button class="secondary" type="button" :disabled="hasLlamaCppProfile" @click="createLlamaCppProfile"><Server class="button-icon" />新建本地模型</button>
+            <button class="secondary" type="button" @click="openNewProviderProfile"><Plus class="button-icon" />新建配置</button>
             <button class="secondary" type="button" @click="openImportPicker"><FileInput class="button-icon" />导入</button>
             <input ref="importInput" class="sr-only" type="file" accept=".hutprovider" @change="importProviderProfile">
           </div>
@@ -1296,21 +1316,34 @@ watch(selectedProfileId, () => applySelectedProfile(true));
           </div>
 
           <div class="form-grid four">
-            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="此配置可同时执行的在线请求数。">
+            <label v-if="!isProfileLlamaCpp" class="field range-field help-target" data-help="此配置可同时执行的在线请求数。">
               <span class="field-label"><Gauge class="field-label-icon" />并发</span>
-              <input id="providerProfileMaxConcurrentRequests" v-model.number="profileForm.MaxConcurrentRequests" type="number" min="1" max="100" @input="markProfileDirty">
+              <span class="range-row">
+                <input id="providerProfileMaxConcurrentRequests" v-model.number="profileForm.MaxConcurrentRequests" type="range" min="1" max="100" @input="markProfileDirty">
+                <strong class="range-value">{{ profileForm.MaxConcurrentRequests }}</strong>
+              </span>
             </label>
-            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="此配置每分钟最多发送的请求数。">
+            <label v-if="!isProfileLlamaCpp" class="field range-field help-target" data-help="此配置每分钟最多发送的请求数。">
               <span class="field-label"><Clock3 class="field-label-icon" />RPM</span>
-              <input id="providerProfileRequestsPerMinute" v-model.number="profileForm.RequestsPerMinute" type="number" min="1" max="600" @input="markProfileDirty">
+              <span class="range-row">
+                <input id="providerProfileRequestsPerMinute" v-model.number="profileForm.RequestsPerMinute" type="range" min="1" max="15000" step="1" @input="markProfileDirty">
+                <strong class="range-value wide">{{ formatRpmValue(profileForm.RequestsPerMinute) }}</strong>
+              </span>
             </label>
-            <label class="field help-target" data-help="此配置单次请求超时时间。">
+            <label class="field range-field help-target" data-help="此配置单次请求超时时间。">
               <span class="field-label"><Clock3 class="field-label-icon" />超时(秒)</span>
-              <input id="providerProfileRequestTimeoutSeconds" v-model.number="profileForm.RequestTimeoutSeconds" type="number" min="5" max="180" @input="markProfileDirty">
+              <span class="range-row">
+                <input id="providerProfileRequestTimeoutSeconds" v-model.number="profileForm.RequestTimeoutSeconds" type="range" min="5" max="180" step="5" @input="markProfileDirty">
+                <strong class="range-value">{{ profileForm.RequestTimeoutSeconds }}s</strong>
+              </span>
             </label>
-            <label v-if="isProfileDeepSeek || isProfileOpenAiCompatible" class="field help-target" data-help="留空表示使用服务默认值。">
+            <label v-if="isProfileDeepSeek || isProfileOpenAiCompatible" class="field range-field help-target" data-help="留空表示使用服务默认值。">
               <span class="field-label"><Thermometer class="field-label-icon" />Temperature</span>
-              <input id="providerProfileTemperature" v-model="profileForm.Temperature" type="number" min="0" max="2" step="0.1" @input="markProfileDirty">
+              <span class="range-row">
+                <input id="providerProfileTemperature" :value="profileTemperatureValue" type="range" min="0" max="2" step="0.1" @input="setProfileTemperatureFromRange">
+                <strong id="providerProfileTemperatureDisplay" class="range-value">{{ formatTemperatureValue() }}</strong>
+              </span>
+              <button v-if="profileForm.Temperature !== ''" class="text-button compact" type="button" @click="clearProfileTemperature">使用默认</button>
             </label>
             <label v-if="isProfileOpenAi" class="field help-target" data-help="普通翻译建议 none。">
               <span class="field-label"><Brain class="field-label-icon" />OpenAI 推理</span>
@@ -1320,7 +1353,6 @@ watch(selectedProfileId, () => applySelectedProfile(true));
                 <option value="medium">medium</option>
                 <option value="high">high</option>
                 <option value="xhigh">xhigh</option>
-                <option value="max">max</option>
               </select>
             </label>
             <label v-if="isProfileOpenAi" class="field help-target" data-help="普通翻译建议 low。">
@@ -1333,9 +1365,16 @@ watch(selectedProfileId, () => applySelectedProfile(true));
             </label>
             <label v-if="isProfileDeepSeek" class="field help-target" data-help="普通 UI 翻译建议 disabled。">
               <span class="field-label"><Brain class="field-label-icon" />DeepSeek Thinking</span>
-              <select id="providerProfileDeepSeekThinkingMode" v-model="profileForm.DeepSeekThinkingMode" @change="markProfileDirty">
+              <select id="providerProfileDeepSeekThinkingMode" v-model="profileForm.DeepSeekThinkingMode" @change="onDeepSeekThinkingModeChange">
                 <option value="disabled">disabled</option>
                 <option value="enabled">enabled</option>
+              </select>
+            </label>
+            <label v-if="isProfileDeepSeek && profileForm.DeepSeekThinkingMode === 'enabled'" class="field help-target" data-help="DeepSeek thinking 开启后才发送思考强度。">
+              <span class="field-label"><Brain class="field-label-icon" />Thinking 强度</span>
+              <select id="providerProfileDeepSeekReasoningEffort" v-model="profileForm.ReasoningEffort" @change="markProfileDirty">
+                <option value="high">high</option>
+                <option value="max">max</option>
               </select>
             </label>
           </div>

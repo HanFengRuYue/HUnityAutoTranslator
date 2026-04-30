@@ -195,6 +195,17 @@ export interface RecentTranslationPreview {
   Model: string;
   Context: string | null;
   CompletedUtc: string;
+  ProviderProfileId: string | null;
+  ProviderProfileName: string | null;
+  ProviderProfileKind: string | null;
+}
+
+export interface ProviderActivityPreview {
+  Id: string;
+  Name: string;
+  Kind: string | number;
+  Model: string;
+  StartedUtc: string;
 }
 
 export interface ControlPanelState {
@@ -279,6 +290,9 @@ export interface ControlPanelState {
   ProviderProfiles: ProviderProfileState[] | null;
   ActiveProviderProfileId: string | null;
   ActiveProviderProfileName: string | null;
+  ActiveProviderProfileKind: string | number | null;
+  ActiveProviderProfileModel: string | null;
+  ActiveTranslationProvider: ProviderActivityPreview | null;
 }
 
 export interface UpdateConfigRequest {

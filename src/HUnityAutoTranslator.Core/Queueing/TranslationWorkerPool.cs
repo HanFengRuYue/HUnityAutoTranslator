@@ -295,7 +295,7 @@ public sealed class TranslationWorkerPool
 
         if (publishJobs.Count > 0)
         {
-            PublishResults(publishJobs, publishTexts, response.TotalTokens, elapsed, response.Provider ?? _config.Provider);
+            PublishResults(publishJobs, publishTexts, response, elapsed);
         }
 
         return retryJobs;
@@ -605,10 +605,11 @@ public sealed class TranslationWorkerPool
     private int PublishResults(
         IReadOnlyList<TranslationJob> jobs,
         IReadOnlyList<string> translatedTexts,
-        int totalTokens,
-        TimeSpan elapsed,
-        ProviderProfile provider)
+        TranslationResponse response,
+        TimeSpan elapsed)
     {
+        var provider = response.Provider ?? _config.Provider;
+        var totalTokens = response.TotalTokens;
         var count = Math.Min(jobs.Count, translatedTexts.Count);
         for (var i = 0; i < count; i++)
         {
@@ -641,7 +642,10 @@ public sealed class TranslationWorkerPool
                 provider.Kind.ToString(),
                 provider.Model,
                 jobs[i].Context.ComponentHierarchy ?? jobs[i].Context.SceneName ?? jobs[i].Context.ComponentType,
-                DateTimeOffset.UtcNow),
+                DateTimeOffset.UtcNow,
+                response.ProviderProfileId,
+                response.ProviderProfileName,
+                response.ProviderProfileId == null ? null : provider.Kind.ToString()),
                 itemTokens,
                 itemElapsed);
         }

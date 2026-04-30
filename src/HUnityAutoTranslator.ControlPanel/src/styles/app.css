@@ -884,29 +884,29 @@ button:disabled {
 }
 .provider-editor-dialog .field.help-target[data-help]::after,
 .provider-editor-dialog .llama-model-row.help-target[data-help]::after {
-  position: static;
+  position: absolute;
+  left: 0;
+  top: auto;
+  bottom: calc(100% + 6px);
+  z-index: 90;
   display: block;
-  width: 100%;
-  max-width: 100%;
-  max-height: 0;
-  grid-column: 1 / -1;
-  padding: 0 8px;
-  border-width: 0;
+  width: min(360px, calc(100vw - 56px));
+  max-width: calc(100vw - 56px);
+  padding: 6px 8px;
+  border-width: 1px;
   color: var(--muted);
   background: var(--surface-2);
-  box-shadow: none;
-  overflow: hidden;
+  box-shadow: var(--shadow);
+  pointer-events: none;
   opacity: 0;
-  transform: none;
+  transform: translateY(3px);
 }
 .provider-editor-dialog .field.help-target[data-help]:hover::after,
 .provider-editor-dialog .field.help-target[data-help]:focus-within::after,
 .provider-editor-dialog .llama-model-row.help-target[data-help]:hover::after,
 .provider-editor-dialog .llama-model-row.help-target[data-help]:focus-within::after {
-  max-height: 88px;
-  padding: 6px 8px;
-  border-width: 1px;
   opacity: 1;
+  transform: translateY(0);
 }
 .textarea-field textarea {
   min-height: 96px;
@@ -1186,6 +1186,46 @@ textarea {
 input:hover,
 select:hover,
 textarea:hover { border-color: var(--line-strong); }
+input[type="range"] {
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  accent-color: var(--accent);
+}
+.range-field {
+  align-content: start;
+}
+.range-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(54px, auto);
+  align-items: center;
+  gap: 10px;
+  min-height: 36px;
+}
+.range-value {
+  min-width: 48px;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  color: var(--ink);
+  background: var(--surface-2);
+  text-align: center;
+  font-size: 12px;
+  white-space: nowrap;
+}
+.range-value.wide {
+  min-width: 86px;
+}
+.text-button.compact {
+  width: max-content;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-size: 12px;
+}
 .hotkey-input[readonly] {
   cursor: pointer;
   caret-color: transparent;

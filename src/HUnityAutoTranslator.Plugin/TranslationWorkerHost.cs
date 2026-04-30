@@ -135,7 +135,7 @@ internal sealed class TranslationWorkerHost : IDisposable
 
     private ITranslationProvider CreateProvider(RuntimeConfig config)
     {
-        if (config.Provider.Kind != ProviderKind.LlamaCpp)
+        if (_controlPanel.HasReadyProviderRuntimeProfile())
         {
             return new FailoverTranslationProvider(
                 _controlPanel.GetReadyProviderRuntimeProfiles,
@@ -150,9 +150,15 @@ internal sealed class TranslationWorkerHost : IDisposable
 
                     return shouldFailOver;
                 },
-                profile => _controlPanel.RegisterProviderProfileSuccess(profile));
+                profile => _controlPanel.RegisterProviderProfileSuccess(profile),
+                profile => _metrics.RecordProviderAttempt(profile));
         }
 
+        return CreateLegacyProvider(config);
+    }
+
+    private ITranslationProvider CreateLegacyProvider(RuntimeConfig config)
+    {
         return config.Provider.Kind == ProviderKind.OpenAI
             ? new OpenAiResponsesProvider(
                 _httpClient,
@@ -262,9 +268,14 @@ internal sealed class TranslationWorkerHost : IDisposable
 
     private async Task<bool> ProviderReadyAsync(RuntimeConfig config, CancellationToken cancellationToken)
     {
+        if (_controlPanel.HasReadyProviderRuntimeProfile())
+        {
+            return true;
+        }
+
         if (config.Provider.Kind != ProviderKind.LlamaCpp)
         {
-            return _controlPanel.HasReadyProviderRuntimeProfile();
+            return false;
         }
 
         if (_llamaCppServer == null)

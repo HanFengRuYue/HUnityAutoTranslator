@@ -49,7 +49,7 @@ public sealed record ProviderProfileDefinition(
             Model: profile.Model,
             ApiKey: null,
             MaxConcurrentRequests: RuntimeConfigLimits.DefaultMaxConcurrentRequests,
-            RequestsPerMinute: 60,
+            RequestsPerMinute: DefaultRequestsPerMinute(kind),
             RequestTimeoutSeconds: 30,
             ReasoningEffort: "none",
             OutputVerbosity: "low",
@@ -89,9 +89,11 @@ public sealed record ProviderProfileDefinition(
             MaxConcurrentRequests = kind == ProviderKind.LlamaCpp
                 ? RuntimeConfigLimits.ClampLlamaCppParallelSlots(llamaCpp?.ParallelSlots ?? LlamaCppConfig.Default().ParallelSlots)
                 : RuntimeConfigLimits.ClampOnlineConcurrentRequests(MaxConcurrentRequests),
-            RequestsPerMinute = RuntimeConfigLimits.ClampRequestsPerMinute(RequestsPerMinute),
+            RequestsPerMinute = RuntimeConfigLimits.ClampRequestsPerMinute(RequestsPerMinute <= 0
+                ? DefaultRequestsPerMinute(kind)
+                : RequestsPerMinute),
             RequestTimeoutSeconds = Clamp(RequestTimeoutSeconds, 5, 180),
-            ReasoningEffort = SelectKnown(ReasoningEffort, "none", "none", "low", "medium", "high", "xhigh", "max"),
+            ReasoningEffort = NormalizeReasoningEffort(kind, ReasoningEffort),
             OutputVerbosity = SelectKnown(OutputVerbosity, "low", "low", "medium", "high"),
             DeepSeekThinkingMode = SelectKnown(DeepSeekThinkingMode, "disabled", "enabled", "disabled"),
             OpenAICompatibleCustomHeaders = kind == ProviderKind.OpenAICompatible ? customHeaders : null,
@@ -168,6 +170,18 @@ public sealed record ProviderProfileDefinition(
         };
     }
 
+    public static int DefaultRequestsPerMinute(ProviderKind kind)
+    {
+        return NormalizeProfileKind(kind) switch
+        {
+            ProviderKind.OpenAI => 500,
+            ProviderKind.DeepSeek => 15000,
+            ProviderKind.OpenAICompatible => 15000,
+            ProviderKind.LlamaCpp => 15000,
+            _ => 500
+        };
+    }
+
     private static LlamaCppConfig NormalizeLlamaCppConfig(LlamaCppConfig? config)
     {
         var current = config ?? LlamaCppConfig.Default();
@@ -202,5 +216,15 @@ public sealed record ProviderProfileDefinition(
 
         var trimmed = value.Trim();
         return allowed.FirstOrDefault(item => string.Equals(item, trimmed, StringComparison.OrdinalIgnoreCase)) ?? fallback;
+    }
+
+    private static string NormalizeReasoningEffort(ProviderKind kind, string? value)
+    {
+        return NormalizeProfileKind(kind) switch
+        {
+            ProviderKind.DeepSeek => SelectKnown(value, "high", "high", "max"),
+            ProviderKind.OpenAI => SelectKnown(value, "none", "none", "low", "medium", "high", "xhigh"),
+            _ => SelectKnown(value, "none", "none", "low", "medium", "high", "xhigh", "max")
+        };
     }
 }
