@@ -9,6 +9,18 @@ namespace HUnityAutoTranslator.Plugin.Unity;
 
 internal sealed class UnityTextFontReplacementService
 {
+    private static readonly string[] CandidateFontNames =
+    {
+        "Noto Sans SC",
+        "Microsoft YaHei UI",
+        "Microsoft YaHei",
+        "SimSun",
+        "SimHei",
+        "DengXian",
+        "Arial Unicode MS",
+        "Noto Sans CJK SC"
+    };
+
     private static readonly string[] CandidateFontFiles =
     {
         @"C:\Windows\Fonts\simhei.ttf",
@@ -119,7 +131,7 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
-        var resolved = ResolveFont(config, key, context);
+        var resolved = ResolveUnityTextFont(config, key, context);
         if (resolved?.Font == null)
         {
             return;
@@ -148,12 +160,6 @@ internal sealed class UnityTextFontReplacementService
         if (!_runtimeReplacementFontsEnabled)
         {
             RestoreKnownTmpFont(component);
-            return;
-        }
-
-        var resolved = ResolveFont(config, key, context);
-        if (resolved == null)
-        {
             return;
         }
 
@@ -208,7 +214,7 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
-        var resolved = ResolveFont(config, key, context);
+        var resolved = ResolveUnityTextFont(config, key, context);
         if (resolved?.Font == null || GUI.skin == null)
         {
             return;
@@ -425,7 +431,23 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
-        _automaticFontFallbackReporter(null, ResolveFirstUsableAutomaticFontFile(config.FontSamplingPointSize));
+        _automaticFontFallbackReporter(
+            ResolveFirstUsableAutomaticFontName(config.FontSamplingPointSize),
+            ResolveFirstUsableAutomaticFontFile(config.FontSamplingPointSize));
+    }
+
+    private string? ResolveFirstUsableAutomaticFontName(int size)
+    {
+        foreach (var fontName in CandidateFontNames)
+        {
+            var candidate = FontCandidate.Create("auto-name", fontName, warnOnUnityFailure: false);
+            if (candidate != null && ResolveExplicitFont(candidate, size) != null)
+            {
+                return fontName;
+            }
+        }
+
+        return null;
     }
 
     private string? ResolveFirstUsableAutomaticFontFile(int size)
@@ -447,9 +469,9 @@ internal sealed class UnityTextFontReplacementService
         return null;
     }
 
-    private ResolvedFont? ResolveFont(RuntimeConfig config, TranslationCacheKey? key, TranslationCacheContext? context)
+    private ResolvedFont? ResolveUnityTextFont(RuntimeConfig config, TranslationCacheKey? key, TranslationCacheContext? context)
     {
-        foreach (var candidate in EnumerateFontCandidates(config, key, context))
+        foreach (var candidate in EnumerateUnityFontCandidates(config, key, context))
         {
             var resolved = ResolveExplicitFont(candidate, config.FontSamplingPointSize);
             if (resolved != null)
@@ -478,7 +500,7 @@ internal sealed class UnityTextFontReplacementService
 
         var attemptedCandidates = new List<string>();
         string? lastError = null;
-        foreach (var candidate in EnumerateFontCandidates(config, key, context))
+        foreach (var candidate in EnumerateTmpFontCandidates(config, key, context))
         {
             var resolved = ResolveExplicitFont(candidate, config.FontSamplingPointSize);
             if (resolved == null)
@@ -527,7 +549,62 @@ internal sealed class UnityTextFontReplacementService
         return null;
     }
 
-    private IEnumerable<FontCandidate> EnumerateFontCandidates(
+    private IEnumerable<FontCandidate> EnumerateUnityFontCandidates(
+        RuntimeConfig config,
+        TranslationCacheKey? key,
+        TranslationCacheContext? context)
+    {
+        if (key != null && context != null && _cache.TryGetReplacementFont(key, context, out var overrideFont))
+        {
+            var candidate = FontCandidate.Create("row", overrideFont, warnOnUnityFailure: true);
+            if (candidate != null)
+            {
+                yield return candidate;
+            }
+        }
+
+        var fontNameCandidate = FontCandidate.Create("name", config.ReplacementFontName, warnOnUnityFailure: true);
+        if (fontNameCandidate != null)
+        {
+            yield return fontNameCandidate;
+        }
+
+        var fontFileCandidate = FontCandidate.Create("file", config.ReplacementFontFile, warnOnUnityFailure: true);
+        if (fontFileCandidate != null)
+        {
+            yield return fontFileCandidate;
+        }
+
+        if (!config.AutoUseCjkFallbackFonts)
+        {
+            yield break;
+        }
+
+        foreach (var fontName in CandidateFontNames)
+        {
+            var candidate = FontCandidate.Create("auto-name", fontName, warnOnUnityFailure: false);
+            if (candidate != null)
+            {
+                yield return candidate;
+            }
+        }
+
+        foreach (var fontFile in CandidateFontFiles)
+        {
+            if (!File.Exists(fontFile))
+            {
+                continue;
+            }
+
+            var candidate = FontCandidate.Create("auto-file", fontFile, warnOnUnityFailure: false);
+            if (candidate != null)
+            {
+                yield return candidate;
+            }
+        }
+    }
+
+    private IEnumerable<FontCandidate> EnumerateTmpFontCandidates(
         RuntimeConfig config,
         TranslationCacheKey? key,
         TranslationCacheContext? context)
@@ -1432,6 +1509,7 @@ internal sealed class UnityTextFontReplacementService
                 "row" => "行内字体",
                 "file" => "字体文件",
                 "name" => "字体名",
+                "auto-name" => "自动字体名",
                 "auto-file" => "自动字体",
                 _ => source
             };

@@ -310,8 +310,9 @@ public sealed class ControlPanelHtmlSourceTests
 
         serviceSource.Should().Contain("_failedTmpFontAssetKeys");
         serviceSource.Should().Contain("ResolveTmpFontAsset");
-        serviceSource.Should().Contain("EnumerateFontCandidates");
-        serviceSource.Should().Contain("foreach (var candidate in EnumerateFontCandidates(config, key, context))");
+        serviceSource.Should().Contain("EnumerateTmpFontCandidates");
+        serviceSource.Should().Contain("EnumerateUnityFontCandidates");
+        serviceSource.Should().Contain("foreach (var candidate in EnumerateTmpFontCandidates(config, key, context))");
         serviceSource.Should().Contain("无法用候选字体创建 TMP 后备字体");
         serviceSource.Should().Contain("Action<string?, string?> automaticFontFallbackReporter");
         serviceSource.Should().Contain("ReportAutomaticFontFallbacks(config);");
@@ -356,6 +357,27 @@ public sealed class ControlPanelHtmlSourceTests
         serviceSource.Should().Contain("TMP 全局后备字体未安装");
         serviceSource.Should().Contain("TMP 组件字体直接替换失败");
         serviceSource.Should().Contain("TMP 组件字体后备表已挂载");
+    }
+
+    [Fact]
+    public void Ugui_font_replacement_prefers_os_font_names_while_tmp_keeps_file_candidates()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+
+        var uguiBlock = serviceSource[
+            serviceSource.IndexOf("public void ApplyToUgui", StringComparison.Ordinal)..
+            serviceSource.IndexOf("public void RestoreUgui", StringComparison.Ordinal)];
+        var imguiBlock = serviceSource[
+            serviceSource.IndexOf("public void ApplyToImgui", StringComparison.Ordinal)..
+            serviceSource.IndexOf("public void RestoreImgui", StringComparison.Ordinal)];
+
+        serviceSource.Should().Contain("private static readonly string[] CandidateFontNames");
+        serviceSource.Should().Contain("foreach (var fontName in CandidateFontNames)");
+        serviceSource.Should().Contain("private IEnumerable<FontCandidate> EnumerateUnityFontCandidates");
+        serviceSource.Should().Contain("private IEnumerable<FontCandidate> EnumerateTmpFontCandidates");
+        uguiBlock.Should().Contain("ResolveUnityTextFont(config, key, context)");
+        imguiBlock.Should().Contain("ResolveUnityTextFont(config, key, context)");
+        serviceSource.Should().Contain("foreach (var candidate in EnumerateTmpFontCandidates(config, key, context))");
     }
 
     [Fact]
@@ -467,10 +489,15 @@ public sealed class ControlPanelHtmlSourceTests
             .Should().BeLessThan(candidateFileBlock.IndexOf(@"C:\Windows\Fonts\NotoSansSC-VF.ttf", StringComparison.Ordinal));
         candidateFileBlock.Should().Contain(".ttf");
         candidateFileBlock.Should().NotContain(".ttc");
+        serviceSource.Should().Contain("private static readonly string[] CandidateFontNames");
+        serviceSource.Should().Contain("FontCandidate.Create(\"auto-name\"");
         serviceSource.Should().Contain("Noto Sans SC Regular");
         serviceSource.Should().Contain("Noto Serif SC Regular");
         serviceSource.Should().Contain("FontCandidate.Create(\"auto-file\"");
-        serviceSource.Should().NotContain("FontCandidate.Create(\"auto-name\"");
+        var tmpCandidateBlock = serviceSource[
+            serviceSource.IndexOf("private IEnumerable<FontCandidate> EnumerateTmpFontCandidates", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private ResolvedFont? ResolveExplicitFont", StringComparison.Ordinal)];
+        tmpCandidateBlock.Should().NotContain("FontCandidate.Create(\"auto-name\"");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)
