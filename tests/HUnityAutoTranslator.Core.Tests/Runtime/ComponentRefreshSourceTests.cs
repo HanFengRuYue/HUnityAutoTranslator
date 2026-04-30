@@ -63,6 +63,23 @@ public sealed class ComponentRefreshSourceTests
     }
 
     [Fact]
+    public void Text_scanners_apply_component_fonts_only_after_translated_text_is_available()
+    {
+        AssertComponentFontReplacementWaitsForTranslatedText(
+            File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs")),
+            "_fontReplacement?.ApplyToTmp(component,");
+        AssertComponentFontReplacementWaitsForTranslatedText(
+            File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs")),
+            "_fontReplacement?.ApplyToUgui(component,");
+
+        var imguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ImguiHookInstaller.cs"));
+        var cacheHitIndex = imguiSource.IndexOf("if (_cache.TryGet(key, context, out var translated))", StringComparison.Ordinal);
+        cacheHitIndex.Should().BeGreaterThanOrEqualTo(0);
+        imguiSource.IndexOf("_fontReplacement?.ApplyToImgui(key, context);", StringComparison.Ordinal)
+            .Should().BeGreaterThan(cacheHitIndex);
+    }
+
+    [Fact]
     public void Unity_applier_can_resolve_refresh_results_by_component_context()
     {
         var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));
@@ -125,5 +142,21 @@ public sealed class ComponentRefreshSourceTests
 
         var pipelineIndex = source.IndexOf("new CapturedText(target.Id, text, target.IsVisible, context)", StringComparison.Ordinal);
         pipelineIndex.Should().BeGreaterThan(rereadIndex);
+    }
+
+    private static void AssertComponentFontReplacementWaitsForTranslatedText(string source, string applyCall)
+    {
+        var firstApplyIndex = source.IndexOf(applyCall, StringComparison.Ordinal);
+        firstApplyIndex.Should().BeGreaterThanOrEqualTo(0);
+
+        var rememberedCheckIndex = source.IndexOf("if (_applier.IsRememberedTranslation(target.Id, text))", StringComparison.Ordinal);
+        rememberedCheckIndex.Should().BeGreaterThanOrEqualTo(0);
+
+        var cachedTranslationIndex = source.IndexOf("if (decision.Kind == PipelineDecisionKind.UseCachedTranslation && decision.TranslatedText != null)", StringComparison.Ordinal);
+        cachedTranslationIndex.Should().BeGreaterThanOrEqualTo(0);
+
+        firstApplyIndex.Should().BeGreaterThan(rememberedCheckIndex);
+        source.IndexOf(applyCall, cachedTranslationIndex, StringComparison.Ordinal)
+            .Should().BeGreaterThan(cachedTranslationIndex);
     }
 }

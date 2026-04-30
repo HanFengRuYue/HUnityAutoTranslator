@@ -6,6 +6,8 @@ public interface IGlossaryStore
 
     GlossaryTermPage Query(GlossaryQuery query);
 
+    GlossaryFilterOptionPage GetFilterOptions(GlossaryFilterOptionsQuery query);
+
     IReadOnlyList<GlossaryTerm> GetEnabledTerms(string targetLanguage);
 
     GlossaryTerm UpsertManual(GlossaryTerm term);

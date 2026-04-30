@@ -27,6 +27,7 @@ public sealed class MemoryTranslationCache : ITranslationCache
     public bool TryGetReplacementFont(TranslationCacheKey key, TranslationCacheContext context, out string replacementFont)
     {
         if (_items.TryGetValue(TranslationCacheLookupKey.Create(key, context), out var entry) &&
+            entry.TranslatedText != null &&
             !string.IsNullOrWhiteSpace(entry.ReplacementFont) &&
             ContextMatches(entry, context))
         {

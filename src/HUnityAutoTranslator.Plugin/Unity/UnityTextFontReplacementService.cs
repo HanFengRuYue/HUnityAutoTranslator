@@ -130,6 +130,12 @@ internal sealed class UnityTextFontReplacementService
         SetProperty(component, "font", resolved.Font);
     }
 
+    public void RestoreUgui(UnityEngine.Object component)
+    {
+        RestoreKnownFont(component, _uguiOriginalFonts);
+        ForgetFontTarget(component, _uguiFontTargets, _uguiOriginalFonts, _uguiReplacementFonts);
+    }
+
     public void ApplyToTmp(UnityEngine.Object component, TranslationCacheKey key, TranslationCacheContext context)
     {
         var config = _configProvider();
@@ -181,6 +187,12 @@ internal sealed class UnityTextFontReplacementService
         AddTmpFallback(fontAsset);
     }
 
+    public void RestoreTmp(UnityEngine.Object component)
+    {
+        RestoreKnownTmpFont(component);
+        ForgetFontTarget(component, _tmpFontTargets, _tmpOriginalFonts, _tmpReplacementFonts);
+    }
+
     public void ApplyToImgui(TranslationCacheKey key, TranslationCacheContext context)
     {
         var config = _configProvider();
@@ -210,6 +222,12 @@ internal sealed class UnityTextFontReplacementService
 
         _imguiReplacementFont = resolved.Font;
         GUI.skin.font = resolved.Font;
+    }
+
+    public void RestoreImgui()
+    {
+        RestoreImguiFont();
+        _imguiReplacementFont = null;
     }
 
     public int SetReplacementFontsEnabledForRuntime(bool enabled)
@@ -245,6 +263,18 @@ internal sealed class UnityTextFontReplacementService
         {
             SetTmpFont(component, originalFont);
         }
+    }
+
+    private static void ForgetFontTarget(
+        UnityEngine.Object component,
+        Dictionary<int, UnityEngine.Object> targets,
+        Dictionary<int, object?> originalFonts,
+        Dictionary<int, object?> replacementFonts)
+    {
+        var id = component.GetInstanceID();
+        targets.Remove(id);
+        originalFonts.Remove(id);
+        replacementFonts.Remove(id);
     }
 
     private int RestoreOriginalFontTargets()

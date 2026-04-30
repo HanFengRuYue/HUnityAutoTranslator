@@ -417,9 +417,21 @@ export interface GlossaryTermRequest {
   SourceTerm: string;
   TargetTerm: string;
   TargetLanguage?: string;
+  OriginalSourceTerm?: string | null;
+  OriginalTargetLanguage?: string | null;
   Note?: string | null;
   Enabled?: boolean;
   UsageCount?: number;
+}
+
+export interface GlossaryFilterOption {
+  Value: string | null;
+  Count: number;
+}
+
+export interface GlossaryFilterOptionPage {
+  Column: string;
+  Items: GlossaryFilterOption[];
 }
 
 export interface ProviderModelInfo {

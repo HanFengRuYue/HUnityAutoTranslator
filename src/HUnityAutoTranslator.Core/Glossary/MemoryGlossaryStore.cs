@@ -22,6 +22,7 @@ public sealed class MemoryGlossaryStore : IGlossaryStore
                 Contains(term.Source.ToString(), search));
         }
 
+        rows = rows.Where(term => GlossaryColumns.MatchesFilters(term, query.ColumnFilters));
         rows = Sort(rows, query.SortColumn, query.SortDescending);
         var total = rows.Count();
         var items = rows
@@ -29,6 +30,47 @@ public sealed class MemoryGlossaryStore : IGlossaryStore
             .Take(Math.Min(500, Math.Max(1, query.Limit)))
             .ToArray();
         return new GlossaryTermPage(total, items);
+    }
+
+    public GlossaryFilterOptionPage GetFilterOptions(GlossaryFilterOptionsQuery query)
+    {
+        var column = GlossaryColumns.NormalizeColumn(query.Column);
+        if (column.Length == 0)
+        {
+            return new GlossaryFilterOptionPage(string.Empty, Array.Empty<GlossaryFilterOption>());
+        }
+
+        var rows = _terms.Values.AsEnumerable();
+        if (!string.IsNullOrWhiteSpace(query.Search))
+        {
+            var search = query.Search.Trim();
+            rows = rows.Where(term =>
+                Contains(term.SourceTerm, search) ||
+                Contains(term.TargetTerm, search) ||
+                Contains(term.TargetLanguage, search) ||
+                Contains(term.Note, search) ||
+                Contains(term.Source.ToString(), search));
+        }
+
+        rows = rows.Where(term => GlossaryColumns.MatchesFilters(
+            term,
+            GlossaryColumns.NormalizeFilters(query.ColumnFilters, column)));
+
+        if (!string.IsNullOrWhiteSpace(query.OptionSearch))
+        {
+            var optionSearch = query.OptionSearch.Trim();
+            rows = rows.Where(term => Contains(GlossaryColumns.ValueFor(term, column), optionSearch));
+        }
+
+        var items = rows
+            .GroupBy(term => GlossaryColumns.NormalizeOptionValue(GlossaryColumns.ValueFor(term, column)))
+            .OrderBy(group => group.Key is not null)
+            .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .Take(Math.Min(500, Math.Max(1, query.Limit)))
+            .Select(group => new GlossaryFilterOption(group.Key, group.Count()))
+            .ToArray();
+
+        return new GlossaryFilterOptionPage(column, items);
     }
 
     public IReadOnlyList<GlossaryTerm> GetEnabledTerms(string targetLanguage)
@@ -139,6 +181,8 @@ public sealed class MemoryGlossaryStore : IGlossaryStore
             "source_term" => row => row.SourceTerm,
             "target_term" => row => row.TargetTerm,
             "target_language" => row => row.TargetLanguage,
+            "note" => row => row.Note,
+            "enabled" => row => row.Enabled,
             "source" => row => row.Source,
             "usage_count" => row => row.UsageCount,
             "created_utc" => row => row.CreatedUtc,

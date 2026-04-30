@@ -58,6 +58,7 @@ import type {
   ProviderTestResult,
   UpdateConfigRequest
 } from "../types/api";
+import { targetLanguageOptions } from "../utils/languages";
 
 const formKey = "ai";
 type PromptTemplateKey = keyof PromptTemplateConfig;
@@ -97,26 +98,6 @@ const styleHints: Record<number, string> = {
   2: "本地化：适合游戏语境和 UI 文案。",
   3: "简短：菜单、按钮和提示更短。"
 };
-
-const targetLanguageOptions = [
-  { value: "zh-Hans", label: "简体中文" },
-  { value: "zh-Hant", label: "繁体中文" },
-  { value: "en", label: "英语" },
-  { value: "ja", label: "日语" },
-  { value: "ko", label: "韩语" },
-  { value: "fr", label: "法语" },
-  { value: "de", label: "德语" },
-  { value: "es", label: "西班牙语" },
-  { value: "pt", label: "葡萄牙语" },
-  { value: "pt-BR", label: "巴西葡萄牙语" },
-  { value: "ru", label: "俄语" },
-  { value: "it", label: "意大利语" },
-  { value: "th", label: "泰语" },
-  { value: "vi", label: "越南语" },
-  { value: "id", label: "印尼语" },
-  { value: "tr", label: "土耳其语" },
-  { value: "ar", label: "阿拉伯语" }
-];
 
 const promptTemplateFields: Array<{
   key: PromptTemplateKey;
@@ -163,10 +144,6 @@ const form = reactive({
   EnableTranslationContext: true,
   TranslationContextMaxExamples: 4,
   TranslationContextMaxCharacters: 1200,
-  EnableGlossary: true,
-  EnableAutoTermExtraction: false,
-  GlossaryMaxTerms: 16,
-  GlossaryMaxCharacters: 1200,
   CustomPrompt: "",
   PromptTemplates: createPromptTemplates(),
   LlamaCppModelPath: "",
@@ -517,10 +494,6 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.EnableTranslationContext = Boolean(state.EnableTranslationContext);
   form.TranslationContextMaxExamples = state.TranslationContextMaxExamples ?? 4;
   form.TranslationContextMaxCharacters = state.TranslationContextMaxCharacters ?? 1200;
-  form.EnableGlossary = Boolean(state.EnableGlossary);
-  form.EnableAutoTermExtraction = Boolean(state.EnableAutoTermExtraction);
-  form.GlossaryMaxTerms = state.GlossaryMaxTerms ?? 16;
-  form.GlossaryMaxCharacters = state.GlossaryMaxCharacters ?? 1200;
   form.LlamaCppModelPath = state.LlamaCpp?.ModelPath ?? "";
   form.LlamaCppContextSize = state.LlamaCpp?.ContextSize ?? 4096;
   form.LlamaCppGpuLayers = state.LlamaCpp?.GpuLayers ?? 999;
@@ -580,10 +553,6 @@ function buildConfigRequest(providerKind = form.ProviderKind): UpdateConfigReque
     EnableTranslationContext: form.EnableTranslationContext,
     TranslationContextMaxExamples: numberValue(form.TranslationContextMaxExamples),
     TranslationContextMaxCharacters: numberValue(form.TranslationContextMaxCharacters),
-    EnableGlossary: form.EnableGlossary,
-    EnableAutoTermExtraction: form.EnableAutoTermExtraction,
-    GlossaryMaxTerms: numberValue(form.GlossaryMaxTerms),
-    GlossaryMaxCharacters: numberValue(form.GlossaryMaxCharacters),
     PromptTemplates: buildPromptTemplateOverrides(),
     LlamaCpp: buildLlamaCppConfig()
   };
@@ -1176,8 +1145,6 @@ watch(selectedProfileId, () => applySelectedProfile(true));
         </div>
         <div class="checks">
           <label class="check help-target" data-help="把同组件或同场景附近文本作为参考发给 AI。"><input id="enableTranslationContext" v-model="form.EnableTranslationContext" type="checkbox" @change="markDirty">启用翻译上下文</label>
-          <label class="check help-target" data-help="启用术语库约束。"><input id="enableGlossary" v-model="form.EnableGlossary" type="checkbox" @change="markDirty">启用术语库</label>
-          <label class="check help-target" data-help="允许 AI 从已捕获文本中抽取候选术语，默认建议关闭。"><input id="enableAutoTermExtraction" v-model="form.EnableAutoTermExtraction" type="checkbox" @change="markDirty">自动抽取术语</label>
         </div>
         <div class="form-grid four">
           <label v-if="form.EnableTranslationContext" class="field help-target" data-help="每条请求最多带入多少条上下文示例。">
@@ -1187,14 +1154,6 @@ watch(selectedProfileId, () => applySelectedProfile(true));
           <label v-if="form.EnableTranslationContext" class="field help-target" data-help="限制上下文示例占用字符数。">
             <span class="field-label"><MessageSquareText class="field-label-icon" />上下文字符数</span>
             <input id="translationContextMaxCharacters" v-model.number="form.TranslationContextMaxCharacters" type="number" min="0" @input="markDirty">
-          </label>
-          <label class="field help-target" data-help="每次请求最多使用多少条术语。">
-            <span class="field-label"><ListChecks class="field-label-icon" />术语数量</span>
-            <input id="glossaryMaxTerms" v-model.number="form.GlossaryMaxTerms" type="number" min="0" @input="markDirty">
-          </label>
-          <label class="field help-target" data-help="术语提示最多占用多少字符。">
-            <span class="field-label"><MessageSquareText class="field-label-icon" />术语字符数</span>
-            <input id="glossaryMaxCharacters" v-model.number="form.GlossaryMaxCharacters" type="number" min="0" @input="markDirty">
           </label>
         </div>
       </SectionPanel>

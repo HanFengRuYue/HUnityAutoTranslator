@@ -107,6 +107,7 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         var text = target.GetText();
         if (string.IsNullOrWhiteSpace(text))
         {
+            _fontReplacement?.RestoreTmp(component);
             return;
         }
 
@@ -114,22 +115,47 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         text = target.GetText();
         if (string.IsNullOrWhiteSpace(text))
         {
+            _fontReplacement?.RestoreTmp(component);
             return;
         }
 
         var context = new TranslationCacheContext(target.SceneName, target.HierarchyPath, target.ComponentType);
         var config = _configProvider();
         var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, TextPipeline.GetPromptPolicyVersion(config));
-        _fontReplacement?.ApplyToTmp(component, key, context);
         if (_applier.IsRememberedTranslation(target.Id, text))
         {
+            if (_applier.TryGetRememberedSourceText(target.Id, text, out var sourceText))
+            {
+                var rememberedKey = TranslationCacheKey.Create(
+                    sourceText,
+                    config.TargetLanguage,
+                    config.Provider,
+                    TextPipeline.GetPromptPolicyVersion(config));
+                _fontReplacement?.ApplyToTmp(component, rememberedKey, context);
+            }
+            else
+            {
+                _fontReplacement?.RestoreTmp(component);
+            }
+
             return;
         }
 
         var decision = _pipeline.Process(new CapturedText(target.Id, text, target.IsVisible, context));
         if (decision.Kind == PipelineDecisionKind.UseCachedTranslation && decision.TranslatedText != null)
         {
-            _applier.RememberAndApply(target, text, decision.TranslatedText);
+            if (_applier.RememberAndApply(target, text, decision.TranslatedText))
+            {
+                _fontReplacement?.ApplyToTmp(component, key, context);
+            }
+            else
+            {
+                _fontReplacement?.RestoreTmp(component);
+            }
+        }
+        else
+        {
+            _fontReplacement?.RestoreTmp(component);
         }
     }
 

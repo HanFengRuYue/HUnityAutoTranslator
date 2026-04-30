@@ -74,4 +74,78 @@ public sealed class GlossaryStoreTests
 
         File.Exists(path).Should().BeTrue();
     }
+
+    [Fact]
+    public void Memory_store_filters_and_counts_glossary_columns()
+    {
+        var store = new MemoryGlossaryStore();
+        store.UpsertManual(GlossaryTerm.CreateManual("Freddy", "弗雷迪", "zh-Hans", "角色名"));
+        store.UpsertManual(GlossaryTerm.CreateManual("Foxy", "狐狸", "zh-Hans", null) with { Enabled = false });
+        store.UpsertManual(GlossaryTerm.CreateManual("Bonnie", "邦尼", "ja", "角色名"));
+        store.UpsertAutomatic(GlossaryTerm.CreateAutomatic("Pirate Cove", "海盗湾", "zh-Hans", "场景"));
+
+        var page = store.Query(new GlossaryQuery(
+            Search: null,
+            SortColumn: "source_term",
+            SortDescending: false,
+            Offset: 0,
+            Limit: 20,
+            ColumnFilters: new[]
+            {
+                new GlossaryColumnFilter("target_language", new[] { "zh-Hans" }),
+                new GlossaryColumnFilter("note", new string?[] { null, "场景" })
+            }));
+
+        page.TotalCount.Should().Be(2);
+        page.Items.Select(item => item.SourceTerm).Should().Equal("Foxy", "Pirate Cove");
+
+        var options = store.GetFilterOptions(new GlossaryFilterOptionsQuery(
+            Column: "source",
+            Search: null,
+            ColumnFilters: new[] { new GlossaryColumnFilter("target_language", new[] { "zh-Hans" }) },
+            OptionSearch: null,
+            Limit: 20));
+
+        options.Column.Should().Be("source");
+        options.Items.Should().ContainEquivalentOf(new GlossaryFilterOption("Manual", 2));
+        options.Items.Should().ContainEquivalentOf(new GlossaryFilterOption("Automatic", 1));
+    }
+
+    [Fact]
+    public void Sqlite_store_filters_and_counts_glossary_columns()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-glossary.sqlite");
+        using var store = new SqliteGlossaryStore(path);
+        store.UpsertManual(GlossaryTerm.CreateManual("Freddy", "弗雷迪", "zh-Hans", "角色名"));
+        store.UpsertManual(GlossaryTerm.CreateManual("Foxy", "狐狸", "zh-Hans", null) with { Enabled = false });
+        store.UpsertManual(GlossaryTerm.CreateManual("Bonnie", "邦尼", "ja", "角色名"));
+        store.UpsertAutomatic(GlossaryTerm.CreateAutomatic("Pirate Cove", "海盗湾", "zh-Hans", "场景"));
+
+        var page = store.Query(new GlossaryQuery(
+            Search: null,
+            SortColumn: "source_term",
+            SortDescending: false,
+            Offset: 0,
+            Limit: 20,
+            ColumnFilters: new[]
+            {
+                new GlossaryColumnFilter("enabled", new[] { "true" }),
+                new GlossaryColumnFilter("target_language", new[] { "zh-Hans" })
+            }));
+
+        page.TotalCount.Should().Be(2);
+        page.Items.Select(item => item.SourceTerm).Should().Equal("Freddy", "Pirate Cove");
+
+        var options = store.GetFilterOptions(new GlossaryFilterOptionsQuery(
+            Column: "note",
+            Search: null,
+            ColumnFilters: new[] { new GlossaryColumnFilter("target_language", new[] { "zh-Hans" }) },
+            OptionSearch: null,
+            Limit: 20));
+
+        options.Column.Should().Be("note");
+        options.Items.Should().ContainEquivalentOf(new GlossaryFilterOption(null, 1));
+        options.Items.Should().ContainEquivalentOf(new GlossaryFilterOption("角色名", 1));
+        options.Items.Should().ContainEquivalentOf(new GlossaryFilterOption("场景", 1));
+    }
 }

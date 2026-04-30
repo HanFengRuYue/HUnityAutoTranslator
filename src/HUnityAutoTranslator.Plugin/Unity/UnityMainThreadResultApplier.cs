@@ -91,6 +91,11 @@ internal sealed class UnityMainThreadResultApplier
         return _writebacks.IsRememberedTranslation(targetId, currentText);
     }
 
+    public bool TryGetRememberedSourceText(string targetId, string? currentText, out string sourceText)
+    {
+        return _writebacks.TryGetRememberedSourceText(targetId, currentText, out sourceText);
+    }
+
     public int Apply(IReadOnlyList<TranslationResult> results)
     {
         var applied = 0;

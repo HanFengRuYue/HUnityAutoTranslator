@@ -99,14 +99,38 @@ public sealed class ControlPanelHtmlSourceTests
         var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
 
         serverSource.Should().Contain("path == \"/api/glossary\"");
+        serverSource.Should().Contain("path == \"/api/glossary/filter-options\"");
         serverSource.Should().Contain("path == \"/api/translations/filter-options\"");
         serverSource.Should().Contain("path == \"/api/translations/retranslate\"");
         serverSource.Should().Contain("path == \"/api/translations/highlight\"");
+        serverSource.Should().Contain("ParseGlossaryFilterOptionsQuery");
+        serverSource.Should().Contain("ParseGlossaryColumnFilters");
+        serverSource.Should().Contain("OriginalSourceTerm");
+        serverSource.Should().Contain("OriginalTargetLanguage");
         serverSource.Should().Contain("ParseTranslationFilterOptionsQuery");
         serverSource.Should().Contain("ParseColumnFilters");
         serverSource.Should().Contain("TranslationCacheColumns.EmptyValueMarker");
         pluginSource.Should().Contain("translation-glossary.sqlite");
         pluginSource.Should().Contain("SqliteGlossaryStore");
+    }
+
+    [Fact]
+    public void Generated_control_panel_exposes_complete_glossary_table_controls()
+    {
+        var htmlSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "ControlPanelHtml.cs"));
+
+        htmlSource.Should().Contain("glossaryColumnMenuButton");
+        htmlSource.Should().Contain("glossaryColumnChooser");
+        htmlSource.Should().Contain("clearGlossaryFilters");
+        htmlSource.Should().Contain("saveGlossaryRows");
+        htmlSource.Should().Contain("deleteSelectedGlossaryTerms");
+        htmlSource.Should().Contain("glossaryContextMenu");
+        htmlSource.Should().Contain("glossaryColumnFilterMenu");
+        htmlSource.Should().Contain("/api/glossary/filter-options");
+        htmlSource.Should().Contain("hunity.glossary.columnWidths");
+        htmlSource.Should().Contain("data-glossary-action");
+        htmlSource.Should().Contain("删除选中术语");
+        htmlSource.Should().Contain("glossary-cell-center");
     }
 
     [Fact]

@@ -107,6 +107,7 @@ WHERE source_text = $source_text
   AND scene_name = $scene_name
   AND component_hierarchy = $component_hierarchy
   AND component_type IS $component_type
+  AND translated_text IS NOT NULL
   AND replacement_font IS NOT NULL
   AND replacement_font <> '';
 """;

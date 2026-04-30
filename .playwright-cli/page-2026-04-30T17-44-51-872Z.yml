@@ -1,0 +1,102 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - img "HUnity" [ref=e6]
+      - generic [ref=e7]:
+        - strong [ref=e8]: HUnity
+        - generic [ref=e9]: 控制面板
+    - button "收起" [ref=e10] [cursor=pointer]:
+      - img [ref=e11]
+      - generic [ref=e14]: 收起
+    - navigation "功能导航" [ref=e15]:
+      - button "运行状态" [ref=e16] [cursor=pointer]:
+        - img [ref=e17]
+        - strong [ref=e20]: 运行状态
+      - button "插件设置" [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+        - strong [ref=e25]: 插件设置
+      - button "AI 翻译设置" [ref=e26] [cursor=pointer]:
+        - img [ref=e27]
+        - strong [ref=e31]: AI 翻译设置
+      - button "术语库" [ref=e32] [cursor=pointer]:
+        - img [ref=e33]
+        - strong [ref=e36]: 术语库
+      - button "贴图替换" [ref=e37] [cursor=pointer]:
+        - img [ref=e38]
+        - strong [ref=e44]: 贴图替换
+      - button "文本编辑" [ref=e45] [cursor=pointer]:
+        - img [ref=e46]
+        - strong [ref=e50]: 文本编辑
+      - button "版本信息" [ref=e51] [cursor=pointer]:
+        - img [ref=e52]
+        - strong [ref=e55]: 版本信息
+    - generic [ref=e56]:
+      - generic "已连接" [ref=e57]:
+        - generic [ref=e58]: 已连接
+      - button "主题 浅色" [ref=e59] [cursor=pointer]:
+        - img [ref=e60]
+        - generic [ref=e66]: 主题
+        - strong [ref=e67]: 浅色
+  - main [ref=e68]:
+    - generic [ref=e70]:
+      - generic [ref=e71]:
+        - generic [ref=e72]:
+          - heading "运行状态" [level=1] [ref=e73]
+          - paragraph [ref=e74]: 查看插件连接、翻译队列、缓存和 AI 服务。
+        - button "刷新" [ref=e75] [cursor=pointer]:
+          - img [ref=e76]
+          - text: 刷新
+      - generic [ref=e81]:
+        - generic "运行指标" [ref=e82]:
+          - article [ref=e83]:
+            - generic [ref=e84]:
+              - img [ref=e85]
+              - generic [ref=e87]: 插件状态
+            - strong [ref=e88]: 已暂停
+            - text: 当前插件是否启用；连接中断时会显示离线状态。
+          - article [ref=e89]:
+            - generic [ref=e90]:
+              - img [ref=e91]
+              - generic [ref=e94]: 等待翻译
+            - strong [ref=e95]: "0"
+            - text: 已经排队、尚未被 AI 服务处理的文本数量。
+          - article [ref=e96]:
+            - generic [ref=e97]:
+              - img [ref=e98]
+              - generic [ref=e103]: 正在翻译
+            - strong [ref=e104]: 0/1
+            - text: 当前正在占用的 AI 请求/槽位数，以及 AI 设置中的最大并发上限；同一请求可能批量包含多条文本。
+          - article [ref=e105]:
+            - generic [ref=e106]:
+              - img [ref=e107]
+              - generic [ref=e111]: 已翻译文本
+            - strong [ref=e112]: "0"
+            - text: 已经保存到本地 SQLite，后续可直接复用或编辑的译文数量。
+          - article [ref=e113]:
+            - generic [ref=e114]:
+              - img [ref=e115]
+              - generic [ref=e120]: 预计token用量
+            - strong [ref=e121]: "0"
+            - text: 服务商返回的累计 token 用量，用于粗略判断成本。
+        - region "AI 服务" [ref=e122]:
+          - generic [ref=e125]:
+            - img [ref=e126]
+            - heading "AI 服务" [level=2] [ref=e129]
+          - generic [ref=e130]:
+            - generic [ref=e131]:
+              - generic [ref=e132]: 当前配置
+              - strong [ref=e133]: 未配置
+            - generic [ref=e134]:
+              - generic [ref=e135]: 服务商
+              - strong [ref=e136]: 未配置
+            - generic [ref=e137]:
+              - generic [ref=e138]: 模型
+              - strong [ref=e139]: "-"
+            - generic [ref=e140]:
+              - generic [ref=e141]: 处理速度
+              - strong [ref=e142]: 0.0 字/秒
+        - region "最近完成" [ref=e143]:
+          - generic [ref=e146]:
+            - img [ref=e147]
+            - heading "最近完成" [level=2] [ref=e151]
+          - generic [ref=e152]: 暂无完成记录

@@ -12,8 +12,22 @@ public sealed class SqliteGlossaryStore : IGlossaryStore, IDisposable
         ["source_term"] = "source_term",
         ["target_term"] = "target_term",
         ["target_language"] = "target_language",
+        ["note"] = "note",
+        ["enabled"] = "enabled",
         ["source"] = "source_kind",
         ["usage_count"] = "usage_count",
+        ["created_utc"] = "created_utc",
+        ["updated_utc"] = "updated_utc"
+    };
+    private static readonly Dictionary<string, string> FilterColumns = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["enabled"] = "CASE WHEN enabled = 1 THEN 'true' ELSE 'false' END",
+        ["source_term"] = "source_term",
+        ["target_term"] = "target_term",
+        ["target_language"] = "target_language",
+        ["note"] = "note",
+        ["source"] = "source_kind",
+        ["usage_count"] = "CAST(usage_count AS TEXT)",
         ["created_utc"] = "created_utc",
         ["updated_utc"] = "updated_utc"
     };
@@ -55,7 +69,7 @@ public sealed class SqliteGlossaryStore : IGlossaryStore, IDisposable
 
         using var connection = OpenConnection();
         using var countCommand = connection.CreateCommand();
-        countCommand.CommandText = "SELECT COUNT(*) FROM glossary_terms" + BuildWhereClause(hasSearch) + ";";
+        countCommand.CommandText = "SELECT COUNT(*) FROM glossary_terms" + BuildWhereClause(hasSearch, query.ColumnFilters, countCommand) + ";";
         if (hasSearch)
         {
             countCommand.Parameters.AddWithValue("$search", "%" + query.Search!.Trim() + "%");
@@ -76,7 +90,7 @@ SELECT source_term,
        created_utc,
        updated_utc
 FROM glossary_terms
-{BuildWhereClause(hasSearch)}
+{BuildWhereClause(hasSearch, query.ColumnFilters, command)}
 ORDER BY {sortColumn} {direction}
 LIMIT $limit OFFSET $offset;
 """;
@@ -96,6 +110,63 @@ LIMIT $limit OFFSET $offset;
         }
 
         return new GlossaryTermPage(total, rows);
+    }
+
+    public GlossaryFilterOptionPage GetFilterOptions(GlossaryFilterOptionsQuery query)
+    {
+        var column = GlossaryColumns.NormalizeColumn(query.Column);
+        if (!FilterColumns.TryGetValue(column, out var columnName))
+        {
+            return new GlossaryFilterOptionPage(string.Empty, Array.Empty<GlossaryFilterOption>());
+        }
+
+        var limit = Math.Min(500, Math.Max(1, query.Limit));
+        var hasSearch = !string.IsNullOrWhiteSpace(query.Search);
+        var hasOptionSearch = !string.IsNullOrWhiteSpace(query.OptionSearch);
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        var filters = GlossaryColumns.NormalizeFilters(query.ColumnFilters, column);
+        var whereClause = BuildWhereClause(hasSearch, filters, command);
+
+        var optionSearchClause = hasOptionSearch
+            ? $" AND COALESCE({columnName}, '') LIKE $option_search"
+            : string.Empty;
+        if (whereClause.Length == 0 && hasOptionSearch)
+        {
+            optionSearchClause = $" WHERE COALESCE({columnName}, '') LIKE $option_search";
+        }
+
+        command.CommandText = $"""
+SELECT NULLIF({columnName}, '') AS value,
+       COUNT(*) AS count
+FROM glossary_terms
+{whereClause}{optionSearchClause}
+GROUP BY NULLIF({columnName}, '')
+ORDER BY value IS NOT NULL, value COLLATE NOCASE
+LIMIT $limit;
+""";
+        if (hasSearch)
+        {
+            command.Parameters.AddWithValue("$search", "%" + query.Search!.Trim() + "%");
+        }
+
+        if (hasOptionSearch)
+        {
+            command.Parameters.AddWithValue("$option_search", "%" + query.OptionSearch!.Trim() + "%");
+        }
+
+        command.Parameters.AddWithValue("$limit", limit);
+
+        var items = new List<GlossaryFilterOption>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            items.Add(new GlossaryFilterOption(
+                reader.IsDBNull(0) ? null : reader.GetString(0),
+                Convert.ToInt32(reader.GetValue(1))));
+        }
+
+        return new GlossaryFilterOptionPage(column, items);
     }
 
     public IReadOnlyList<GlossaryTerm> GetEnabledTerms(string targetLanguage)
@@ -336,17 +407,60 @@ PRAGMA user_version={SchemaVersion};
         return connection;
     }
 
-    private static string BuildWhereClause(bool hasSearch)
+    private static string BuildWhereClause(
+        bool hasSearch,
+        IReadOnlyList<GlossaryColumnFilter>? filters,
+        SqliteCommand command)
     {
-        return hasSearch
-            ? """
- WHERE source_term LIKE $search
+        var clauses = new List<string>();
+        if (hasSearch)
+        {
+            clauses.Add("""
+(source_term LIKE $search
     OR target_term LIKE $search
     OR target_language LIKE $search
     OR note LIKE $search
-    OR source_kind LIKE $search
-"""
-            : string.Empty;
+    OR source_kind LIKE $search)
+""");
+        }
+
+        var filterIndex = 0;
+        foreach (var filter in GlossaryColumns.NormalizeFilters(filters))
+        {
+            if (!FilterColumns.TryGetValue(filter.Column, out var columnName))
+            {
+                continue;
+            }
+
+            var valueClauses = new List<string>();
+            if (filter.Values.Any(string.IsNullOrEmpty))
+            {
+                valueClauses.Add($"NULLIF({columnName}, '') IS NULL");
+            }
+
+            var parameterNames = new List<string>();
+            var valueIndex = 0;
+            foreach (var value in filter.Values.Where(value => !string.IsNullOrEmpty(value)))
+            {
+                var parameterName = $"$filter_{filterIndex}_{valueIndex++}";
+                parameterNames.Add(parameterName);
+                command.Parameters.AddWithValue(parameterName, value!);
+            }
+
+            if (parameterNames.Count > 0)
+            {
+                valueClauses.Add($"{columnName} IN ({string.Join(", ", parameterNames)})");
+            }
+
+            if (valueClauses.Count > 0)
+            {
+                clauses.Add("(" + string.Join(" OR ", valueClauses) + ")");
+            }
+
+            filterIndex++;
+        }
+
+        return clauses.Count == 0 ? string.Empty : " WHERE " + string.Join(" AND ", clauses);
     }
 
     private static void AddTermParameters(SqliteCommand command, GlossaryTerm term, DateTimeOffset createdUtc, DateTimeOffset updatedUtc)

@@ -231,6 +231,10 @@ internal sealed class LocalHttpServer : IDisposable
             {
                 await WriteJsonAsync(context.Response, _glossary.Query(ParseGlossaryQuery(context.Request))).ConfigureAwait(false);
             }
+            else if (context.Request.HttpMethod == "GET" && path == "/api/glossary/filter-options")
+            {
+                await WriteJsonAsync(context.Response, _glossary.GetFilterOptions(ParseGlossaryFilterOptionsQuery(context.Request))).ConfigureAwait(false);
+            }
             else if (context.Request.HttpMethod == "POST" && path == "/api/glossary")
             {
                 var request = await ReadJsonAsync<GlossaryTermRequest>(context.Request).ConfigureAwait(false);
@@ -271,7 +275,8 @@ internal sealed class LocalHttpServer : IDisposable
                     Enabled = request.Enabled ?? true,
                     UsageCount = request.UsageCount ?? 0
                 };
-                _glossary.UpsertManual(term);
+                var savedTerm = _glossary.UpsertManual(term);
+                DeleteRenamedGlossaryTermIfNeeded(request, savedTerm);
                 await WriteJsonAsync(context.Response, _glossary.Query(new GlossaryQuery(null, "updated_utc", true, 0, 100))).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "DELETE" && path == "/api/glossary")
@@ -777,7 +782,8 @@ internal sealed class LocalHttpServer : IDisposable
             SortColumn: parameters["sort"] ?? "updated_utc",
             SortDescending: string.Equals(parameters["direction"], "desc", StringComparison.OrdinalIgnoreCase),
             Offset: int.TryParse(parameters["offset"], out var offset) ? offset : 0,
-            Limit: int.TryParse(parameters["limit"], out var limit) ? limit : 100);
+            Limit: int.TryParse(parameters["limit"], out var limit) ? limit : 100,
+            ColumnFilters: ParseGlossaryColumnFilters(parameters));
     }
 
     private static TextureCatalogQuery ParseTextureCatalogQuery(HttpListenerRequest request)
@@ -816,6 +822,20 @@ internal sealed class LocalHttpServer : IDisposable
             Limit: int.TryParse(parameters["limit"], out var limit) ? limit : 100);
     }
 
+    private static GlossaryFilterOptionsQuery ParseGlossaryFilterOptionsQuery(HttpListenerRequest request)
+    {
+        var parameters = request.QueryString;
+        var column = GlossaryColumns.NormalizeColumn(parameters["column"]);
+        return new GlossaryFilterOptionsQuery(
+            Column: column,
+            Search: parameters["search"],
+            ColumnFilters: ParseGlossaryColumnFilters(parameters)
+                .Where(filter => !string.Equals(filter.Column, column, StringComparison.OrdinalIgnoreCase))
+                .ToArray(),
+            OptionSearch: parameters["optionSearch"],
+            Limit: int.TryParse(parameters["limit"], out var limit) ? limit : 100);
+    }
+
     private static IReadOnlyList<TranslationCacheColumnFilter> ParseColumnFilters(System.Collections.Specialized.NameValueCollection parameters)
     {
         var filters = new List<TranslationCacheColumnFilter>();
@@ -846,6 +866,63 @@ internal sealed class LocalHttpServer : IDisposable
         }
 
         return filters;
+    }
+
+    private static IReadOnlyList<GlossaryColumnFilter> ParseGlossaryColumnFilters(System.Collections.Specialized.NameValueCollection parameters)
+    {
+        var filters = new List<GlossaryColumnFilter>();
+        foreach (var key in parameters.AllKeys)
+        {
+            if (key == null || !key.StartsWith("filter.", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var column = GlossaryColumns.NormalizeColumn(key.Substring("filter.".Length));
+            if (column.Length == 0)
+            {
+                continue;
+            }
+
+            var values = parameters.GetValues(key)?
+                .Select(value => string.Equals(value, GlossaryColumns.EmptyValueMarker, StringComparison.Ordinal)
+                    ? null
+                    : GlossaryColumns.NormalizeFilterValue(value))
+                .ToArray() ?? Array.Empty<string?>();
+            if (values.Length == 0)
+            {
+                continue;
+            }
+
+            filters.Add(new GlossaryColumnFilter(column, values));
+        }
+
+        return filters;
+    }
+
+    private void DeleteRenamedGlossaryTermIfNeeded(GlossaryTermRequest request, GlossaryTerm savedTerm)
+    {
+        if (string.IsNullOrWhiteSpace(request.OriginalSourceTerm))
+        {
+            return;
+        }
+
+        var originalLanguage = string.IsNullOrWhiteSpace(request.OriginalTargetLanguage)
+            ? savedTerm.TargetLanguage
+            : request.OriginalTargetLanguage!;
+        var original = GlossaryTerm.CreateManual(
+            request.OriginalSourceTerm!,
+            savedTerm.TargetTerm,
+            originalLanguage,
+            request.Note);
+        var normalizedOriginal = original.NormalizeForStorage();
+        var normalizedSaved = savedTerm.NormalizeForStorage();
+
+        if (!string.Equals(normalizedOriginal.TargetLanguage, normalizedSaved.TargetLanguage, StringComparison.Ordinal) ||
+            !string.Equals(normalizedOriginal.NormalizedSourceTerm, normalizedSaved.NormalizedSourceTerm, StringComparison.Ordinal))
+        {
+            _glossary.Delete(original);
+        }
     }
 
     private int QueueRetranslations(IReadOnlyList<TranslationCacheEntry> entries)
@@ -1148,6 +1225,10 @@ internal sealed class LocalHttpServer : IDisposable
         public string? TargetTerm { get; set; }
 
         public string? TargetLanguage { get; set; }
+
+        public string? OriginalSourceTerm { get; set; }
+
+        public string? OriginalTargetLanguage { get; set; }
 
         public string? Note { get; set; }
 

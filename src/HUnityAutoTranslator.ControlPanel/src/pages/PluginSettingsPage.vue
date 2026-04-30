@@ -67,6 +67,16 @@ function numberValue(value: number | string): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+const fontSizeAdjustmentEnabled = computed({
+  get: () => numberValue(form.FontSizeAdjustmentMode) !== 0,
+  set: (enabled: boolean) => {
+    const currentMode = numberValue(form.FontSizeAdjustmentMode);
+    form.FontSizeAdjustmentMode = enabled
+      ? (currentMode === 0 ? 1 : currentMode)
+      : 0;
+  }
+});
+
 function beginHotkeyCapture(field: HotkeyField): void {
   listeningHotkeyField.value = field;
 }
@@ -346,8 +356,8 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
       </SectionPanel>
 
       <SectionPanel title="字体替换" :icon="Type">
-        <div class="checks">
-          <label class="check help-target" data-help="开启后插件会尝试把文本组件换成能显示中文的字体。"><input id="enableFontReplacement" v-model="form.EnableFontReplacement" type="checkbox">启用字体替换</label>
+        <div class="checks font-replacement-checks">
+          <label class="check font-primary-toggle help-target" data-help="开启后插件会尝试把文本组件换成能显示中文的字体。"><input id="enableFontReplacement" v-model="form.EnableFontReplacement" type="checkbox">启用字体替换</label>
           <label class="check help-target" data-help="替换 UGUI Text 使用的字体，解决中文方块或缺字。"><input id="replaceUguiFonts" v-model="form.ReplaceUguiFonts" type="checkbox">UGUI 替换字体</label>
           <label class="check help-target" data-help="为 TextMeshPro 安装 fallback 字体，不直接改原 TMP 字体资产。"><input id="replaceTmpFonts" v-model="form.ReplaceTmpFonts" type="checkbox">TextMeshPro fallback</label>
           <label class="check help-target" data-help="替换 IMGUI 绘制文本时使用的字体，主要影响旧式界面。"><input id="replaceImguiFonts" v-model="form.ReplaceImguiFonts" type="checkbox">IMGUI 替换字体</label>
@@ -369,16 +379,30 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
             </div>
           </div>
         </div>
-        <div class="form-grid three">
+        <div class="font-size-settings">
           <label class="field help-target" data-help="创建 TMP fallback 字体时使用的采样字号，较大值可提升字形质量但更耗内存。"><span class="field-label"><Type class="field-label-icon" />字体采样字号</span><input id="fontSamplingPointSize" v-model.number="form.FontSamplingPointSize" type="number" min="16"></label>
-          <label class="field help-target" data-help="按原文本组件大小缩放译文字号，避免中文译文溢出原控件。"><span class="field-label"><Wand2 class="field-label-icon" />字号调整模式</span>
-            <select id="fontSizeAdjustmentMode" v-model.number="form.FontSizeAdjustmentMode">
-              <option :value="0">关闭</option>
-              <option :value="1">按比例</option>
-              <option :value="2">固定增减</option>
-            </select>
+          <label class="check font-size-adjustment-toggle help-target" data-help="按原文本组件大小调整译文字号，关闭时不显示调整值。">
+            <input id="fontSizeAdjustmentEnabled" v-model="fontSizeAdjustmentEnabled" type="checkbox">
+            <Wand2 class="field-label-icon" />
+            启用字号调整
           </label>
-          <label class="field help-target" data-help="配合字号调整模式使用；按比例时是倍率，固定增减时是字号增量。"><span class="field-label"><Maximize2 class="field-label-icon" />字号调整值</span><input id="fontSizeAdjustmentValue" v-model.number="form.FontSizeAdjustmentValue" type="number" step="0.1"></label>
+          <label v-if="fontSizeAdjustmentEnabled" class="field font-size-value-field help-target" data-help="按比例时填百分比增减；固定增减时填字号点数增减，负数会缩小译文。">
+            <span class="field-label"><Maximize2 class="field-label-icon" />字号调整值</span>
+            <input id="fontSizeAdjustmentValue" v-model.number="form.FontSizeAdjustmentValue" type="number" step="0.1">
+          </label>
+          <div v-if="fontSizeAdjustmentEnabled" class="field font-size-mode-field help-target" data-help="选择字号调整值按百分比例计算，还是按具体字号点数增减。">
+            <span class="field-label"><Wand2 class="field-label-icon" />调整方式</span>
+            <div class="segmented-control font-size-mode-control" role="radiogroup" aria-label="字号调整方式">
+              <label>
+                <input id="fontSizeAdjustmentModePercent" v-model.number="form.FontSizeAdjustmentMode" type="radio" :value="1">
+                <span>百分比例</span>
+              </label>
+              <label>
+                <input id="fontSizeAdjustmentModePoints" v-model.number="form.FontSizeAdjustmentMode" type="radio" :value="2">
+                <span>固定增减</span>
+              </label>
+            </div>
+          </div>
         </div>
       </SectionPanel>
     </div>

@@ -698,6 +698,11 @@ button:disabled {
   display: grid;
   gap: 14px;
 }
+.settings-stack {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
 .form-grid {
   display: grid;
   gap: 12px;
@@ -1273,6 +1278,87 @@ input[type="range"] {
   width: 16px;
   min-height: 16px;
   accent-color: var(--accent);
+}
+.font-replacement-checks {
+  align-items: center;
+}
+.font-primary-toggle,
+.font-size-adjustment-toggle {
+  font-weight: 720;
+}
+.font-replacement-checks .check:has(input:checked),
+.font-size-adjustment-toggle:has(input:checked) {
+  border-color: color-mix(in srgb, var(--accent), var(--line) 42%);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.font-size-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
+  align-items: end;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.font-size-settings > .field {
+  max-width: none;
+}
+.font-size-adjustment-toggle {
+  align-self: end;
+  justify-content: flex-start;
+  min-height: 36px;
+}
+.font-size-value-field {
+  max-width: none;
+}
+.font-size-mode-field {
+  max-width: none;
+}
+.segmented-control {
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px;
+  width: min(360px, 100%);
+  min-height: 36px;
+  padding: 3px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.segmented-control label {
+  position: relative;
+  min-width: 0;
+}
+.segmented-control input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.segmented-control span {
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 720;
+  text-align: center;
+  transition: background 0.16s ease, color 0.16s ease, box-shadow 0.16s ease;
+}
+.segmented-control input:checked + span {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(15, 23, 42, 0.12);
+}
+.segmented-control input:focus-visible + span {
+  box-shadow: var(--focus-ring);
 }
 .actions {
   display: flex;
@@ -1960,13 +2046,40 @@ th[data-sort-state="descending"] .sort-icon {
 .inline-new-row td {
   background: var(--surface-3);
 }
-.inline-new-row input {
+.inline-new-row input,
+.inline-new-row select {
   min-height: 32px;
   padding: 5px 8px;
 }
 .glossary-enabled-cell {
   text-align: center;
   vertical-align: middle;
+}
+.glossary-cell-center {
+  text-align: center;
+  vertical-align: middle;
+}
+.glossary-cell-center .cell-text {
+  text-align: center;
+}
+.glossary-inline-editor {
+  display: grid;
+  grid-template-columns: auto repeat(4, minmax(130px, 1fr)) auto auto;
+  gap: 8px;
+  align-items: center;
+  min-width: 720px;
+}
+.glossary-inline-check {
+  min-height: 32px;
+}
+.cell-check {
+  display: inline-block;
+}
+select.cell-editor {
+  min-height: 34px;
+  max-height: none;
+  padding: 4px 6px;
+  resize: none;
 }
 input.compact-check {
   width: 16px;
@@ -2150,10 +2263,21 @@ input.compact-check {
   .form-grid.two,
   .form-grid.three,
   .form-grid.four,
+  .font-size-settings,
   .input-action-row,
   .utility-results,
   .status-command-grid {
     grid-template-columns: 1fr;
+  }
+  .font-size-settings > .field,
+  .font-size-value-field,
+  .font-size-mode-field,
+  .segmented-control {
+    max-width: none;
+    width: 100%;
+  }
+  .font-size-adjustment-toggle {
+    justify-self: stretch;
   }
   .recent-item { grid-template-columns: 1fr; }
   .editor-tools { grid-template-columns: 1fr; }

@@ -1152,6 +1152,38 @@ Editor Start,Editor translated,zh-Hans,Menu,Canvas/Editor,Text,C:\Fonts\NotoSans
     }
 
     [Fact]
+    public void Cache_rows_do_not_offer_component_font_override_until_translation_is_completed()
+    {
+        var memory = new MemoryTranslationCache();
+        var key = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+        var context = new TranslationCacheContext("Menu", "Canvas/Start", "UnityEngine.UI.Text");
+        var now = DateTimeOffset.UtcNow;
+
+        memory.Update(new TranslationCacheEntry(
+            SourceText: "Start Game",
+            TargetLanguage: "zh-Hans",
+            ProviderKind: string.Empty,
+            ProviderBaseUrl: string.Empty,
+            ProviderEndpoint: string.Empty,
+            ProviderModel: string.Empty,
+            PromptPolicyVersion: "prompt-v1",
+            TranslatedText: null,
+            SceneName: "Menu",
+            ComponentHierarchy: "Canvas/Start",
+            ComponentType: "UnityEngine.UI.Text",
+            ReplacementFont: "Noto Sans SC",
+            CreatedUtc: now,
+            UpdatedUtc: now));
+
+        memory.TryGetReplacementFont(key, context, out _).Should().BeFalse();
+
+        memory.Set(key, "Start translated", context);
+
+        memory.TryGetReplacementFont(key, context, out var replacementFont).Should().BeTrue();
+        replacementFont.Should().Be("Noto Sans SC");
+    }
+
+    [Fact]
     public void Sqlite_cache_persists_component_font_override_and_exports_it()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
@@ -1185,6 +1217,42 @@ Editor Start,Editor translated,zh-Hans,Menu,Canvas/Editor,Text,C:\Fonts\NotoSans
             .Items[0].ReplacementFont.Should().Be(@"C:\Fonts\NotoSansSC-Regular.otf");
         reopened.Export("json").Should().Contain("ReplacementFont");
         reopened.Export("csv").Should().Contain("replacement_font");
+    }
+
+    [Fact]
+    public void Sqlite_cache_does_not_offer_component_font_override_until_translation_is_completed()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        var key = TranslationCacheKey.Create("Start Game", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+        var context = new TranslationCacheContext("Menu", "Canvas/Start", "UnityEngine.UI.Text");
+        var now = DateTimeOffset.UtcNow;
+
+        using (var cache = new SqliteTranslationCache(path))
+        {
+            cache.Update(new TranslationCacheEntry(
+                SourceText: "Start Game",
+                TargetLanguage: "zh-Hans",
+                ProviderKind: string.Empty,
+                ProviderBaseUrl: string.Empty,
+                ProviderEndpoint: string.Empty,
+                ProviderModel: string.Empty,
+                PromptPolicyVersion: "prompt-v1",
+                TranslatedText: null,
+                SceneName: "Menu",
+                ComponentHierarchy: "Canvas/Start",
+                ComponentType: "UnityEngine.UI.Text",
+                ReplacementFont: @"C:\Fonts\NotoSansSC-Regular.otf",
+                CreatedUtc: now,
+                UpdatedUtc: now));
+
+            cache.TryGetReplacementFont(key, context, out _).Should().BeFalse();
+
+            cache.Set(key, "Start translated", context);
+        }
+
+        using var reopened = new SqliteTranslationCache(path);
+        reopened.TryGetReplacementFont(key, context, out var replacementFont).Should().BeTrue();
+        replacementFont.Should().Be(@"C:\Fonts\NotoSansSC-Regular.otf");
     }
 
     private static void AssertCsvImportPreservesInternalFields(

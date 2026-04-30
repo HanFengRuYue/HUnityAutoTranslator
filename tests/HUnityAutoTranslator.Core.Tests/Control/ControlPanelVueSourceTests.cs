@@ -139,16 +139,52 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_glossary_controls_only_live_on_glossary_page()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var glossaryPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "GlossaryPage.vue"));
+
+        glossaryPageSource.Should().Contain("id=\"enableGlossary\"");
+        glossaryPageSource.Should().Contain("id=\"enableAutoTermExtraction\"");
+        glossaryPageSource.Should().Contain("EnableAutoTermExtraction: settings.EnableAutoTermExtraction");
+        glossaryPageSource.Should().Contain("GlossaryMaxTerms: Number(settings.GlossaryMaxTerms)");
+        glossaryPageSource.Should().Contain("GlossaryMaxCharacters: Number(settings.GlossaryMaxCharacters)");
+
+        aiPageSource.Should().NotContain("id=\"enableGlossary\"");
+        aiPageSource.Should().NotContain("id=\"enableAutoTermExtraction\"");
+        aiPageSource.Should().NotContain("id=\"glossaryMaxTerms\"");
+        aiPageSource.Should().NotContain("id=\"glossaryMaxCharacters\"");
+        aiPageSource.Should().NotContain("EnableGlossary: form.EnableGlossary");
+        aiPageSource.Should().NotContain("EnableAutoTermExtraction: form.EnableAutoTermExtraction");
+        aiPageSource.Should().NotContain("GlossaryMaxTerms: numberValue(form.GlossaryMaxTerms)");
+        aiPageSource.Should().NotContain("GlossaryMaxCharacters: numberValue(form.GlossaryMaxCharacters)");
+    }
+
+    [Fact]
+    public void Vue_ai_settings_keeps_section_panels_visually_separated()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        aiPageSource.Should().Contain("class=\"settings-stack ai-settings-stack\"");
+        CssBlock(cssSource, @"\.settings-stack")
+            .Should().Contain("display: grid;")
+            .And.Contain("gap: 14px;");
+    }
+
+    [Fact]
     public void Vue_ai_settings_uses_language_name_dropdown_with_code_values()
     {
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var languageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "languages.ts"));
 
-        aiPageSource.Should().Contain("const targetLanguageOptions");
-        aiPageSource.Should().Contain("{ value: \"zh-Hans\", label: \"简体中文\" }");
-        aiPageSource.Should().Contain("{ value: \"zh-Hant\", label: \"繁体中文\" }");
-        aiPageSource.Should().Contain("{ value: \"ja\", label: \"日语\" }");
-        aiPageSource.Should().Contain("{ value: \"ko\", label: \"韩语\" }");
-        aiPageSource.Should().Contain("{ value: \"pt-BR\", label: \"巴西葡萄牙语\" }");
+        aiPageSource.Should().Contain("import { targetLanguageOptions } from \"../utils/languages\"");
+        languageSource.Should().Contain("export const targetLanguageOptions");
+        languageSource.Should().Contain("{ value: \"zh-Hans\", label: \"简体中文\" }");
+        languageSource.Should().Contain("{ value: \"zh-Hant\", label: \"繁体中文\" }");
+        languageSource.Should().Contain("{ value: \"ja\", label: \"日语\" }");
+        languageSource.Should().Contain("{ value: \"ko\", label: \"韩语\" }");
+        languageSource.Should().Contain("{ value: \"pt-BR\", label: \"巴西葡萄牙语\" }");
         aiPageSource.Should().Contain("<select id=\"targetLanguage\" v-model=\"form.TargetLanguage\" @change=\"markDirty\">");
         aiPageSource.Should().Contain("v-for=\"option in targetLanguageOptions\"");
         aiPageSource.Should().NotContain("id=\"targetLanguage\" v-model=\"form.TargetLanguage\" autocomplete=\"off\"");
@@ -408,6 +444,37 @@ public sealed class ControlPanelVueSourceTests
         pluginPageSource.Should().Contain("id=\"replacementFontFile\"");
         pluginPageSource.Should().Contain("ReplacementFontName: form.ReplacementFontName");
         pluginPageSource.Should().Contain("ReplacementFontFile: form.ReplacementFontFile");
+    }
+
+    [Fact]
+    public void Vue_plugin_settings_groups_font_size_adjustment_as_flat_conditional_controls()
+    {
+        var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        pluginPageSource.Should().Contain("const fontSizeAdjustmentEnabled = computed");
+        pluginPageSource.Should().Contain("id=\"fontSizeAdjustmentEnabled\"");
+        pluginPageSource.Should().Contain("v-if=\"fontSizeAdjustmentEnabled\"");
+        pluginPageSource.Should().Contain("id=\"fontSizeAdjustmentValue\"");
+        pluginPageSource.Should().Contain("id=\"fontSizeAdjustmentModePercent\"");
+        pluginPageSource.Should().Contain("id=\"fontSizeAdjustmentModePoints\"");
+        pluginPageSource.Should().NotContain("<select id=\"fontSizeAdjustmentMode\"");
+        pluginPageSource.Should().NotContain("class=\"font-size-adjustment-row\"");
+        cssSource.Should().NotContain(".font-size-adjustment-row");
+
+        Regex.Match(
+            pluginPageSource,
+            @"class=""font-size-settings"">[\s\S]*id=""fontSamplingPointSize""[\s\S]*id=""fontSizeAdjustmentEnabled""[\s\S]*v-if=""fontSizeAdjustmentEnabled""[\s\S]*id=""fontSizeAdjustmentValue""[\s\S]*v-if=""fontSizeAdjustmentEnabled""[\s\S]*class=""segmented-control font-size-mode-control""[\s\S]*id=""fontSizeAdjustmentModePercent""[\s\S]*id=""fontSizeAdjustmentModePoints""")
+            .Success.Should().BeTrue("font size controls should stay in one flat grid without a full-row spacer");
+
+        CssBlock(cssSource, @"\.font-size-settings").Should()
+            .Contain("display: grid;")
+            .And.Contain("repeat(auto-fit, minmax(min(220px, 100%), 1fr))")
+            .And.Contain("align-items: end;");
+        CssBlock(cssSource, @"\.segmented-control").Should()
+            .Contain("display: inline-grid;")
+            .And.Contain("grid-template-columns: repeat(2, minmax(0, 1fr));");
+        CssBlock(cssSource, @"\.segmented-control input").Should().Contain("position: absolute;");
     }
 
     [Fact]
@@ -817,6 +884,52 @@ public sealed class ControlPanelVueSourceTests
         glossaryPageSource.Should().NotContain("clearGlossaryForm");
         glossaryPageSource.Should().NotContain("title=\"新增或更新术语\"");
         glossaryPageSource.Should().Contain("/api/glossary");
+    }
+
+    [Fact]
+    public void Vue_glossary_page_exposes_complete_table_controls()
+    {
+        var glossaryPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "GlossaryPage.vue"));
+        var glossaryTableSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "glossaryTable.ts"));
+        var languageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "languages.ts"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        languageSource.Should().Contain("export const targetLanguageOptions");
+        languageSource.Should().Contain("export function languageLabel(");
+        languageSource.Should().Contain("export function normalizeLanguageInput(");
+
+        glossaryTableSource.Should().Contain("hunity.glossary.visibleColumns");
+        glossaryTableSource.Should().Contain("hunity.glossary.columnOrder");
+        glossaryTableSource.Should().Contain("hunity.glossary.columnFilters");
+        glossaryTableSource.Should().Contain("hunity.glossary.columnWidths");
+        glossaryTableSource.Should().Contain("export const defaultGlossaryColumns");
+        glossaryTableSource.Should().Contain("export function glossaryRowKey(");
+
+        glossaryPageSource.Should().Contain("id=\"glossaryColumnMenuButton\"");
+        glossaryPageSource.Should().Contain("id=\"glossaryColumnChooser\"");
+        glossaryPageSource.Should().Contain("id=\"clearGlossaryFilters\"");
+        glossaryPageSource.Should().Contain("id=\"saveGlossaryRows\"");
+        glossaryPageSource.Should().Contain("id=\"deleteSelectedGlossaryTerms\"");
+        glossaryPageSource.Should().Contain("id=\"glossaryContextMenu\"");
+        glossaryPageSource.Should().Contain("id=\"glossaryColumnFilterMenu\"");
+        glossaryPageSource.Should().Contain("data-glossary-action=\"delete\"");
+        glossaryPageSource.Should().Contain("data-glossary-action=\"enable\"");
+        glossaryPageSource.Should().Contain("data-glossary-action=\"disable\"");
+        glossaryPageSource.Should().Contain("/api/glossary/filter-options");
+        glossaryPageSource.Should().Contain("function startColumnResize(");
+        glossaryPageSource.Should().Contain("@contextmenu=\"showContextMenu\"");
+        glossaryPageSource.Should().Contain("class=\"col-resizer\"");
+        glossaryPageSource.Should().Contain("class=\"cell-editor\"");
+        glossaryPageSource.Should().Contain("class=\"cell-text\"");
+        glossaryPageSource.Should().Contain("languageLabel(row.TargetLanguage)");
+        glossaryPageSource.Should().Contain("normalizeLanguageInput(value)");
+        glossaryPageSource.Should().Contain("v-for=\"option in targetLanguageOptions\"");
+        glossaryPageSource.Should().Contain("OriginalSourceTerm");
+        glossaryPageSource.Should().Contain("OriginalTargetLanguage");
+
+        CssBlock(cssSource, @"\.glossary-cell-center").Should()
+            .Contain("text-align: center;")
+            .And.Contain("vertical-align: middle;");
     }
 
     [Fact]

@@ -1,0 +1,208 @@
+- generic [ref=e3]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - img "HUnity" [ref=e6]
+      - generic [ref=e7]:
+        - strong [ref=e8]: HUnity
+        - generic [ref=e9]: 控制面板
+    - button "收起" [ref=e10] [cursor=pointer]:
+      - img [ref=e11]
+      - generic [ref=e14]: 收起
+    - navigation "功能导航" [ref=e15]:
+      - button "运行状态" [ref=e16] [cursor=pointer]:
+        - img [ref=e17]
+        - strong [ref=e20]: 运行状态
+      - button "插件设置" [ref=e21] [cursor=pointer]:
+        - img [ref=e22]
+        - strong [ref=e25]: 插件设置
+      - button "AI 翻译设置" [ref=e26] [cursor=pointer]:
+        - img [ref=e27]
+        - strong [ref=e31]: AI 翻译设置
+      - button "术语库" [ref=e32] [cursor=pointer]:
+        - img [ref=e33]
+        - strong [ref=e36]: 术语库
+      - button "贴图替换" [ref=e37] [cursor=pointer]:
+        - img [ref=e38]
+        - strong [ref=e44]: 贴图替换
+      - button "文本编辑" [ref=e45] [cursor=pointer]:
+        - img [ref=e46]
+        - strong [ref=e50]: 文本编辑
+      - button "版本信息" [ref=e51] [cursor=pointer]:
+        - img [ref=e52]
+        - strong [ref=e55]: 版本信息
+    - generic [ref=e56]:
+      - generic "已连接" [ref=e57]:
+        - generic [ref=e58]: 已连接
+      - button "主题 浅色" [ref=e59] [cursor=pointer]:
+        - img [ref=e60]
+        - generic [ref=e66]: 主题
+        - strong [ref=e67]: 浅色
+  - main [ref=e68]:
+    - generic [ref=e153]:
+      - generic [ref=e154]:
+        - generic [ref=e155]:
+          - heading "术语库" [level=1] [ref=e156]
+          - paragraph [ref=e157]: 维护固定译名，并控制 AI 自动术语提取。
+        - button "保存术语设置" [ref=e158] [cursor=pointer]:
+          - img [ref=e159]
+          - text: 保存术语设置
+      - generic [ref=e163]:
+        - region "术语设置" [ref=e164]:
+          - generic [ref=e167]:
+            - img [ref=e168]
+            - heading "术语设置" [level=2] [ref=e171]
+          - generic [ref=e172]:
+            - generic [ref=e173]:
+              - generic [ref=e174]:
+                - img [ref=e175]
+                - text: 注入术语上限
+              - spinbutton "注入术语上限 限制每次请求最多注入多少条术语，设为 0 等于不注入术语。" [ref=e178]
+              - text: 限制每次请求最多注入多少条术语，设为 0 等于不注入术语。
+            - generic [ref=e179]:
+              - generic [ref=e180]:
+                - img [ref=e181]
+                - text: 术语字符上限
+              - spinbutton "术语字符上限 限制注入提示词的术语总字符数，避免术语过多导致请求变长。" [ref=e184]
+              - text: 限制注入提示词的术语总字符数，避免术语过多导致请求变长。
+          - generic [ref=e185]:
+            - generic [ref=e186]:
+              - checkbox "启用术语库约束 把匹配到的术语作为强制译名写入提示词，手动术语优先。" [ref=e187]
+              - img [ref=e188]
+              - text: 启用术语库约束 把匹配到的术语作为强制译名写入提示词，手动术语优先。
+            - generic [ref=e191]:
+              - checkbox "启用 AI 自动提取术语 允许 AI 从翻译缓存中抽取候选术语；默认关闭，启用后会增加额外请求。" [ref=e192]
+              - img [ref=e193]
+              - text: 启用 AI 自动提取术语 允许 AI 从翻译缓存中抽取候选术语；默认关闭，启用后会增加额外请求。
+          - paragraph [ref=e196]: AI 自动提取默认关闭；手动术语会优先进入提示词约束。
+        - region "术语条目" [ref=e197]:
+          - generic [ref=e198]:
+            - generic [ref=e200]:
+              - img [ref=e201]
+              - heading "术语条目" [level=2] [ref=e204]
+            - generic [ref=e205]:
+              - button "新增术语" [ref=e206] [cursor=pointer]:
+                - img [ref=e207]
+                - text: 新增术语
+              - button "刷新" [ref=e208] [cursor=pointer]:
+                - img [ref=e209]
+                - text: 刷新
+          - generic [ref=e214]:
+            - generic [ref=e215]:
+              - generic [ref=e216]:
+                - img [ref=e217]
+                - text: 搜索
+              - textbox "搜索 按原术语、指定译名、语言、来源或备注筛选当前术语列表。" [ref=e220]:
+                - /placeholder: 搜索原术语、指定译名、语言或备注
+              - text: 按原术语、指定译名、语言、来源或备注筛选当前术语列表。
+            - generic [ref=e221]:
+              - button "列显示" [ref=e223] [cursor=pointer]:
+                - img [ref=e224]
+                - text: 列显示
+              - button "清空筛选" [ref=e226] [cursor=pointer]:
+                - img [ref=e227]
+                - text: 清空筛选
+              - button "保存修改" [disabled] [ref=e231]:
+                - img [ref=e232]
+                - text: 保存修改
+              - button "删除选中术语" [disabled] [ref=e236]:
+                - img [ref=e237]
+                - text: 删除选中术语
+          - table [ref=e241]:
+            - rowgroup [ref=e252]:
+              - row "启用 筛选 原术语 筛选 指定译名 筛选 目标语言 筛选 备注 筛选 来源 筛选 使用 筛选 创建 筛选 更新 筛选" [ref=e253]:
+                - columnheader "启用 筛选" [ref=e254]:
+                  - generic [ref=e255]:
+                    - button "启用" [ref=e256] [cursor=pointer]:
+                      - generic: 启用
+                      - img [ref=e257]
+                    - button "筛选" [ref=e260] [cursor=pointer]:
+                      - img [ref=e261]
+                - columnheader "原术语 筛选" [ref=e264]:
+                  - generic [ref=e265]:
+                    - button "原术语" [ref=e266] [cursor=pointer]:
+                      - generic [ref=e267]: 原术语
+                      - img [ref=e268]
+                    - button "筛选" [ref=e271] [cursor=pointer]:
+                      - img [ref=e272]
+                - columnheader "指定译名 筛选" [ref=e275]:
+                  - generic [ref=e276]:
+                    - button "指定译名" [ref=e277] [cursor=pointer]:
+                      - generic [ref=e278]: 指定译名
+                      - img [ref=e279]
+                    - button "筛选" [ref=e282] [cursor=pointer]:
+                      - img [ref=e283]
+                - columnheader "目标语言 筛选" [ref=e286]:
+                  - generic [ref=e287]:
+                    - button "目标语言" [ref=e288] [cursor=pointer]:
+                      - generic [ref=e289]: 目标语言
+                      - img [ref=e290]
+                    - button "筛选" [ref=e293] [cursor=pointer]:
+                      - img [ref=e294]
+                - columnheader "备注 筛选" [ref=e297]:
+                  - generic [ref=e298]:
+                    - button "备注" [ref=e299] [cursor=pointer]:
+                      - generic [ref=e300]: 备注
+                      - img [ref=e301]
+                    - button "筛选" [ref=e304] [cursor=pointer]:
+                      - img [ref=e305]
+                - columnheader "来源 筛选" [ref=e308]:
+                  - generic [ref=e309]:
+                    - button "来源" [ref=e310] [cursor=pointer]:
+                      - generic [ref=e311]: 来源
+                      - img [ref=e312]
+                    - button "筛选" [ref=e315] [cursor=pointer]:
+                      - img [ref=e316]
+                - columnheader "使用 筛选" [ref=e319]:
+                  - generic [ref=e320]:
+                    - button "使用" [ref=e321] [cursor=pointer]:
+                      - generic [ref=e322]: 使用
+                      - img [ref=e323]
+                    - button "筛选" [ref=e326] [cursor=pointer]:
+                      - img [ref=e327]
+                - columnheader "创建 筛选" [ref=e330]:
+                  - generic [ref=e331]:
+                    - button "创建" [ref=e332] [cursor=pointer]:
+                      - generic [ref=e333]: 创建
+                      - img [ref=e334]
+                    - button "筛选" [ref=e337] [cursor=pointer]:
+                      - img [ref=e338]
+                - columnheader "更新 筛选" [ref=e341]:
+                  - generic [ref=e342]:
+                    - button "更新" [ref=e343] [cursor=pointer]:
+                      - generic [ref=e344]: 更新
+                      - img [ref=e345]
+                    - button "筛选" [ref=e347] [cursor=pointer]:
+                      - img [ref=e348]
+            - rowgroup [ref=e353]:
+              - row "启用 简体中文 保存 清空" [ref=e354]:
+                - cell "启用 简体中文 保存 清空" [ref=e355]:
+                  - generic [ref=e356]:
+                    - generic [ref=e357]:
+                      - checkbox "启用" [checked] [ref=e358]
+                      - text: 启用
+                    - textbox "新增原术语" [active] [ref=e359]
+                    - textbox "指定译名" [ref=e360]
+                    - combobox [ref=e361]:
+                      - option "简体中文" [selected]
+                      - option "繁体中文"
+                      - option "英语"
+                      - option "日语"
+                      - option "韩语"
+                      - option "法语"
+                      - option "德语"
+                      - option "西班牙语"
+                      - option "葡萄牙语"
+                      - option "巴西葡萄牙语"
+                      - option "俄语"
+                      - option "意大利语"
+                      - option "泰语"
+                      - option "越南语"
+                      - option "印尼语"
+                      - option "土耳其语"
+                      - option "阿拉伯语"
+                    - textbox "备注" [ref=e362]
+                    - button "保存" [ref=e363] [cursor=pointer]:
+                      - img [ref=e364]
+                      - text: 保存
+                    - button "清空" [ref=e368] [cursor=pointer]
+          - generic [ref=e351]: 共 0 条术语，当前显示 0 条。

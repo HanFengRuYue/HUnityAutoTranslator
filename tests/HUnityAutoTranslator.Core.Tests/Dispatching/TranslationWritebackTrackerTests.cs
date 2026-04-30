@@ -43,6 +43,18 @@ public sealed class TranslationWritebackTrackerTests
     }
 
     [Fact]
+    public void TryGetRememberedSourceText_returns_source_only_when_translated_text_is_active()
+    {
+        var tracker = new TranslationWritebackTracker();
+        tracker.Remember("title", "IMPORTANT", "IMPORTANT_ZH");
+
+        tracker.TryGetRememberedSourceText("title", "IMPORTANT_ZH", out var sourceText).Should().BeTrue();
+        sourceText.Should().Be("IMPORTANT");
+        tracker.TryGetRememberedSourceText("title", "IMPORTANT", out _).Should().BeFalse();
+        tracker.TryGetRememberedSourceText("missing", "IMPORTANT_ZH", out _).Should().BeFalse();
+    }
+
+    [Fact]
     public void TryGetReplacement_replaces_previous_manual_translation_with_latest_text()
     {
         var tracker = new TranslationWritebackTracker();

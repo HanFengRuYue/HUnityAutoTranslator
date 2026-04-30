@@ -31,6 +31,20 @@ public sealed class TranslationWritebackTracker
             && string.Equals(currentText, remembered.TranslatedText, StringComparison.Ordinal);
     }
 
+    public bool TryGetRememberedSourceText(string targetId, string? currentText, out string sourceText)
+    {
+        if (currentText != null &&
+            _remembered.TryGetValue(targetId, out var remembered) &&
+            string.Equals(currentText, remembered.TranslatedText, StringComparison.Ordinal))
+        {
+            sourceText = remembered.SourceText;
+            return true;
+        }
+
+        sourceText = string.Empty;
+        return false;
+    }
+
     public bool TryRememberForCurrentText(
         string targetId,
         string? currentText,
