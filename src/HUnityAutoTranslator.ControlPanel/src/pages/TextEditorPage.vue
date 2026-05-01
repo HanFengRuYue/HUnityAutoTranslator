@@ -100,7 +100,27 @@ const orderedColumns = computed(() => {
 
 const visibleColumns = computed(() => orderedColumns.value.filter((column) => visibleKeys.value.includes(column.key)));
 const selectedRows = computed(() => selectedRowIndexes().map((index) => rows.value[index]).filter((row): row is TranslationCacheEntry => Boolean(row)));
-const hasColumnFilters = computed(() => Object.values(columnFilters).some((values) => values.length > 0));
+const hasColumnFilters = computed(hasActiveColumnFilters);
+
+function hasActiveColumnFilters(): boolean {
+  return Object.values(columnFilters).some((values) => values.length > 0);
+}
+
+function buildTranslationQuery(includeColumnFilters = true): URLSearchParams {
+  const params = new URLSearchParams({
+    search: search.value,
+    sort: sortColumn.value,
+    direction: sortDirection.value,
+    offset: "0",
+    limit: "100"
+  });
+
+  if (includeColumnFilters) {
+    appendColumnFilters(params);
+  }
+
+  return params;
+}
 
 function appendColumnFilters(params: URLSearchParams, excludedColumn = ""): void {
   for (const [column, values] of Object.entries(columnFilters)) {
@@ -128,20 +148,32 @@ function isTranslationCachePage(value: unknown): value is TranslationCachePage {
   return Array.isArray(page.Items) && typeof page.TotalCount === "number";
 }
 
-async function loadTranslations(): Promise<void> {
+function clearColumnFiltersState(): void {
+  for (const key of Object.keys(columnFilters)) {
+    delete columnFilters[key];
+  }
+  persistColumnFilters(columnFilters);
+}
+
+async function loadTranslations(recoverStaleStoredFilters = false): Promise<void> {
   loading.value = true;
   try {
-    const params = new URLSearchParams({
-      search: search.value,
-      sort: sortColumn.value,
-      direction: sortDirection.value,
-      offset: "0",
-      limit: "100"
-    });
-    appendColumnFilters(params);
-    const page = await getJson<unknown>(`/api/translations?${params.toString()}`);
+    const page = await getJson<unknown>(`/api/translations?${buildTranslationQuery().toString()}`);
     if (!isTranslationCachePage(page)) {
       throw new Error("翻译表返回格式无效");
+    }
+
+    if (recoverStaleStoredFilters && !search.value.trim() && hasActiveColumnFilters() && page.TotalCount === 0) {
+      const unfilteredPage = await getJson<unknown>(`/api/translations?${buildTranslationQuery(false).toString()}`);
+      if (isTranslationCachePage(unfilteredPage) && unfilteredPage.TotalCount > 0) {
+        clearColumnFiltersState();
+        rows.value = unfilteredPage.Items;
+        totalCount.value = unfilteredPage.TotalCount;
+        tableMessage.value = "已自动清除过期筛选。";
+        showToast("已清除过期筛选，重新显示翻译表。", "info");
+        clearSelection();
+        return;
+      }
     }
 
     rows.value = page.Items;
@@ -633,10 +665,7 @@ function hasColumnFilter(column: TableColumn): boolean {
 }
 
 function clearAllColumnFilters(): void {
-  for (const key of Object.keys(columnFilters)) {
-    delete columnFilters[key];
-  }
-  persistColumnFilters(columnFilters);
+  clearColumnFiltersState();
   hideColumnFilterMenu();
   void loadTranslations();
 }
@@ -715,7 +744,7 @@ function handleDocumentClick(event: MouseEvent): void {
 }
 
 onMounted(() => {
-  void loadTranslations();
+  void loadTranslations(true);
   document.addEventListener("click", handleDocumentClick);
 });
 
@@ -732,7 +761,7 @@ onBeforeUnmount(() => {
         <p>查看、编辑和批量处理本地 SQLite 翻译缓存。</p>
       </div>
       <div class="actions">
-        <button class="secondary" type="button" :disabled="loading" @click="loadTranslations"><RefreshCw class="button-icon" />{{ loading ? "刷新中" : "刷新" }}</button>
+        <button class="secondary" type="button" :disabled="loading" @click="loadTranslations()"><RefreshCw class="button-icon" />{{ loading ? "刷新中" : "刷新" }}</button>
         <button class="primary" id="saveRows" type="button" :disabled="dirtyRows.size === 0" @click="saveRows"><Save class="button-icon" />保存修改</button>
       </div>
     </div>
@@ -741,7 +770,7 @@ onBeforeUnmount(() => {
       <div class="editor-tools">
         <label class="field search-field">
           <span class="field-label"><Search class="field-label-icon" />搜索</span>
-          <input id="tableSearch" v-model="search" placeholder="搜索原文、译文、场景或组件" @input="loadTranslations">
+          <input id="tableSearch" v-model="search" placeholder="搜索原文、译文、场景或组件" @input="loadTranslations()">
         </label>
         <div class="editor-actions">
           <div class="column-control">

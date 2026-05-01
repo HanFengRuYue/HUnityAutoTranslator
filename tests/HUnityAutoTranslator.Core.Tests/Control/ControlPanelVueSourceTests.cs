@@ -1181,6 +1181,20 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_editor_recovers_from_stale_stored_column_filters_on_first_load()
+    {
+        var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
+
+        editorPageSource.Should().Contain("function buildTranslationQuery(includeColumnFilters = true): URLSearchParams");
+        editorPageSource.Should().Contain("async function loadTranslations(recoverStaleStoredFilters = false): Promise<void>");
+        editorPageSource.Should().Contain("if (recoverStaleStoredFilters && !search.value.trim() && hasActiveColumnFilters() && page.TotalCount === 0)");
+        editorPageSource.Should().Contain("const unfilteredPage = await getJson<unknown>(`/api/translations?${buildTranslationQuery(false).toString()}`);");
+        editorPageSource.Should().Contain("clearColumnFiltersState();");
+        editorPageSource.Should().Contain("showToast(\"已清除过期筛选，重新显示翻译表。\", \"info\");");
+        editorPageSource.Should().Contain("void loadTranslations(true);");
+    }
+
+    [Fact]
     public void Vue_styles_include_restrained_motion_with_reduced_motion_fallback()
     {
         var appSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "App.vue"));
