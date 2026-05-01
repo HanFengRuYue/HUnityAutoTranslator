@@ -1441,10 +1441,8 @@ watch(selectedProfileId, () => {
             <input id="maxBatchCharacters" v-model.number="form.MaxBatchCharacters" type="number" min="256" max="8000" @input="markDirty">
           </label>
         </div>
-        <div class="checks">
+        <div class="translation-context-row">
           <label class="check help-target" data-help="把同组件或同场景附近文本作为参考发给 AI。"><input id="enableTranslationContext" v-model="form.EnableTranslationContext" type="checkbox" @change="markDirty">启用翻译上下文</label>
-        </div>
-        <div class="form-grid four">
           <label v-if="form.EnableTranslationContext" class="field help-target" data-help="每条请求最多带入多少条上下文示例。">
             <span class="field-label"><ListChecks class="field-label-icon" />上下文示例数</span>
             <input id="translationContextMaxExamples" v-model.number="form.TranslationContextMaxExamples" type="number" min="0" @input="markDirty">
@@ -1456,7 +1454,48 @@ watch(selectedProfileId, () => {
         </div>
       </SectionPanel>
 
-      <SectionPanel title="贴图文字翻译" :icon="Images">
+      <SectionPanel title="AI翻译配置" :icon="KeyRound">
+        <div class="provider-profile-toolbar">
+          <div>
+            <span>当前配置</span>
+            <strong>{{ activeProviderProfileName }}</strong>
+          </div>
+          <div class="actions inline-actions">
+            <button class="secondary" type="button" @click="openNewProviderProfile"><Plus class="button-icon" />新建配置</button>
+            <button class="secondary" type="button" @click="openImportPicker"><FileInput class="button-icon" />导入</button>
+            <input ref="importInput" class="sr-only" type="file" accept=".hutprovider" @change="importProviderProfile">
+          </div>
+        </div>
+
+        <div class="provider-profile-manager">
+          <div class="provider-profile-list" aria-label="服务商配置列表">
+            <div
+              v-for="profile in providerProfiles"
+              :key="profile.Id"
+              class="provider-profile-card"
+              :class="{ active: selectedProfileId === profile.Id, current: profile.IsActive, cooling: profile.CooldownRemainingSeconds > 0 }">
+              <button class="provider-profile-select" type="button" @click="selectedProfileId = profile.Id">
+                <span class="profile-rank">#{{ profile.Priority + 1 }}</span>
+                <span class="profile-main">
+                  <strong>{{ profile.Name }}</strong>
+                  <small>{{ formatProviderKind(profile.Kind) }} / {{ profile.Model }}</small>
+                </span>
+                <span class="profile-status">{{ formatProfileStatus(profile) }}</span>
+              </button>
+              <div class="provider-card-actions">
+                <button class="secondary icon-button" type="button" title="编辑" @click.stop="openProviderProfileEditor(profile)"><Settings2 /></button>
+                <button class="secondary icon-button" type="button" :disabled="profile.Priority <= 0" title="上移" @click.stop="moveProviderProfile(profile, -1)"><ArrowUp /></button>
+                <button class="secondary icon-button" type="button" :disabled="profile.Priority >= providerProfiles.length - 1" title="下移" @click.stop="moveProviderProfile(profile, 1)"><ArrowDown /></button>
+                <button class="secondary icon-button" type="button" title="导出" @click.stop="exportProviderProfile(profile)"><FileOutput /></button>
+                <button class="danger icon-button" type="button" title="删除" @click.stop="deleteProviderProfile(profile)"><Trash2 /></button>
+              </div>
+            </div>
+            <div v-if="!providerProfiles.length" class="empty-state">还没有服务商配置</div>
+          </div>
+        </div>
+      </SectionPanel>
+
+      <SectionPanel title="贴图翻译配置" :icon="Images">
         <div class="provider-profile-toolbar">
           <div>
             <span>当前配置</span>
@@ -1496,47 +1535,6 @@ watch(selectedProfileId, () => {
               </div>
             </div>
             <div v-if="!textureImageProfiles.length" class="empty-state">还没有贴图图片服务配置</div>
-          </div>
-        </div>
-      </SectionPanel>
-
-      <SectionPanel title="服务商配置" :icon="KeyRound">
-        <div class="provider-profile-toolbar">
-          <div>
-            <span>当前配置</span>
-            <strong>{{ activeProviderProfileName }}</strong>
-          </div>
-          <div class="actions inline-actions">
-            <button class="secondary" type="button" @click="openNewProviderProfile"><Plus class="button-icon" />新建配置</button>
-            <button class="secondary" type="button" @click="openImportPicker"><FileInput class="button-icon" />导入</button>
-            <input ref="importInput" class="sr-only" type="file" accept=".hutprovider" @change="importProviderProfile">
-          </div>
-        </div>
-
-        <div class="provider-profile-manager">
-          <div class="provider-profile-list" aria-label="服务商配置列表">
-            <div
-              v-for="profile in providerProfiles"
-              :key="profile.Id"
-              class="provider-profile-card"
-              :class="{ active: selectedProfileId === profile.Id, current: profile.IsActive, cooling: profile.CooldownRemainingSeconds > 0 }">
-              <button class="provider-profile-select" type="button" @click="selectedProfileId = profile.Id">
-                <span class="profile-rank">#{{ profile.Priority + 1 }}</span>
-                <span class="profile-main">
-                  <strong>{{ profile.Name }}</strong>
-                  <small>{{ formatProviderKind(profile.Kind) }} / {{ profile.Model }}</small>
-                </span>
-                <span class="profile-status">{{ formatProfileStatus(profile) }}</span>
-              </button>
-              <div class="provider-card-actions">
-                <button class="secondary icon-button" type="button" title="编辑" @click.stop="openProviderProfileEditor(profile)"><Settings2 /></button>
-                <button class="secondary icon-button" type="button" :disabled="profile.Priority <= 0" title="上移" @click.stop="moveProviderProfile(profile, -1)"><ArrowUp /></button>
-                <button class="secondary icon-button" type="button" :disabled="profile.Priority >= providerProfiles.length - 1" title="下移" @click.stop="moveProviderProfile(profile, 1)"><ArrowDown /></button>
-                <button class="secondary icon-button" type="button" title="导出" @click.stop="exportProviderProfile(profile)"><FileOutput /></button>
-                <button class="danger icon-button" type="button" title="删除" @click.stop="deleteProviderProfile(profile)"><Trash2 /></button>
-              </div>
-            </div>
-            <div v-if="!providerProfiles.length" class="empty-state">还没有服务商配置</div>
           </div>
         </div>
       </SectionPanel>

@@ -154,10 +154,24 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_ai_settings_orders_provider_and_texture_configuration_cards()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+
+        aiPageSource.Should().Contain("SectionPanel title=\"AI翻译配置\"");
+        aiPageSource.Should().Contain("SectionPanel title=\"贴图翻译配置\"");
+        aiPageSource.Should().NotContain("SectionPanel title=\"服务商配置\"");
+        aiPageSource.Should().NotContain("SectionPanel title=\"贴图文字翻译\"");
+        aiPageSource.IndexOf("SectionPanel title=\"AI翻译配置\"", StringComparison.Ordinal)
+            .Should().BeLessThan(aiPageSource.IndexOf("SectionPanel title=\"贴图翻译配置\"", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Vue_translation_context_controls_belong_to_ai_settings()
     {
         var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
 
         aiPageSource.Should().Contain("id=\"enableTranslationContext\"");
         aiPageSource.Should().Contain("id=\"translationContextMaxExamples\"");
@@ -168,6 +182,15 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("EnableTranslationContext: form.EnableTranslationContext");
         aiPageSource.Should().Contain("TranslationContextMaxExamples: numberValue(form.TranslationContextMaxExamples)");
         aiPageSource.Should().Contain("TranslationContextMaxCharacters: numberValue(form.TranslationContextMaxCharacters)");
+        var contextRow = Regex.Match(aiPageSource, @"<div class=""translation-context-row"">(?<body>[\s\S]*?)</div>");
+        contextRow.Success.Should().BeTrue("context limits should share the toggle row instead of creating a sparse second grid");
+        contextRow.Groups["body"].Value.Should().Contain("id=\"enableTranslationContext\"");
+        contextRow.Groups["body"].Value.Should().Contain("id=\"translationContextMaxExamples\"");
+        contextRow.Groups["body"].Value.Should().Contain("id=\"translationContextMaxCharacters\"");
+        CssBlock(cssSource, @"\.translation-context-row")
+            .Should().Contain("display: flex;")
+            .And.Contain("flex-wrap: wrap;")
+            .And.Contain("gap: 10px;");
 
         pluginPageSource.Should().NotContain("id=\"enableTranslationContext\"");
         pluginPageSource.Should().NotContain("id=\"translationContextMaxExamples\"");
@@ -829,7 +852,7 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().NotContain(":disabled=\"hasLlamaCppProfile\"");
         aiPageSource.Should().NotContain("await saveConfig(buildConfigRequest(0), formKey, { quiet: true })");
         aiPageSource.Should().NotContain("await saveConfig(buildConfigRequest(3), formKey, { quiet: true })");
-        aiPageSource.Should().Contain("SectionPanel title=\"服务商配置\"");
+        aiPageSource.Should().Contain("SectionPanel title=\"AI翻译配置\"");
         aiPageSource.Should().NotContain("SectionPanel title=\"在线服务商配置\"");
         aiPageSource.Should().NotContain("SectionPanel title=\"llama.cpp 本地模型\"");
     }
