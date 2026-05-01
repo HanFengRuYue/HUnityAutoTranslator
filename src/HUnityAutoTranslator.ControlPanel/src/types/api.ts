@@ -127,6 +127,10 @@ export interface FontPickResult {
   Message: string;
 }
 
+export interface FontPickOptions {
+  CopyToConfig?: boolean;
+}
+
 export interface LlamaCppConfig {
   ModelPath: string | null;
   ContextSize: number;

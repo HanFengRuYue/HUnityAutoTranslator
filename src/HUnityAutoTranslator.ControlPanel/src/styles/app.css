@@ -1292,6 +1292,29 @@ input[type="range"] {
   background: var(--accent-soft);
   color: var(--accent);
 }
+.automatic-font-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
+  gap: 8px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.automatic-font-summary div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+.automatic-font-summary span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.automatic-font-summary strong {
+  overflow-wrap: anywhere;
+}
 .font-size-settings {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
@@ -2124,6 +2147,92 @@ th[data-sort-state="descending"] .sort-icon {
 }
 .cell-editor:focus {
   box-shadow: inset 0 0 0 2px var(--accent-soft);
+}
+.font-override-button {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr);
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 6px;
+  border-color: var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+  color: inherit;
+  text-align: left;
+}
+.font-override-button.automatic {
+  color: var(--muted);
+  background: var(--surface-2);
+}
+.font-override-button span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.font-editor-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 79;
+  display: grid;
+  place-items: start center;
+  padding: clamp(56px, 9vh, 82px) 18px 18px;
+  background: color-mix(in srgb, var(--bg), transparent 28%);
+  backdrop-filter: blur(10px);
+}
+.font-editor-dialog {
+  width: min(620px, calc(100vw - 36px));
+  max-width: 100%;
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+.font-editor-head {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--line);
+}
+.font-editor-head span,
+.font-editor-auto span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+.font-editor-head h2 {
+  margin: 2px 0 0;
+  font-size: 18px;
+}
+.font-editor-auto {
+  display: grid;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.font-editor-auto strong,
+.font-editor-auto small,
+.font-editor-picked {
+  overflow-wrap: anywhere;
+}
+.font-editor-auto small,
+.font-editor-picked {
+  color: var(--muted);
+}
+.font-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 .inline-new-row td {
   background: var(--surface-3);

@@ -7,6 +7,7 @@ import {
   Columns3,
   Copy,
   Download,
+  FileText,
   Filter,
   FilterX,
   MapPin,
@@ -15,12 +16,14 @@ import {
   Search,
   SortAsc,
   SortDesc,
+  Type,
   Trash2,
-  Upload
+  Upload,
+  X
 } from "lucide-vue-next";
 import { api, buildQuery, deleteJson, getJson, getText, patchJson, postJson } from "../api/client";
 import SectionPanel from "../components/SectionPanel.vue";
-import { controlPanelStore, refreshState, showToast } from "../state/controlPanelStore";
+import { controlPanelStore, pickFontFile, refreshState, showToast } from "../state/controlPanelStore";
 import type {
   DeleteResult,
   RetranslateResult,
@@ -86,6 +89,13 @@ const filterMenu = reactive({
   options: [] as TranslationCacheFilterOption[],
   draft: [] as string[]
 });
+const fontEditor = reactive({
+  open: false,
+  rowIndex: -1,
+  value: "",
+  pickedFontName: "",
+  isPicking: false
+});
 
 const orderedColumns = computed(() => {
   const byKey = new Map(defaultColumns.map((column) => [column.key, column]));
@@ -101,6 +111,15 @@ const orderedColumns = computed(() => {
 const visibleColumns = computed(() => orderedColumns.value.filter((column) => visibleKeys.value.includes(column.key)));
 const selectedRows = computed(() => selectedRowIndexes().map((index) => rows.value[index]).filter((row): row is TranslationCacheEntry => Boolean(row)));
 const hasColumnFilters = computed(hasActiveColumnFilters);
+const replacementFontColumn = computed(() => defaultColumns.find((column) => column.key === "ReplacementFont") ?? null);
+const automaticReplacementFontName = computed(() =>
+  controlPanelStore.state?.ReplacementFontName?.trim() ||
+  controlPanelStore.state?.AutomaticReplacementFontName?.trim() ||
+  "自动选择字体");
+const automaticReplacementFontFile = computed(() =>
+  controlPanelStore.state?.ReplacementFontFile?.trim() ||
+  controlPanelStore.state?.AutomaticReplacementFontFile?.trim() ||
+  "");
 
 function hasActiveColumnFilters(): boolean {
   return Object.values(columnFilters).some((values) => values.length > 0);
@@ -381,6 +400,22 @@ function displayCellValue(row: TranslationCacheEntry, column: TableColumn): stri
   return column.key.endsWith("Utc") ? formatFullDateTime(value) : value;
 }
 
+function replacementFontCellLabel(row: TranslationCacheEntry): string {
+  const customFont = row.ReplacementFont?.trim();
+  return customFont || `自动：${automaticReplacementFontName.value}`;
+}
+
+function replacementFontCellTitle(row: TranslationCacheEntry): string {
+  const customFont = row.ReplacementFont?.trim();
+  if (customFont) {
+    return `自定义替换字体：${customFont}`;
+  }
+
+  return automaticReplacementFontFile.value
+    ? `自动替换字体：${automaticReplacementFontName.value}\n${automaticReplacementFontFile.value}`
+    : `自动替换字体：${automaticReplacementFontName.value}`;
+}
+
 function updateCellValue(rowIndex: number, column: TableColumn, value: string): void {
   const existing = rows.value[rowIndex];
   if (!existing || !column.editable) {
@@ -395,6 +430,62 @@ function updateCellValue(rowIndex: number, column: TableColumn, value: string): 
 
 function updateCell(rowIndex: number, column: TableColumn, event: Event): void {
   updateCellValue(rowIndex, column, (event.target as HTMLTextAreaElement).value);
+}
+
+function openFontEditor(row: TranslationCacheEntry, rowIndex: number): void {
+  fontEditor.rowIndex = rowIndex;
+  fontEditor.value = row.ReplacementFont?.trim() ?? "";
+  fontEditor.pickedFontName = "";
+  fontEditor.open = true;
+}
+
+function closeFontEditor(): void {
+  fontEditor.open = false;
+  fontEditor.rowIndex = -1;
+  fontEditor.value = "";
+  fontEditor.pickedFontName = "";
+  fontEditor.isPicking = false;
+}
+
+async function pickComponentFontFile(): Promise<void> {
+  if (fontEditor.isPicking) {
+    return;
+  }
+
+  fontEditor.isPicking = true;
+  try {
+    const result = await pickFontFile({ CopyToConfig: true });
+    if (result.Status === "selected" && result.FilePath) {
+      fontEditor.value = result.FilePath;
+      fontEditor.pickedFontName = result.FontName ?? "";
+      showToast(result.FontName ? `已选择字体：${result.FontName}` : "已选择字体文件", "ok");
+      return;
+    }
+
+    if (result.Status !== "cancelled") {
+      showToast(result.Message || "选择字体文件失败。", result.Status === "unsupported" ? "warn" : "error");
+    }
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "选择字体文件失败。", "error");
+  } finally {
+    fontEditor.isPicking = false;
+  }
+}
+
+function clearFontEditor(): void {
+  fontEditor.value = "";
+  fontEditor.pickedFontName = "";
+}
+
+function saveFontEditor(): void {
+  const column = replacementFontColumn.value;
+  if (!column || fontEditor.rowIndex < 0) {
+    closeFontEditor();
+    return;
+  }
+
+  updateCellValue(fontEditor.rowIndex, column, fontEditor.value.trim());
+  closeFontEditor();
 }
 
 function clearSelectedEditableCells(): void {
@@ -835,12 +926,12 @@ onBeforeUnmount(() => {
                 :data-row-index="rowIndex"
                 :data-column-key="column.key"
                 :class="{ selected: isCellSelected(rowIndex, column), dirty: dirtyRows.has(rowKey(row)) && column.editable }"
-                :title="cellValue(row, column.key)"
+                :title="column.key === 'ReplacementFont' ? replacementFontCellTitle(row) : cellValue(row, column.key)"
                 @click="selectCell(rowIndex, column, $event)"
                 @contextmenu.stop.prevent="openCellContextMenu($event, rowIndex, column)"
               >
                 <textarea
-                  v-if="column.editable"
+                  v-if="column.editable && column.key !== 'ReplacementFont'"
                   class="cell-editor"
                   :value="displayCellValue(row, column)"
                   :spellcheck="false"
@@ -850,6 +941,16 @@ onBeforeUnmount(() => {
                   @keydown.stop
                   @input="updateCell(rowIndex, column, $event)"
                 ></textarea>
+                <button
+                  v-else-if="column.key === 'ReplacementFont'"
+                  class="font-override-button"
+                  :class="{ automatic: !row.ReplacementFont?.trim() }"
+                  type="button"
+                  @dblclick="openFontEditor(row, rowIndex)"
+                >
+                  <Type class="table-icon" />
+                  <span>{{ replacementFontCellLabel(row) }}</span>
+                </button>
                 <div v-else class="cell-text">{{ displayCellValue(row, column) }}</div>
               </td>
             </tr>
@@ -860,6 +961,36 @@ onBeforeUnmount(() => {
         共 {{ totalCount }} 行，当前显示 {{ rows.length }} 行。<span v-if="dirtyRows.size"> 待保存 {{ dirtyRows.size }} 行。</span> {{ tableMessage }}
       </div>
     </SectionPanel>
+
+    <div v-if="fontEditor.open" class="font-editor-backdrop" @click.self="closeFontEditor">
+      <div id="componentFontDialog" class="font-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="componentFontDialogTitle">
+        <div class="font-editor-head">
+          <div>
+            <span>文本组件字体</span>
+            <h2 id="componentFontDialogTitle">替换字体</h2>
+          </div>
+          <button class="secondary icon-button" type="button" aria-label="关闭" @click="closeFontEditor"><X class="button-icon" /></button>
+        </div>
+        <div class="font-editor-auto">
+          <span>当前自动字体</span>
+          <strong>{{ automaticReplacementFontName }}</strong>
+          <small v-if="automaticReplacementFontFile">{{ automaticReplacementFontFile }}</small>
+        </div>
+        <label class="field">
+          <span class="field-label"><Type class="field-label-icon" />自定义替换字体</span>
+          <input id="componentReplacementFont" v-model="fontEditor.value" autocomplete="off" :placeholder="`留空使用自动：${automaticReplacementFontName}`">
+        </label>
+        <div v-if="fontEditor.pickedFontName" class="font-editor-picked">已选择：{{ fontEditor.pickedFontName }}</div>
+        <div class="font-editor-actions">
+          <button id="pickComponentFontFile" class="secondary" type="button" :disabled="fontEditor.isPicking" @click="pickComponentFontFile">
+            <FileText class="button-icon" />
+            {{ fontEditor.isPicking ? "选择中..." : "选择字体文件" }}
+          </button>
+          <button class="secondary" type="button" @click="clearFontEditor">使用自动</button>
+          <button class="primary" type="button" @click="saveFontEditor"><Save class="button-icon" />保存到此文本</button>
+        </div>
+      </div>
+    </div>
 
     <div
       class="context-menu"

@@ -522,12 +522,16 @@ public sealed class ControlPanelVueSourceTests
 
         apiTypesSource.Should().Contain("export type FontPickStatus = \"selected\" | \"cancelled\" | \"unsupported\" | \"error\";");
         apiTypesSource.Should().Contain("export interface FontPickResult");
-        storeSource.Should().Contain("export async function pickFontFile()");
-        storeSource.Should().Contain("api<FontPickResult>(\"/api/fonts/pick\", { method: \"POST\" })");
+        apiTypesSource.Should().Contain("export interface FontPickOptions");
+        storeSource.Should().Contain("export async function pickFontFile(options: FontPickOptions = {})");
+        storeSource.Should().Contain("api<FontPickResult>(\"/api/fonts/pick\", { method: \"POST\", body: options })");
         pluginPageSource.Should().Contain("async function pickReplacementFontFile()");
         pluginPageSource.Should().Contain("form.ReplacementFontFile = result.FilePath;");
         pluginPageSource.Should().Contain("form.ReplacementFontName = result.FontName ?? \"\";");
         pluginPageSource.Should().Contain("id=\"pickReplacementFontFile\"");
+        pluginPageSource.Should().Contain("id=\"automaticReplacementFontSummary\"");
+        pluginPageSource.Should().Contain("automatic-font-summary");
+        pluginPageSource.Should().Contain("automaticFontSummary");
     }
 
     [Fact]
@@ -547,9 +551,8 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("function openProviderProfileEditor(profile: ProviderProfileState): void");
         aiPageSource.Should().Contain("function openNewProviderProfile(): void");
         aiPageSource.Should().Contain("function closeProviderProfileEditor(): void");
-        aiPageSource.Should().Contain("if (profileDirty.value)");
-        aiPageSource.Should().Contain("await saveProviderProfile();");
         aiPageSource.Should().Contain("/api/provider-profiles");
+        aiPageSource.Should().Contain("/api/provider-profiles/draft/");
         aiPageSource.Should().Contain("/test");
         aiPageSource.Should().Contain("/models");
         aiPageSource.Should().Contain("/balance");
@@ -558,6 +561,24 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().NotContain("openNewProviderProfile(0)");
         aiPageSource.Should().NotContain("openNewProviderProfile(3)");
         aiPageSource.Should().NotContain("savePendingApiKey");
+    }
+
+    [Fact]
+    public void Vue_ai_provider_profile_utilities_use_unsaved_draft_form()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+
+        aiPageSource.Should().Contain("function shouldReplaceProfileDefaultName");
+        aiPageSource.Should().Contain("profileForm.Name = shouldReplaceProfileDefaultName(currentName) ? defaults.name : currentName;");
+        aiPageSource.Should().Contain("function buildProviderProfileUtilityPath(action: \"test\" | \"models\" | \"balance\"): string");
+        aiPageSource.Should().Contain("return `/api/provider-profiles/draft/${action}`;");
+        aiPageSource.Should().Contain("body: buildProviderProfileRequest()");
+        aiPageSource.Should().Contain("function canApplyProviderSelectionFromState(): boolean");
+        aiPageSource.Should().Contain("return !providerEditorOpen.value || !profileDirty.value;");
+        aiPageSource.Should().Contain("if (canApplyProviderSelectionFromState())");
+        aiPageSource.Should().NotContain(":disabled=\"utilityBusy || !profileForm.Id\" @click=\"testProfile\"");
+        aiPageSource.Should().NotContain(":disabled=\"utilityBusy || !profileForm.Id\" @click=\"fetchProfileModels\"");
+        aiPageSource.Should().NotContain(":disabled=\"utilityBusy || !profileForm.Id\" @click=\"fetchProfileBalance\"");
     }
 
     [Fact]
@@ -1273,9 +1294,17 @@ public sealed class ControlPanelVueSourceTests
     public void Vue_editor_exposes_component_font_override_column()
     {
         var tableSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "table.ts"));
+        var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
 
         tableSource.Should().Contain("key: \"ReplacementFont\"");
         tableSource.Should().Contain("sort: \"replacement_font\"");
+        editorPageSource.Should().Contain("const fontEditor = reactive");
+        editorPageSource.Should().Contain("function replacementFontCellLabel");
+        editorPageSource.Should().Contain("function openFontEditor");
+        editorPageSource.Should().Contain("async function pickComponentFontFile()");
+        editorPageSource.Should().Contain("pickFontFile({ CopyToConfig: true })");
+        editorPageSource.Should().Contain("id=\"componentFontDialog\"");
+        editorPageSource.Should().Contain("@dblclick=\"openFontEditor(row, rowIndex)\"");
     }
 
     [Fact]

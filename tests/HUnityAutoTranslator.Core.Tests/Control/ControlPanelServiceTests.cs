@@ -1006,6 +1006,52 @@ public sealed class ControlPanelServiceTests
     }
 
     [Fact]
+    public void Draft_provider_profile_uses_current_form_without_saving_profile()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        var draft = service.CreateDraftProviderRuntimeProfile(new ProviderProfileUpdateRequest(
+            Name: "DeepSeek 草稿",
+            Kind: ProviderKind.DeepSeek,
+            BaseUrl: " https://api.deepseek.com ",
+            Endpoint: " /chat/completions ",
+            Model: " deepseek-chat ",
+            ApiKey: " sk-draft ",
+            RequestsPerMinute: 15000));
+
+        draft.Name.Should().Be("DeepSeek 草稿");
+        draft.Profile.Kind.Should().Be(ProviderKind.DeepSeek);
+        draft.Profile.BaseUrl.Should().Be("https://api.deepseek.com");
+        draft.Profile.Endpoint.Should().Be("/chat/completions");
+        draft.Profile.Model.Should().Be("deepseek-chat");
+        draft.ApiKey.Should().Be("sk-draft");
+        service.GetState().ProviderProfiles.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Draft_provider_profile_reuses_saved_key_when_editing_existing_profile()
+    {
+        var service = ControlPanelService.CreateDefault();
+        var saved = service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "Saved DeepSeek",
+            Kind: ProviderKind.DeepSeek,
+            ApiKey: "sk-saved",
+            Model: "deepseek-chat"));
+
+        var draft = service.CreateDraftProviderRuntimeProfile(new ProviderProfileUpdateRequest(
+            Id: saved.Id,
+            Name: "Edited DeepSeek",
+            Kind: ProviderKind.DeepSeek,
+            Model: "deepseek-v4-flash"));
+
+        draft.Id.Should().Be(saved.Id);
+        draft.Name.Should().Be("Edited DeepSeek");
+        draft.Profile.Model.Should().Be("deepseek-v4-flash");
+        draft.ApiKey.Should().Be("sk-saved");
+        service.GetState().ProviderProfiles.Should().ContainSingle().Which.Name.Should().Be("Saved DeepSeek");
+    }
+
+    [Fact]
     public void Automatic_font_fallbacks_are_reported_in_state_without_persisting_settings()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");

@@ -35,6 +35,7 @@ internal sealed class LocalHttpServer : IDisposable
     private readonly HttpClient _httpClient = new();
     private readonly ProviderUtilityClient _providerUtilityClient;
     private readonly ManualLogSource _logger;
+    private readonly string _dataDirectory;
     private HttpListener? _listener;
     private CancellationTokenSource? _cts;
 
@@ -50,6 +51,7 @@ internal sealed class LocalHttpServer : IDisposable
         UnityTextureReplacementService textureReplacement,
         LlamaCppServerManager? llamaCppServer,
         LlamaCppModelDownloadManager llamaCppModelDownloads,
+        string dataDirectory,
         ManualLogSource logger)
     {
         _controlPanel = controlPanel;
@@ -63,6 +65,7 @@ internal sealed class LocalHttpServer : IDisposable
         _llamaCppModelDownloads = llamaCppModelDownloads;
         _providerUtilityClient = new ProviderUtilityClient(_httpClient, _controlPanel.GetApiKey);
         _logger = logger;
+        _dataDirectory = dataDirectory;
     }
 
     public void Start(string host, int port)
@@ -166,7 +169,7 @@ internal sealed class LocalHttpServer : IDisposable
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/fonts/pick")
             {
-                await WriteJsonAsync(context.Response, WindowsFontFilePicker.PickFontFile()).ConfigureAwait(false);
+                await HandleFontPickAsync(context).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/llamacpp/model/pick")
             {
@@ -733,6 +736,13 @@ internal sealed class LocalHttpServer : IDisposable
             return;
         }
 
+        if (segments.Length == 4 &&
+            string.Equals(segments[2], "draft", StringComparison.OrdinalIgnoreCase))
+        {
+            await HandleDraftProviderProfileUtilityAsync(context, segments[3]).ConfigureAwait(false);
+            return;
+        }
+
         if (segments.Length < 3)
         {
             response.StatusCode = 404;
@@ -824,6 +834,109 @@ internal sealed class LocalHttpServer : IDisposable
 
         response.StatusCode = 404;
         await WriteTextAsync(response, "未找到服务商配置接口。").ConfigureAwait(false);
+    }
+
+    private async Task HandleDraftProviderProfileUtilityAsync(HttpListenerContext context, string action)
+    {
+        var request = context.Request;
+        var response = context.Response;
+        if (request.HttpMethod != "POST")
+        {
+            response.StatusCode = 404;
+            await WriteTextAsync(response, "未找到服务商配置接口。").ConfigureAwait(false);
+            return;
+        }
+
+        var updateRequest = await ReadJsonAsync<ProviderProfileUpdateRequest>(request).ConfigureAwait(false);
+        var profile = _controlPanel.CreateDraftProviderRuntimeProfile(updateRequest);
+        if (profile.Profile.Kind == ProviderKind.LlamaCpp)
+        {
+            await HandleDraftLlamaCppProviderProfileAsync(context, action, profile).ConfigureAwait(false);
+            return;
+        }
+
+        var utilityClient = CreateProviderUtilityClient(profile);
+        if (action == "test")
+        {
+            ProviderTestResult result;
+            if (profile.Profile.Kind == ProviderKind.OpenAICompatible)
+            {
+                result = await utilityClient.TestConnectionAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false);
+            }
+            else
+            {
+                var models = await utilityClient.FetchModelsAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false);
+                result = new ProviderTestResult(models.Succeeded, models.Message);
+            }
+
+            _controlPanel.SetProviderStatus(new ProviderStatus(result.Succeeded ? "ok" : "error", result.Message, DateTimeOffset.UtcNow));
+            await WriteJsonAsync(response, result).ConfigureAwait(false);
+            return;
+        }
+
+        if (action == "models")
+        {
+            await WriteJsonAsync(response, await utilityClient.FetchModelsAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+            return;
+        }
+
+        if (action == "balance")
+        {
+            await WriteJsonAsync(response, await utilityClient.FetchBalanceAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+            return;
+        }
+
+        response.StatusCode = 404;
+        await WriteTextAsync(response, "未找到服务商配置接口。").ConfigureAwait(false);
+    }
+
+    private async Task HandleDraftLlamaCppProviderProfileAsync(
+        HttpListenerContext context,
+        string action,
+        ProviderRuntimeProfile profile)
+    {
+        var response = context.Response;
+        var config = profile.ApplyTo(_controlPanel.GetConfig());
+        if (action == "test")
+        {
+            if (_llamaCppServer == null)
+            {
+                await WriteJsonAsync(response, new ProviderTestResult(false, "llama.cpp 本地模型管理器不可用。")).ConfigureAwait(false);
+                return;
+            }
+
+            var ready = await _llamaCppServer.IsReadyAsync(config, CancellationToken.None).ConfigureAwait(false);
+            var status = _llamaCppServer.GetStatus(config);
+            _controlPanel.SetLlamaCppStatus(status);
+            var result = new ProviderTestResult(
+                ready,
+                ready ? "llama.cpp 本地模型连接可用。" : status.Message);
+            _controlPanel.SetProviderStatus(new ProviderStatus(result.Succeeded ? "ok" : "error", result.Message, DateTimeOffset.UtcNow));
+            await WriteJsonAsync(response, result).ConfigureAwait(false);
+            return;
+        }
+
+        if (action == "models")
+        {
+            await WriteJsonAsync(
+                response,
+                new ProviderModelsResult(
+                    true,
+                    "本地模型使用当前 GGUF 文件。",
+                    new[] { new ProviderModelInfo(profile.Profile.Model, "llama.cpp") })).ConfigureAwait(false);
+            return;
+        }
+
+        if (action == "balance")
+        {
+            await WriteJsonAsync(
+                response,
+                new ProviderBalanceResult(true, "本地模型不适用账户余额查询。", Array.Empty<ProviderBalanceInfo>())).ConfigureAwait(false);
+            return;
+        }
+
+        response.StatusCode = 404;
+        await WriteTextAsync(response, "未找到本地模型配置接口。").ConfigureAwait(false);
     }
 
     private async Task HandleLlamaCppProviderProfileAsync(
@@ -927,6 +1040,23 @@ internal sealed class LocalHttpServer : IDisposable
     private ProviderUtilityClient CreateProviderUtilityClient(ProviderRuntimeProfile profile)
     {
         return new ProviderUtilityClient(_httpClient, () => profile.ApiKey);
+    }
+
+    private async Task HandleFontPickAsync(HttpListenerContext context)
+    {
+        var fontPickRequest = await ReadJsonAsync<FontPickRequest>(context.Request).ConfigureAwait(false);
+        var result = WindowsFontFilePicker.PickFontFile();
+        if (fontPickRequest?.CopyToConfig == true)
+        {
+            result = CopyToFontConfigDirectory(result);
+        }
+
+        await WriteJsonAsync(context.Response, result).ConfigureAwait(false);
+    }
+
+    private FontPickResult CopyToFontConfigDirectory(FontPickResult result)
+    {
+        return result.CopyToDirectory(Path.Combine(_dataDirectory, "fonts"));
     }
 
     private ProviderUtilityClient CreateTextureImageProviderUtilityClient(TextureImageProviderProfileDefinition profile)
@@ -1223,7 +1353,8 @@ internal sealed class LocalHttpServer : IDisposable
     {
         return entry with
         {
-            TranslatedText = string.IsNullOrWhiteSpace(entry.TranslatedText) ? null : entry.TranslatedText
+            TranslatedText = string.IsNullOrWhiteSpace(entry.TranslatedText) ? null : entry.TranslatedText,
+            ReplacementFont = string.IsNullOrWhiteSpace(entry.ReplacementFont) ? null : entry.ReplacementFont.Trim()
         };
     }
 

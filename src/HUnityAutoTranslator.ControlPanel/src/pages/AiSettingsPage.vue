@@ -90,6 +90,7 @@ const providerDefaults: Record<number, { name: string; baseUrl: string; endpoint
   2: { name: "OpenAI 兼容", baseUrl: "http://127.0.0.1:8000", endpoint: "/v1/chat/completions", model: "local-model", requestsPerMinute: 15000 },
   3: { name: "llama.cpp 本地模型", baseUrl: "http://127.0.0.1:0", endpoint: "/v1/chat/completions", model: "local-model", requestsPerMinute: 15000 }
 };
+const providerDefaultNames = new Set(Object.values(providerDefaults).map((defaults) => defaults.name));
 
 const llamaCppStateLabels: Record<string, string> = {
   stopped: "已停止",
@@ -607,6 +608,10 @@ function selectFirstProfileIfNeeded(): void {
   applySelectedProfile(true);
 }
 
+function canApplyProviderSelectionFromState(): boolean {
+  return !providerEditorOpen.value || !profileDirty.value;
+}
+
 function buildConfigRequest(providerKind = form.ProviderKind): UpdateConfigRequest {
   return {
     TargetLanguage: form.TargetLanguage,
@@ -650,6 +655,7 @@ function buildProfileLlamaCppConfig(): LlamaCppConfig {
 
 function buildProviderProfileRequest(): ProviderProfileUpdateRequest {
   return {
+    Id: profileForm.Id || undefined,
     Name: profileForm.Name.trim() || (providerDefaults[profileKind.value]?.name ?? "服务商配置"),
     Enabled: profileForm.Enabled,
     Kind: profileKind.value,
@@ -923,6 +929,11 @@ function openProviderProfileEditor(profile: ProviderProfileState): void {
   providerEditorOpen.value = true;
 }
 
+function shouldReplaceProfileDefaultName(name: string): boolean {
+  const trimmed = name.trim();
+  return !trimmed || providerDefaultNames.has(trimmed);
+}
+
 function closeProviderProfileEditor(): void {
   if (profileDirty.value && !window.confirm("放弃未保存的服务商配置修改？")) {
     return;
@@ -954,7 +965,7 @@ function applyProfileKindDefaults(): void {
   profileForm.ReasoningEffort = profileKind.value === 1 ? "high" : "none";
   profileForm.OutputVerbosity = "low";
   profileForm.DeepSeekThinkingMode = "disabled";
-  profileForm.Name = currentName || defaults.name;
+  profileForm.Name = shouldReplaceProfileDefaultName(currentName) ? defaults.name : currentName;
   profileForm.Id = currentId;
   if (profileKind.value === 3) {
     applyProfileLlamaCppConfig(null);
@@ -1082,18 +1093,13 @@ async function importProviderProfile(event: Event): Promise<void> {
   }
 }
 
-async function runProfileUtility<T>(label: string, action: () => Promise<T>, render: (result: T) => string): Promise<void> {
-  if (!profileForm.Id) {
-    showToast("请先保存服务商配置。", "warn");
-    return;
-  }
+function buildProviderProfileUtilityPath(action: "test" | "models" | "balance"): string {
+  return `/api/provider-profiles/draft/${action}`;
+}
 
+async function runProfileUtility<T>(label: string, action: () => Promise<T>, render: (result: T) => string): Promise<void> {
   utilityBusy.value = true;
   try {
-    if (profileDirty.value) {
-      await saveProviderProfile();
-    }
-
     const result = await action();
     showToast(`${label}：${render(result)}`, "ok", 6200);
   } catch (error) {
@@ -1119,21 +1125,21 @@ function formatBalance(balance: ProviderBalanceInfo): string {
 async function testProfile(): Promise<void> {
   await runProfileUtility(
     "连接测试",
-    () => api<ProviderTestResult>(`/api/provider-profiles/${encodeURIComponent(profileForm.Id)}/test`, { method: "POST" }),
+    () => api<ProviderTestResult>(buildProviderProfileUtilityPath("test"), { method: "POST", body: buildProviderProfileRequest() }),
     (result) => result.Message);
 }
 
 async function fetchProfileModels(): Promise<void> {
   await runProfileUtility(
     "模型列表",
-    () => api<ProviderModelsResult>(`/api/provider-profiles/${encodeURIComponent(profileForm.Id)}/models`),
+    () => api<ProviderModelsResult>(buildProviderProfileUtilityPath("models"), { method: "POST", body: buildProviderProfileRequest() }),
     (result) => result.Models.length ? `${result.Message}：${result.Models.slice(0, 6).map((model) => model.Id).join("、")}` : result.Message);
 }
 
 async function fetchProfileBalance(): Promise<void> {
   await runProfileUtility(
     "余额",
-    () => api<ProviderBalanceResult>(`/api/provider-profiles/${encodeURIComponent(profileForm.Id)}/balance`),
+    () => api<ProviderBalanceResult>(buildProviderProfileUtilityPath("balance"), { method: "POST", body: buildProviderProfileRequest() }),
     formatBalanceToast);
 }
 
@@ -1356,10 +1362,16 @@ watch(llamaCppIsActive, (active) => {
 
 watch(() => controlPanelStore.state, (state) => {
   applyState(state);
-  selectFirstProfileIfNeeded();
+  if (canApplyProviderSelectionFromState()) {
+    selectFirstProfileIfNeeded();
+  }
 }, { immediate: true });
 
-watch(selectedProfileId, () => applySelectedProfile(true));
+watch(selectedProfileId, () => {
+  if (canApplyProviderSelectionFromState()) {
+    applySelectedProfile(true);
+  }
+});
 </script>
 
 <template>
@@ -1790,9 +1802,9 @@ watch(selectedProfileId, () => applySelectedProfile(true));
 
           <div class="actions provider-profile-actions">
             <button class="primary" type="button" :disabled="profileBusy" @click="saveProviderProfile({ closeEditor: true })"><Save class="button-icon" />{{ profileForm.Id ? "保存配置" : "添加配置" }}</button>
-            <button class="secondary" type="button" :disabled="utilityBusy || !profileForm.Id" @click="testProfile"><Zap class="button-icon" />测试连接</button>
-            <button v-if="!isProfileLlamaCpp" class="secondary" type="button" :disabled="utilityBusy || !profileForm.Id" @click="fetchProfileModels"><Download class="button-icon" />获取模型</button>
-            <button v-if="!isProfileLlamaCpp" class="secondary" type="button" :disabled="utilityBusy || !profileForm.Id" @click="fetchProfileBalance"><WalletCards class="button-icon" />查询余额</button>
+            <button class="secondary" type="button" :disabled="utilityBusy" @click="testProfile"><Zap class="button-icon" />测试连接</button>
+            <button v-if="!isProfileLlamaCpp" class="secondary" type="button" :disabled="utilityBusy" @click="fetchProfileModels"><Download class="button-icon" />获取模型</button>
+            <button v-if="!isProfileLlamaCpp" class="secondary" type="button" :disabled="utilityBusy" @click="fetchProfileBalance"><WalletCards class="button-icon" />查询余额</button>
           </div>
         </div>
       </section>
