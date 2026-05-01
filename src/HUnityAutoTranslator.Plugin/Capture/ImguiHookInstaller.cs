@@ -15,13 +15,9 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
 {
     private const string HarmonyId = "com.hanfeng.hunityautotranslator.imgui";
     private const int MaxImguiStateEntries = 2048;
-    private const int MaxImguiNewCapturesPerFrame = 16;
-    private const int MaxImguiCacheRefreshesPerFrame = 32;
-    private const int DefaultImguiFontSize = 14;
+    private const int MaxImguiPendingBatchSize = 96;
     private const double ImguiPendingRefreshSeconds = 1;
     private const double ImguiStateTtlSeconds = 300;
-    private const double ImguiNewCaptureIntervalSeconds = 0.05;
-    private const double ImguiCacheRefreshIntervalSeconds = 0.05;
     private static ImguiHookInstaller? _instance;
 
     private readonly TextPipeline _pipeline;
@@ -31,13 +27,16 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
     private readonly UnityTextFontReplacementService? _fontReplacement;
     private readonly ImguiTranslationStateCache _stateCache = new(
         MaxImguiStateEntries,
-        MaxImguiNewCapturesPerFrame,
-        MaxImguiCacheRefreshesPerFrame,
         ImguiPendingRefreshSeconds,
-        ImguiStateTtlSeconds,
-        ImguiNewCaptureIntervalSeconds,
-        ImguiCacheRefreshIntervalSeconds);
+        ImguiStateTtlSeconds);
     private Harmony? _harmony;
+    private ImguiFontRequest? _pendingImguiFontRequest;
+    private int _pendingImguiFontRequestVersion;
+    private int _appliedImguiFontRequestVersion;
+    private bool _enableImguiForDraw;
+    private string _drawTargetLanguage = "zh-Hans";
+    private string _drawPromptPolicyVersion = string.Empty;
+    private string? _drawSceneName;
     private bool _enabled;
     private bool _warned;
 
@@ -62,7 +61,7 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
 
     public string Name => "IMGUI";
 
-    public bool IsEnabled => _enabled && _configProvider().EnableImgui;
+    public bool IsEnabled => _enabled && _enableImguiForDraw;
 
     public void Start()
     {
@@ -70,6 +69,7 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
         {
             _instance = this;
             _harmony = new Harmony(HarmonyId);
+            RefreshDrawContext(_configProvider());
             PatchStringTextMethods(typeof(UnityEngine.GUI));
             PatchStringTextMethods(typeof(UnityEngine.GUILayout));
             _enabled = true;
@@ -84,6 +84,13 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
 
     public void Tick(bool forceFullScan = false)
     {
+        var config = _configProvider();
+        RefreshDrawContext(config);
+        var maxCount = Math.Min(MaxImguiPendingBatchSize, Math.Max(1, config.MaxScanTargetsPerTick));
+        foreach (var pendingText in _stateCache.TakePendingBatch(maxCount, Time.unscaledTime))
+        {
+            ProcessPendingImguiText(pendingText);
+        }
     }
 
     public void Dispose()
@@ -106,10 +113,7 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
 
             try
             {
-                _harmony!.Patch(
-                    method,
-                    prefix: new HarmonyMethod(typeof(ImguiHookInstaller), nameof(PrefixStringText)),
-                    postfix: new HarmonyMethod(typeof(ImguiHookInstaller), nameof(PostfixStringText)));
+                _harmony!.Patch(method, prefix: new HarmonyMethod(typeof(ImguiHookInstaller), nameof(PrefixStringText)));
             }
             catch (Exception ex)
             {
@@ -128,162 +132,130 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
         return method.GetParameters().Any(parameter => parameter.Name == "text" && parameter.ParameterType == typeof(string));
     }
 
-    private static void PrefixStringText(MethodBase __originalMethod, object[] __args, ref string text, out ImguiDrawState? __state)
+    private static void PrefixStringText(ref string text)
     {
-        __state = null;
-        if (_instance == null || string.IsNullOrWhiteSpace(text))
+        if (_instance == null ||
+            !_instance._enabled ||
+            !_instance._enableImguiForDraw ||
+            string.IsNullOrEmpty(text) ||
+            Event.current?.type != EventType.Repaint)
         {
             return;
         }
 
-        var resolution = _instance.TranslateOrQueue(text);
+        _instance.ApplyPendingImguiFontForDraw();
+        var resolution = _instance.ResolveForDraw(text);
         text = resolution.DisplayText;
-        if (resolution.IsTranslated)
-        {
-            __state = _instance.TryBeginFontScope(__originalMethod, __args, resolution);
-        }
     }
 
-    private static void PostfixStringText(ImguiDrawState? __state)
-    {
-        __state?.Restore();
-    }
-
-    private ImguiTextResolution TranslateOrQueue(string text)
-    {
-        var config = _configProvider();
-        var promptPolicyVersion = TextPipeline.GetPromptPolicyVersion(config);
-        var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, promptPolicyVersion);
-        var sceneName = GetActiveSceneName();
-        var context = new TranslationCacheContext(sceneName, ComponentHierarchy: null, ComponentType: "IMGUI");
-        var stateResult = _stateCache.Resolve(
-            text,
-            key.TargetLanguage,
-            key.PromptPolicyVersion,
-            sceneName,
-            Time.unscaledTime,
-            Time.frameCount,
-            () => TryGetCachedImguiTranslation(key, context),
-            () => ProcessImguiText(text, context));
-
-        if (stateResult.IsTranslated)
-        {
-            return new ImguiTextResolution(stateResult.DisplayText, true, key, context);
-        }
-
-        return new ImguiTextResolution(stateResult.DisplayText, false, key, context);
-    }
-
-    private ImguiDrawState? TryBeginFontScope(
-        MethodBase originalMethod,
-        object[] args,
-        ImguiTextResolution resolution)
+    private void ApplyPendingImguiFontForDraw()
     {
         if (_fontReplacement == null)
         {
-            return null;
+            return;
         }
 
-        var style = ResolveStyle(originalMethod, args);
-        var fontSize = ResolveFontSize(style);
-        if (!_fontReplacement.TryResolveImguiFont(resolution.Key, resolution.Context, fontSize, resolution.DisplayText, out var font))
+        var request = _pendingImguiFontRequest;
+        var version = _pendingImguiFontRequestVersion;
+        if (request == null || _appliedImguiFontRequestVersion == version)
         {
-            return null;
+            return;
         }
 
-        if (style != null)
-        {
-            return ImguiDrawState.ApplyStyle(style, font);
-        }
-
-        return GUI.skin != null ? ImguiDrawState.ApplySkin(GUI.skin, font) : null;
+        _fontReplacement.ApplyToImgui(request.Key, request.Context, request.SampleText);
+        _appliedImguiFontRequestVersion = version;
     }
 
-    private static GUIStyle? ResolveStyle(MethodBase originalMethod, object[] args)
+    private ImguiTranslationStateResult ResolveForDraw(string text)
     {
-        foreach (var arg in args)
-        {
-            if (arg is GUIStyle style)
-            {
-                return style;
-            }
-        }
-
-        var skin = GUI.skin;
-        if (skin == null)
-        {
-            return null;
-        }
-
-        return originalMethod.Name switch
-        {
-            "Button" => skin.button,
-            "Toggle" => skin.toggle,
-            "TextField" => skin.textField,
-            _ => skin.label
-        };
-    }
-
-    private static int ResolveFontSize(GUIStyle? style)
-    {
-        if (style?.fontSize > 0)
-        {
-            return ClampImguiFontSize(style.fontSize);
-        }
-
-        var styleFontSize = TryGetFontSize(style?.font);
-        if (styleFontSize > 0)
-        {
-            return ClampImguiFontSize(styleFontSize);
-        }
-
-        var skinFontSize = TryGetFontSize(GUI.skin?.font);
-        return ClampImguiFontSize(skinFontSize > 0 ? skinFontSize : DefaultImguiFontSize);
-    }
-
-    private static int TryGetFontSize(Font? font)
-    {
-        if (font == null)
-        {
-            return 0;
-        }
-
-        try
-        {
-            return font.fontSize;
-        }
-        catch
-        {
-            return 0;
-        }
-    }
-
-    private static int ClampImguiFontSize(int fontSize)
-    {
-        return Math.Max(8, Math.Min(96, fontSize));
-    }
-
-    private string? TryGetCachedImguiTranslation(TranslationCacheKey key, TranslationCacheContext context)
-    {
-        if (_cache.TryGet(key, context, out var translated))
-        {
-            return translated;
-        }
-
-        return null;
-    }
-
-    private string? ProcessImguiText(string text, TranslationCacheContext context)
-    {
-        var decision = _pipeline.Process(new CapturedText(
-            "imgui:" + text,
+        return _stateCache.ResolveForDraw(
             text,
+            _drawTargetLanguage,
+            _drawPromptPolicyVersion,
+            _drawSceneName,
+            Time.unscaledTime,
+            Time.frameCount);
+    }
+
+    private void ProcessPendingImguiText(ImguiPendingText pendingText)
+    {
+        var nowSeconds = Time.unscaledTime;
+        var config = _configProvider();
+        var key = TranslationCacheKey.Create(
+            pendingText.SourceText,
+            pendingText.TargetLanguage,
+            config.Provider,
+            pendingText.PromptPolicyVersion);
+        var context = new TranslationCacheContext(pendingText.SceneName, ComponentHierarchy: null, ComponentType: "IMGUI");
+
+        if (ImguiTextClassifier.ShouldSkipTranslation(pendingText.SourceText, pendingText.TargetLanguage))
+        {
+            _stateCache.MarkIgnored(pendingText, nowSeconds);
+            if (ImguiTextClassifier.ShouldPrepareFontForSkippedText(pendingText.SourceText, pendingText.TargetLanguage))
+            {
+                RequestImguiFont(key, context, pendingText.SourceText);
+            }
+
+            return;
+        }
+
+        if (_cache.TryGet(key, context, out var translatedText))
+        {
+            _stateCache.MarkCached(pendingText, translatedText, nowSeconds);
+            RequestImguiFont(key, context, translatedText);
+            return;
+        }
+
+        if (!pendingText.ShouldProcessSource)
+        {
+            _stateCache.MarkCacheMiss(pendingText, nowSeconds);
+            return;
+        }
+
+        var decision = _pipeline.Process(new CapturedText(
+            "imgui:" + pendingText.SourceText,
+            pendingText.SourceText,
             isVisible: true,
             context,
             publishResult: false));
-        return decision.Kind == PipelineDecisionKind.UseCachedTranslation
-            ? decision.TranslatedText
-            : null;
+        if (decision.Kind == PipelineDecisionKind.UseCachedTranslation && decision.TranslatedText != null)
+        {
+            _stateCache.MarkCached(pendingText, decision.TranslatedText, nowSeconds);
+            RequestImguiFont(key, context, decision.TranslatedText);
+        }
+        else if (decision.Kind == PipelineDecisionKind.Ignored)
+        {
+            _stateCache.MarkIgnored(pendingText, nowSeconds);
+        }
+        else
+        {
+            _stateCache.MarkQueued(pendingText, nowSeconds);
+        }
+    }
+
+    private void RequestImguiFont(TranslationCacheKey key, TranslationCacheContext context, string translatedText)
+    {
+        if (_fontReplacement == null || string.IsNullOrEmpty(translatedText))
+        {
+            return;
+        }
+
+        var request = new ImguiFontRequest(key, context, translatedText);
+        if (Equals(_pendingImguiFontRequest, request))
+        {
+            return;
+        }
+
+        _pendingImguiFontRequest = request;
+        _pendingImguiFontRequestVersion++;
+    }
+
+    private void RefreshDrawContext(RuntimeConfig config)
+    {
+        _enableImguiForDraw = config.EnableImgui;
+        _drawTargetLanguage = config.TargetLanguage;
+        _drawPromptPolicyVersion = TextPipeline.GetPromptPolicyVersion(config);
+        _drawSceneName = GetActiveSceneName();
     }
 
     private static string? GetActiveSceneName()
@@ -298,76 +270,6 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
         }
     }
 
-    private sealed class ImguiTextResolution
-    {
-        public ImguiTextResolution(
-            string displayText,
-            bool isTranslated,
-            TranslationCacheKey key,
-            TranslationCacheContext context)
-        {
-            DisplayText = displayText;
-            IsTranslated = isTranslated;
-            Key = key;
-            Context = context;
-        }
-
-        public string DisplayText { get; }
-
-        public bool IsTranslated { get; }
-
-        public TranslationCacheKey Key { get; }
-
-        public TranslationCacheContext Context { get; }
-    }
-
-    private sealed class ImguiDrawState
-    {
-        private readonly GUIStyle? _style;
-        private readonly GUISkin? _skin;
-        private readonly Font? _originalFont;
-        private bool _restored;
-
-        private ImguiDrawState(GUIStyle? style, GUISkin? skin, Font? originalFont)
-        {
-            _style = style;
-            _skin = skin;
-            _originalFont = originalFont;
-        }
-
-        public static ImguiDrawState ApplyStyle(GUIStyle style, Font font)
-        {
-            var state = new ImguiDrawState(style, skin: null, style.font);
-            style.font = font;
-            return state;
-        }
-
-        public static ImguiDrawState ApplySkin(GUISkin skin, Font font)
-        {
-            var state = new ImguiDrawState(style: null, skin, skin.font);
-            skin.font = font;
-            return state;
-        }
-
-        public void Restore()
-        {
-            if (_restored)
-            {
-                return;
-            }
-
-            _restored = true;
-            if (_style != null)
-            {
-                _style.font = _originalFont;
-            }
-            else if (_skin != null)
-            {
-                _skin.font = _originalFont;
-            }
-        }
-    }
-
     private void WarnOnce(string message)
     {
         if (_warned)
@@ -378,4 +280,9 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
         _warned = true;
         _logger.LogWarning(message);
     }
+
+    private sealed record ImguiFontRequest(
+        TranslationCacheKey Key,
+        TranslationCacheContext Context,
+        string SampleText);
 }

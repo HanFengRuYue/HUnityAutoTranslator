@@ -4,157 +4,155 @@ internal sealed class ImguiTranslationStateCache
 {
     private readonly Dictionary<StateKey, StateEntry> _entries = new();
     private readonly int _maxEntries;
-    private readonly int _maxNewItemsPerFrame;
-    private readonly int _maxRefreshesPerFrame;
     private readonly double _pendingRefreshSeconds;
     private readonly double _entryTtlSeconds;
-    private readonly double _minNewItemIntervalSeconds;
-    private readonly double _minRefreshIntervalSeconds;
-    private int _currentFrameId = int.MinValue;
-    private int _newItemsThisFrame;
-    private int _refreshesThisFrame;
     private long _sequence;
     private double _nextPruneSeconds;
-    private double _nextNewItemSeconds;
-    private double _nextRefreshSeconds;
 
     public ImguiTranslationStateCache(
         int maxEntries = 2048,
-        int maxNewItemsPerFrame = 8,
-        int maxRefreshesPerFrame = 4,
         double pendingRefreshSeconds = 1,
-        double entryTtlSeconds = 300,
-        double minNewItemIntervalSeconds = 0,
-        double minRefreshIntervalSeconds = 0)
+        double entryTtlSeconds = 300)
     {
         _maxEntries = Math.Max(16, maxEntries);
-        _maxNewItemsPerFrame = Math.Max(1, maxNewItemsPerFrame);
-        _maxRefreshesPerFrame = Math.Max(0, maxRefreshesPerFrame);
         _pendingRefreshSeconds = Math.Max(0.1, pendingRefreshSeconds);
         _entryTtlSeconds = Math.Max(5, entryTtlSeconds);
-        _minNewItemIntervalSeconds = Math.Max(0, minNewItemIntervalSeconds);
-        _minRefreshIntervalSeconds = Math.Max(0, minRefreshIntervalSeconds);
     }
 
-    public ImguiTranslationStateResult Resolve(
+    public ImguiTranslationStateResult ResolveForDraw(
         string sourceText,
         string targetLanguage,
         string promptPolicyVersion,
         string? sceneName,
         double nowSeconds,
-        int frameId,
-        Func<string?> tryGetCachedTranslation,
-        Func<string?> processSourceText)
+        int frameId)
     {
-        ResetFrame(frameId);
-
-        var key = new StateKey(sourceText, targetLanguage, promptPolicyVersion, sceneName ?? string.Empty);
+        var key = StateKey.Create(sourceText, targetLanguage, promptPolicyVersion, sceneName);
         if (!_entries.TryGetValue(key, out var entry))
         {
-            entry = new StateEntry();
+            entry = new StateEntry(++_sequence);
             _entries[key] = entry;
         }
 
         entry.LastSeenSeconds = nowSeconds;
+        entry.LastSeenFrameId = frameId;
         entry.LastSeenSequence = ++_sequence;
         TrimIfNeeded(nowSeconds);
 
-        if (entry.TranslatedText != null)
+        return entry.TranslatedText != null
+            ? ImguiTranslationStateResult.Translated(entry.TranslatedText)
+            : ImguiTranslationStateResult.Pending(sourceText);
+    }
+
+    public IReadOnlyList<ImguiPendingText> TakePendingBatch(int maxCount, double nowSeconds)
+    {
+        if (maxCount <= 0)
         {
-            return ImguiTranslationStateResult.Translated(entry.TranslatedText);
+            return Array.Empty<ImguiPendingText>();
         }
 
-        if (!entry.HasProcessedSource)
+        TrimIfNeeded(nowSeconds);
+        var batch = new List<ImguiPendingText>(Math.Min(maxCount, _entries.Count));
+        foreach (var item in _entries
+            .OrderBy(item => item.Value.FirstSeenSequence)
+            .ThenBy(item => item.Value.LastSeenSequence))
         {
-            return ResolveNewSource(entry, sourceText, nowSeconds, tryGetCachedTranslation, processSourceText);
-        }
-
-        if (ShouldRefreshPending(entry, nowSeconds) && TrySpendRefreshBudget(nowSeconds))
-        {
-            entry.LastCacheLookupSeconds = nowSeconds;
-            var translated = tryGetCachedTranslation();
-            if (translated != null)
+            if (batch.Count >= maxCount)
             {
-                entry.TranslatedText = translated;
-                return ImguiTranslationStateResult.Translated(translated);
+                break;
             }
+
+            var entry = item.Value;
+            if (entry.InBatch ||
+                entry.Ignored ||
+                entry.TranslatedText != null ||
+                !ShouldProcess(entry, nowSeconds))
+            {
+                continue;
+            }
+
+            entry.InBatch = true;
+            entry.LastBatchSeconds = nowSeconds;
+            batch.Add(new ImguiPendingText(
+                item.Key.SourceText,
+                item.Key.TargetLanguage,
+                item.Key.PromptPolicyVersion,
+                item.Key.SceneName,
+                ShouldProcessSource: !entry.HasProcessedSource));
         }
 
-        return ImguiTranslationStateResult.Pending(sourceText);
+        return batch;
     }
 
-    private ImguiTranslationStateResult ResolveNewSource(
-        StateEntry entry,
-        string sourceText,
-        double nowSeconds,
-        Func<string?> tryGetCachedTranslation,
-        Func<string?> processSourceText)
+    public void MarkCached(ImguiPendingText pendingText, string translatedText, double nowSeconds)
     {
-        if (!TrySpendNewItemBudget(nowSeconds))
-        {
-            return ImguiTranslationStateResult.Pending(sourceText);
-        }
-
-        entry.HasProcessedSource = true;
-        entry.LastCacheLookupSeconds = nowSeconds;
-        var cached = tryGetCachedTranslation();
-        if (cached != null)
-        {
-            entry.TranslatedText = cached;
-            return ImguiTranslationStateResult.Translated(cached);
-        }
-
-        var processed = processSourceText();
-        if (processed != null)
-        {
-            entry.TranslatedText = processed;
-            return ImguiTranslationStateResult.Translated(processed);
-        }
-
-        return ImguiTranslationStateResult.Pending(sourceText);
-    }
-
-    private bool ShouldRefreshPending(StateEntry entry, double nowSeconds)
-    {
-        return nowSeconds - entry.LastCacheLookupSeconds >= _pendingRefreshSeconds;
-    }
-
-    private bool TrySpendNewItemBudget(double nowSeconds)
-    {
-        if (_newItemsThisFrame >= _maxNewItemsPerFrame ||
-            (_newItemsThisFrame == 0 && nowSeconds < _nextNewItemSeconds))
-        {
-            return false;
-        }
-
-        _newItemsThisFrame++;
-        _nextNewItemSeconds = nowSeconds + _minNewItemIntervalSeconds;
-        return true;
-    }
-
-    private bool TrySpendRefreshBudget(double nowSeconds)
-    {
-        if (_refreshesThisFrame >= _maxRefreshesPerFrame ||
-            (_refreshesThisFrame == 0 && nowSeconds < _nextRefreshSeconds))
-        {
-            return false;
-        }
-
-        _refreshesThisFrame++;
-        _nextRefreshSeconds = nowSeconds + _minRefreshIntervalSeconds;
-        return true;
-    }
-
-    private void ResetFrame(int frameId)
-    {
-        if (frameId == _currentFrameId)
+        if (!TryGetEntry(pendingText, out var entry))
         {
             return;
         }
 
-        _currentFrameId = frameId;
-        _newItemsThisFrame = 0;
-        _refreshesThisFrame = 0;
+        entry.TranslatedText = translatedText;
+        entry.HasProcessedSource = true;
+        entry.LastCacheLookupSeconds = nowSeconds;
+        entry.InBatch = false;
+        entry.Ignored = false;
+    }
+
+    public void MarkQueued(ImguiPendingText pendingText, double nowSeconds)
+    {
+        if (!TryGetEntry(pendingText, out var entry))
+        {
+            return;
+        }
+
+        entry.HasProcessedSource = true;
+        entry.LastCacheLookupSeconds = nowSeconds;
+        entry.InBatch = false;
+    }
+
+    public void MarkCacheMiss(ImguiPendingText pendingText, double nowSeconds)
+    {
+        if (!TryGetEntry(pendingText, out var entry))
+        {
+            return;
+        }
+
+        entry.LastCacheLookupSeconds = nowSeconds;
+        entry.InBatch = false;
+    }
+
+    public void MarkIgnored(ImguiPendingText pendingText, double nowSeconds)
+    {
+        if (!TryGetEntry(pendingText, out var entry))
+        {
+            return;
+        }
+
+        entry.Ignored = true;
+        entry.HasProcessedSource = true;
+        entry.LastCacheLookupSeconds = nowSeconds;
+        entry.InBatch = false;
+    }
+
+    private bool TryGetEntry(ImguiPendingText pendingText, out StateEntry entry)
+    {
+        return _entries.TryGetValue(
+            StateKey.Create(
+                pendingText.SourceText,
+                pendingText.TargetLanguage,
+                pendingText.PromptPolicyVersion,
+                pendingText.SceneName),
+            out entry!);
+    }
+
+    private bool ShouldProcess(StateEntry entry, double nowSeconds)
+    {
+        if (!entry.HasProcessedSource)
+        {
+            return true;
+        }
+
+        return nowSeconds - entry.LastCacheLookupSeconds >= _pendingRefreshSeconds;
     }
 
     private void TrimIfNeeded(double nowSeconds)
@@ -168,7 +166,7 @@ internal sealed class ImguiTranslationStateCache
         var staleKeys = new List<StateKey>();
         foreach (var item in _entries)
         {
-            if (nowSeconds - item.Value.LastSeenSeconds > _entryTtlSeconds)
+            if (!item.Value.InBatch && nowSeconds - item.Value.LastSeenSeconds > _entryTtlSeconds)
             {
                 staleKeys.Add(item.Key);
             }
@@ -186,7 +184,7 @@ internal sealed class ImguiTranslationStateCache
             var found = false;
             foreach (var item in _entries)
             {
-                if (item.Value.LastSeenSequence >= oldestSequence)
+                if (item.Value.InBatch || item.Value.LastSeenSequence >= oldestSequence)
                 {
                     continue;
                 }
@@ -207,25 +205,37 @@ internal sealed class ImguiTranslationStateCache
 
     private readonly struct StateKey : IEquatable<StateKey>
     {
-        private readonly string _sourceText;
-        private readonly string _targetLanguage;
-        private readonly string _promptPolicyVersion;
-        private readonly string _sceneName;
-
         public StateKey(string sourceText, string targetLanguage, string promptPolicyVersion, string sceneName)
         {
-            _sourceText = sourceText;
-            _targetLanguage = targetLanguage;
-            _promptPolicyVersion = promptPolicyVersion;
-            _sceneName = sceneName;
+            SourceText = sourceText;
+            TargetLanguage = targetLanguage;
+            PromptPolicyVersion = promptPolicyVersion;
+            SceneName = sceneName;
+        }
+
+        public string SourceText { get; }
+
+        public string TargetLanguage { get; }
+
+        public string PromptPolicyVersion { get; }
+
+        public string SceneName { get; }
+
+        public static StateKey Create(
+            string sourceText,
+            string targetLanguage,
+            string promptPolicyVersion,
+            string? sceneName)
+        {
+            return new StateKey(sourceText, targetLanguage, promptPolicyVersion, sceneName ?? string.Empty);
         }
 
         public bool Equals(StateKey other)
         {
-            return string.Equals(_sourceText, other._sourceText, StringComparison.Ordinal) &&
-                string.Equals(_targetLanguage, other._targetLanguage, StringComparison.Ordinal) &&
-                string.Equals(_promptPolicyVersion, other._promptPolicyVersion, StringComparison.Ordinal) &&
-                string.Equals(_sceneName, other._sceneName, StringComparison.Ordinal);
+            return string.Equals(SourceText, other.SourceText, StringComparison.Ordinal) &&
+                string.Equals(TargetLanguage, other.TargetLanguage, StringComparison.Ordinal) &&
+                string.Equals(PromptPolicyVersion, other.PromptPolicyVersion, StringComparison.Ordinal) &&
+                string.Equals(SceneName, other.SceneName, StringComparison.Ordinal);
         }
 
         public override bool Equals(object? obj)
@@ -238,10 +248,10 @@ internal sealed class ImguiTranslationStateCache
             unchecked
             {
                 var hash = 17;
-                hash = (hash * 31) + StringComparer.Ordinal.GetHashCode(_sourceText);
-                hash = (hash * 31) + StringComparer.Ordinal.GetHashCode(_targetLanguage);
-                hash = (hash * 31) + StringComparer.Ordinal.GetHashCode(_promptPolicyVersion);
-                hash = (hash * 31) + StringComparer.Ordinal.GetHashCode(_sceneName);
+                hash = (hash * 31) + StringComparer.Ordinal.GetHashCode(SourceText);
+                hash = (hash * 31) + StringComparer.Ordinal.GetHashCode(TargetLanguage);
+                hash = (hash * 31) + StringComparer.Ordinal.GetHashCode(PromptPolicyVersion);
+                hash = (hash * 31) + StringComparer.Ordinal.GetHashCode(SceneName);
                 return hash;
             }
         }
@@ -249,7 +259,18 @@ internal sealed class ImguiTranslationStateCache
 
     private sealed class StateEntry
     {
+        public StateEntry(long firstSeenSequence)
+        {
+            FirstSeenSequence = firstSeenSequence;
+        }
+
+        public long FirstSeenSequence { get; }
+
         public bool HasProcessedSource { get; set; }
+
+        public bool Ignored { get; set; }
+
+        public bool InBatch { get; set; }
 
         public string? TranslatedText { get; set; }
 
@@ -257,9 +278,20 @@ internal sealed class ImguiTranslationStateCache
 
         public double LastSeenSeconds { get; set; }
 
+        public int LastSeenFrameId { get; set; }
+
+        public double LastBatchSeconds { get; set; }
+
         public long LastSeenSequence { get; set; }
     }
 }
+
+internal sealed record ImguiPendingText(
+    string SourceText,
+    string TargetLanguage,
+    string PromptPolicyVersion,
+    string SceneName,
+    bool ShouldProcessSource);
 
 internal sealed record ImguiTranslationStateResult(string DisplayText, bool IsTranslated)
 {

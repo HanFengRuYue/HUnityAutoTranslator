@@ -89,15 +89,47 @@ public sealed class BoundedRuntimeLoopSourceTests
         var imguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ImguiHookInstaller.cs"));
 
         imguiSource.Should().Contain("ImguiTranslationStateCache");
-        imguiSource.Should().Contain("MaxImguiNewCapturesPerFrame = 16");
-        imguiSource.Should().Contain("MaxImguiCacheRefreshesPerFrame = 32");
-        imguiSource.Should().Contain("ImguiNewCaptureIntervalSeconds = 0.05");
-        imguiSource.Should().Contain("ImguiCacheRefreshIntervalSeconds = 0.05");
+        imguiSource.Should().Contain("MaxImguiPendingBatchSize = 96");
         imguiSource.Should().Contain("Time.frameCount");
-        imguiSource.Should().Contain("_stateCache.Resolve(");
-        imguiSource.Should().Contain("ProcessImguiText(");
-        imguiSource.Should().Contain("PostfixStringText");
+        imguiSource.Should().Contain("Event.current?.type != EventType.Repaint");
+        imguiSource.Should().Contain("RefreshDrawContext(config);");
+        imguiSource.Should().Contain("_stateCache.ResolveForDraw(");
+        imguiSource.Should().Contain("_stateCache.TakePendingBatch(");
+        imguiSource.Should().Contain("ProcessPendingImguiText(");
         imguiSource.Should().Contain("publishResult: false");
+        imguiSource.Should().Contain("ApplyPendingImguiFontForDraw();");
+        imguiSource.Should().NotContain("PostfixStringText");
+        imguiSource.Should().NotContain("ImguiDrawState");
+        imguiSource.Should().NotContain("TryBeginFontScope");
+        imguiSource.Should().NotContain("TryResolveImguiFont");
+
+        var prefixBlock = imguiSource[
+            imguiSource.IndexOf("private static void PrefixStringText", StringComparison.Ordinal)..
+            imguiSource.IndexOf("private void ApplyPendingImguiFontForDraw", StringComparison.Ordinal)];
+        prefixBlock.Should().NotContain("_configProvider()");
+        prefixBlock.Should().NotContain("GetActiveSceneName");
+
+        var pendingBlock = imguiSource[
+            imguiSource.IndexOf("private void ProcessPendingImguiText", StringComparison.Ordinal)..
+            imguiSource.IndexOf("private void RequestImguiFont", StringComparison.Ordinal)];
+        pendingBlock.Should().Contain("RequestImguiFont(");
+        pendingBlock.Should().NotContain("ApplyToImgui");
+        pendingBlock.Should().NotContain("GUI.skin");
+    }
+
+    [Fact]
+    public void Worker_host_does_not_resume_ignored_imgui_pending_rows()
+    {
+        var hostSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "TranslationWorkerHost.cs"));
+        var resumeBlock = hostSource[
+            hostSource.IndexOf("private int ResumePendingTranslations", StringComparison.Ordinal)..
+            hostSource.IndexOf("private async Task TryExtractGlossaryAsync", StringComparison.Ordinal)];
+
+        resumeBlock.Should().Contain("IsIgnoredImguiPendingRow(row)");
+        resumeBlock.Should().Contain("CompletePendingAsSource(row)");
+        resumeBlock.Should().Contain("ImguiTextClassifier.ShouldSkipTranslation(row.SourceText, row.TargetLanguage)");
+        resumeBlock.IndexOf("IsIgnoredImguiPendingRow(row)", StringComparison.Ordinal)
+            .Should().BeLessThan(resumeBlock.IndexOf("_queue.Enqueue(TranslationJob.Create", StringComparison.Ordinal));
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)

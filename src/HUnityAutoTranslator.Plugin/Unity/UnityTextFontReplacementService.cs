@@ -74,10 +74,15 @@ internal sealed class UnityTextFontReplacementService
     private readonly Dictionary<int, object?> _tmpOriginalFonts = new();
     private readonly Dictionary<int, object?> _tmpReplacementFonts = new();
     private readonly Dictionary<string, string> _failedTmpFontAssetKeys = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, ResolvedFont?> _imguiFontResolutions = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _imguiRequestedCharacters = new(StringComparer.Ordinal);
     private readonly HashSet<string> _warnedUnityFontFailures = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _warnedTmpCandidateFailureSets = new(StringComparer.OrdinalIgnoreCase);
     private Font? _originalImguiFont;
     private Font? _imguiReplacementFont;
+    private string? _automaticFontFallbackConfigKey;
+    private string? _automaticFontFallbackName;
+    private string? _automaticFontFallbackFile;
     private bool _capturedImguiFont;
     private bool _runtimeReplacementFontsEnabled = true;
     private bool _warnedNoUnityFont;
@@ -205,7 +210,7 @@ internal sealed class UnityTextFontReplacementService
         ForgetFontTarget(component, _tmpFontTargets, _tmpOriginalFonts, _tmpReplacementFonts);
     }
 
-    public void ApplyToImgui(TranslationCacheKey key, TranslationCacheContext context)
+    public void ApplyToImgui(TranslationCacheKey key, TranslationCacheContext context, string? sampleText = null)
     {
         var config = _configProvider();
         ReportAutomaticFontFallbacks(config);
@@ -220,20 +225,27 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
-        var resolved = ResolveUnityTextFont(config, key, context);
-        if (resolved?.Font == null || GUI.skin == null)
+        if (!TryGetImguiSkin(out var skin))
+        {
+            return;
+        }
+
+        var fontSize = ResolveImguiFontPointSize(skin, config);
+        var resolved = ResolveCachedImguiFont(config, key, context, fontSize);
+        if (resolved?.Font == null)
         {
             return;
         }
 
         if (!_capturedImguiFont)
         {
-            _originalImguiFont = GUI.skin.font;
+            _originalImguiFont = skin.font;
             _capturedImguiFont = true;
         }
 
         _imguiReplacementFont = resolved.Font;
-        GUI.skin.font = resolved.Font;
+        TryRequestCharactersOnce(resolved, sampleText, fontSize);
+        skin.font = resolved.Font;
     }
 
     public void RestoreImgui()
@@ -257,13 +269,14 @@ internal sealed class UnityTextFontReplacementService
             return false;
         }
 
-        var resolved = ResolveUnityTextFont(config, key, context, Math.Max(1, fontSize));
+        var normalizedFontSize = Math.Max(1, fontSize);
+        var resolved = ResolveCachedImguiFont(config, key, context, normalizedFontSize);
         if (resolved?.Font == null)
         {
             return false;
         }
 
-        TryRequestCharacters(resolved.Font, sampleText, Math.Max(1, fontSize));
+        TryRequestCharactersOnce(resolved, sampleText, normalizedFontSize);
         font = resolved.Font;
         return true;
     }
@@ -432,24 +445,58 @@ internal sealed class UnityTextFontReplacementService
 
     private int RestoreImguiFont()
     {
-        if (!_capturedImguiFont || GUI.skin == null)
+        if (!_capturedImguiFont || !TryGetImguiSkin(out var skin))
         {
             return 0;
         }
 
-        GUI.skin.font = _originalImguiFont;
+        skin.font = _originalImguiFont;
         return 1;
     }
 
     private int ApplyImguiReplacementFont()
     {
-        if (!_capturedImguiFont || GUI.skin == null || _imguiReplacementFont == null)
+        if (!_capturedImguiFont || !TryGetImguiSkin(out var skin) || _imguiReplacementFont == null)
         {
             return 0;
         }
 
-        GUI.skin.font = _imguiReplacementFont;
+        skin.font = _imguiReplacementFont;
         return 1;
+    }
+
+    private static bool TryGetImguiSkin(out GUISkin skin)
+    {
+        skin = null!;
+        try
+        {
+            skin = GUI.skin;
+            return skin != null;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+    }
+
+    private static int ResolveImguiFontPointSize(GUISkin skin, RuntimeConfig config)
+    {
+        var styleSize = Math.Max(
+            Math.Max(skin.label?.fontSize ?? 0, skin.button?.fontSize ?? 0),
+            Math.Max(skin.toggle?.fontSize ?? 0, skin.textField?.fontSize ?? 0));
+        if (styleSize > 0)
+        {
+            return Math.Max(8, Math.Min(32, styleSize));
+        }
+
+        var skinFontSize = skin.font?.fontSize ?? 0;
+        if (skinFontSize > 0)
+        {
+            return Math.Max(8, Math.Min(32, skinFontSize));
+        }
+
+        _ = config;
+        return 16;
     }
 
     private void ReportAutomaticFontFallbacks(RuntimeConfig config)
@@ -459,13 +506,22 @@ internal sealed class UnityTextFontReplacementService
             !string.IsNullOrWhiteSpace(config.ReplacementFontName) ||
             !string.IsNullOrWhiteSpace(config.ReplacementFontFile))
         {
+            _automaticFontFallbackConfigKey = null;
+            _automaticFontFallbackName = null;
+            _automaticFontFallbackFile = null;
             _automaticFontFallbackReporter(null, null);
             return;
         }
 
-        _automaticFontFallbackReporter(
-            ResolveFirstUsableAutomaticFontName(config.FontSamplingPointSize),
-            ResolveFirstUsableAutomaticFontFile(config.FontSamplingPointSize));
+        var cacheKey = $"auto:{config.FontSamplingPointSize}";
+        if (!string.Equals(cacheKey, _automaticFontFallbackConfigKey, StringComparison.Ordinal))
+        {
+            _automaticFontFallbackConfigKey = cacheKey;
+            _automaticFontFallbackName = ResolveFirstUsableAutomaticFontName(config.FontSamplingPointSize);
+            _automaticFontFallbackFile = ResolveFirstUsableAutomaticFontFile(config.FontSamplingPointSize);
+        }
+
+        _automaticFontFallbackReporter(_automaticFontFallbackName, _automaticFontFallbackFile);
     }
 
     private string? ResolveFirstUsableAutomaticFontName(int size)
@@ -521,6 +577,33 @@ internal sealed class UnityTextFontReplacementService
         return null;
     }
 
+    private ResolvedFont? ResolveCachedImguiFont(
+        RuntimeConfig config,
+        TranslationCacheKey key,
+        TranslationCacheContext context,
+        int fontSize)
+    {
+        var cacheKey = string.Join(
+            "\u001f",
+            key.SourceText,
+            key.TargetLanguage,
+            key.PromptPolicyVersion,
+            context.SceneName ?? string.Empty,
+            context.ComponentType ?? string.Empty,
+            config.ReplacementFontFile ?? string.Empty,
+            config.ReplacementFontName ?? string.Empty,
+            config.AutoUseCjkFallbackFonts.ToString(),
+            fontSize.ToString());
+        if (_imguiFontResolutions.TryGetValue(cacheKey, out var cached))
+        {
+            return cached;
+        }
+
+        var resolved = ResolveUnityTextFont(config, key, context, fontSize);
+        _imguiFontResolutions[cacheKey] = resolved;
+        return resolved;
+    }
+
     private static void TryRequestCharacters(Font font, string text, int fontSize)
     {
         if (string.IsNullOrEmpty(text))
@@ -534,6 +617,25 @@ internal sealed class UnityTextFontReplacementService
         }
         catch
         {
+        }
+    }
+
+    private void TryRequestCharactersOnce(ResolvedFont resolved, string? text, int fontSize)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        if (_imguiRequestedCharacters.Count > 4096)
+        {
+            _imguiRequestedCharacters.Clear();
+        }
+
+        var requestKey = $"{resolved.CacheKey}\u001f{fontSize}\u001f{text}";
+        if (_imguiRequestedCharacters.Add(requestKey))
+        {
+            TryRequestCharacters(resolved.Font, text, fontSize);
         }
     }
 

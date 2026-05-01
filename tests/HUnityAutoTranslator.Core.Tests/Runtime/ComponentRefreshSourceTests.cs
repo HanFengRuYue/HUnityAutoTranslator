@@ -73,13 +73,11 @@ public sealed class ComponentRefreshSourceTests
             "_fontReplacement?.ApplyToUgui(component,");
 
         var imguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ImguiHookInstaller.cs"));
-        imguiSource.Should().Contain("() => TryGetCachedImguiTranslation(key, context)");
-        var cacheHitIndex = imguiSource.IndexOf("if (stateResult.IsTranslated)", StringComparison.Ordinal);
-        cacheHitIndex.Should().BeGreaterThanOrEqualTo(0);
-        imguiSource.IndexOf("new ImguiTextResolution(stateResult.DisplayText, true, key, context)", StringComparison.Ordinal)
-            .Should().BeGreaterThan(cacheHitIndex);
-        imguiSource.Should().Contain("TryBeginFontScope(__originalMethod, __args, resolution)");
-        imguiSource.Should().NotContain("_fontReplacement?.ApplyToImgui(key, context);");
+        imguiSource.Should().Contain("ResolveForDraw(text)");
+        imguiSource.Should().Contain("RequestImguiFont(key, context, translatedText)");
+        imguiSource.Should().Contain("_fontReplacement.ApplyToImgui(");
+        imguiSource.Should().NotContain("TryBeginFontScope");
+        imguiSource.Should().NotContain("PostfixStringText");
     }
 
     [Fact]

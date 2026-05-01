@@ -8,6 +8,7 @@ using HUnityAutoTranslator.Core.Glossary;
 using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Providers;
 using HUnityAutoTranslator.Core.Queueing;
+using HUnityAutoTranslator.Core.Runtime;
 using HUnityAutoTranslator.Core.Text;
 
 namespace HUnityAutoTranslator.Plugin;
@@ -464,6 +465,12 @@ internal sealed class TranslationWorkerHost : IDisposable
                 continue;
             }
 
+            if (IsIgnoredImguiPendingRow(row))
+            {
+                CompletePendingAsSource(row);
+                continue;
+            }
+
             var key = TranslationCacheKey.Create(
                 row.SourceText,
                 row.TargetLanguage,
@@ -503,6 +510,25 @@ internal sealed class TranslationWorkerHost : IDisposable
         }
 
         return enqueued;
+    }
+
+    private static bool IsIgnoredImguiPendingRow(TranslationCacheEntry row)
+    {
+        return string.Equals(row.ComponentType, "IMGUI", StringComparison.OrdinalIgnoreCase) &&
+            ImguiTextClassifier.ShouldSkipTranslation(row.SourceText, row.TargetLanguage);
+    }
+
+    private void CompletePendingAsSource(TranslationCacheEntry row)
+    {
+        _cache.Update(row with
+        {
+            ProviderKind = string.Empty,
+            ProviderBaseUrl = string.Empty,
+            ProviderEndpoint = string.Empty,
+            ProviderModel = string.Empty,
+            TranslatedText = row.SourceText,
+            UpdatedUtc = DateTimeOffset.UtcNow
+        });
     }
 
     private async Task TryExtractGlossaryAsync(

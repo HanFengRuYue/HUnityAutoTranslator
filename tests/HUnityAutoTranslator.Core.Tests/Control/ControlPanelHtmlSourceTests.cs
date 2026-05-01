@@ -456,7 +456,8 @@ public sealed class ControlPanelHtmlSourceTests
         serviceSource.Should().Contain("private IEnumerable<FontCandidate> EnumerateUnityFontCandidates");
         serviceSource.Should().Contain("private IEnumerable<FontCandidate> EnumerateTmpFontCandidates");
         uguiBlock.Should().Contain("ResolveUnityTextFont(config, key, context)");
-        imguiBlock.Should().Contain("ResolveUnityTextFont(config, key, context)");
+        imguiBlock.Should().Contain("ResolveCachedImguiFont(config, key, context");
+        serviceSource.Should().Contain("var resolved = ResolveUnityTextFont(config, key, context, fontSize);");
         serviceSource.Should().Contain("foreach (var candidate in EnumerateTmpFontCandidates(config, key, context))");
 
         var uguiCandidateBlock = serviceSource[
@@ -472,6 +473,29 @@ public sealed class ControlPanelHtmlSourceTests
         createUnityFontBlock.Should().Contain("candidate.Source == \"file\"");
         createUnityFontBlock.Should().Contain("candidate.Source == \"name\"");
         createUnityFontBlock.Should().NotContain("Font.CreateDynamicFontFromOSFont(candidate.Value");
+    }
+
+    [Fact]
+    public void Imgui_font_replacement_guards_gui_skin_access_outside_on_gui()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+        var imguiBlock = serviceSource[
+            serviceSource.IndexOf("public void ApplyToImgui", StringComparison.Ordinal)..
+            serviceSource.IndexOf("public void RestoreImgui", StringComparison.Ordinal)];
+        var restoreBlock = serviceSource[
+            serviceSource.IndexOf("private int RestoreImguiFont", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private static bool TryGetImguiSkin", StringComparison.Ordinal)];
+
+        serviceSource.Should().Contain("private static bool TryGetImguiSkin(out GUISkin skin)");
+        serviceSource.Should().Contain("catch (ArgumentException)");
+        serviceSource.Should().Contain("private static int ResolveImguiFontPointSize(GUISkin skin, RuntimeConfig config)");
+        serviceSource.Should().Contain("ResolveImguiFontPointSize(skin, config)");
+        serviceSource.Should().Contain("return 16;");
+        imguiBlock.Should().Contain("TryGetImguiSkin(out var skin)");
+        imguiBlock.Should().NotContain("Math.Max(1, config.FontSamplingPointSize)");
+        imguiBlock.Should().NotContain("GUI.skin");
+        restoreBlock.Should().Contain("TryGetImguiSkin(out var skin)");
+        restoreBlock.Should().NotContain("GUI.skin");
     }
 
     [Fact]

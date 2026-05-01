@@ -6,425 +6,128 @@ namespace HUnityAutoTranslator.Core.Tests.Runtime;
 public sealed class ImguiTranslationStateCacheTests
 {
     [Fact]
-    public void Resolve_reuses_pending_state_without_reprocessing_repeated_draws()
+    public void ResolveForDraw_registers_text_without_running_pipeline_work()
     {
         var cache = new ImguiTranslationStateCache(
             maxEntries: 128,
-            maxNewItemsPerFrame: 8,
-            maxRefreshesPerFrame: 4,
             pendingRefreshSeconds: 1,
             entryTtlSeconds: 60);
-        var cacheLookups = 0;
-        var processCalls = 0;
 
-        for (var i = 0; i < 10; i++)
-        {
-            var result = cache.Resolve(
-                "GodMode",
-                "zh-Hans",
-                "prompt-v5",
-                "scene_01",
-                nowSeconds: i * 0.1,
-                frameId: i,
-                tryGetCachedTranslation: () =>
-                {
-                    cacheLookups++;
-                    return null;
-                },
-                processSourceText: () =>
-                {
-                    processCalls++;
-                    return null;
-                });
+        var firstDraw = cache.ResolveForDraw(
+            "God Mode",
+            "zh-Hans",
+            "prompt-v5",
+            "title_01",
+            nowSeconds: 0,
+            frameId: 1);
+        var secondDraw = cache.ResolveForDraw(
+            "God Mode",
+            "zh-Hans",
+            "prompt-v5",
+            "title_01",
+            nowSeconds: 0.01,
+            frameId: 1);
 
-            result.DisplayText.Should().Be("GodMode");
-            result.IsTranslated.Should().BeFalse();
-        }
-
-        cacheLookups.Should().Be(1);
-        processCalls.Should().Be(1);
+        firstDraw.DisplayText.Should().Be("God Mode");
+        firstDraw.IsTranslated.Should().BeFalse();
+        secondDraw.DisplayText.Should().Be("God Mode");
+        cache.TakePendingBatch(maxCount: 16, nowSeconds: 0.02)
+            .Should().ContainSingle(item =>
+                item.SourceText == "God Mode" &&
+                item.TargetLanguage == "zh-Hans" &&
+                item.PromptPolicyVersion == "prompt-v5" &&
+                item.SceneName == "title_01" &&
+                item.ShouldProcessSource);
     }
 
     [Fact]
-    public void Resolve_refreshes_pending_cache_without_reprocessing_source_text()
+    public void MarkCached_makes_later_draws_use_translated_text_from_memory()
     {
         var cache = new ImguiTranslationStateCache(
             maxEntries: 128,
-            maxNewItemsPerFrame: 8,
-            maxRefreshesPerFrame: 4,
             pendingRefreshSeconds: 1,
             entryTtlSeconds: 60);
-        var cacheLookups = 0;
-        var processCalls = 0;
+        cache.ResolveForDraw("God Mode", "zh-Hans", "prompt-v5", "title_01", 0, 1);
+        var pending = cache.TakePendingBatch(maxCount: 16, nowSeconds: 0.05).Should().ContainSingle().Which;
 
-        cache.Resolve(
-            "GodMode",
-            "zh-Hans",
-            "prompt-v5",
-            "scene_01",
-            nowSeconds: 0,
-            frameId: 1,
-            tryGetCachedTranslation: () =>
-            {
-                cacheLookups++;
-                return null;
-            },
-            processSourceText: () =>
-            {
-                processCalls++;
-                return null;
-            });
+        cache.MarkCached(pending, "上帝模式", nowSeconds: 0.05);
 
-        var translated = cache.Resolve(
-            "GodMode",
-            "zh-Hans",
-            "prompt-v5",
-            "scene_01",
-            nowSeconds: 1.25,
-            frameId: 2,
-            tryGetCachedTranslation: () =>
-            {
-                cacheLookups++;
-                return "上帝模式";
-            },
-            processSourceText: () =>
-            {
-                processCalls++;
-                return null;
-            });
-
-        var repeated = cache.Resolve(
-            "GodMode",
-            "zh-Hans",
-            "prompt-v5",
-            "scene_01",
-            nowSeconds: 1.3,
-            frameId: 3,
-            tryGetCachedTranslation: () =>
-            {
-                cacheLookups++;
-                return "上帝模式";
-            },
-            processSourceText: () =>
-            {
-                processCalls++;
-                return null;
-            });
-
+        var translated = cache.ResolveForDraw("God Mode", "zh-Hans", "prompt-v5", "title_01", 0.06, 2);
         translated.DisplayText.Should().Be("上帝模式");
         translated.IsTranslated.Should().BeTrue();
-        repeated.DisplayText.Should().Be("上帝模式");
-        repeated.IsTranslated.Should().BeTrue();
-        cacheLookups.Should().Be(2);
-        processCalls.Should().Be(1);
+        cache.TakePendingBatch(maxCount: 16, nowSeconds: 2).Should().BeEmpty();
     }
 
     [Fact]
-    public void Resolve_limits_new_source_processing_per_frame()
+    public void MarkQueued_waits_before_refreshing_cache_and_does_not_reprocess_source()
     {
         var cache = new ImguiTranslationStateCache(
             maxEntries: 128,
-            maxNewItemsPerFrame: 2,
-            maxRefreshesPerFrame: 4,
             pendingRefreshSeconds: 1,
             entryTtlSeconds: 60);
-        var cacheLookups = 0;
-        var processCalls = 0;
+        cache.ResolveForDraw("God Mode", "zh-Hans", "prompt-v5", "title_01", 0, 1);
+        var firstBatchItem = cache.TakePendingBatch(maxCount: 16, nowSeconds: 0.05).Should().ContainSingle().Which;
+        firstBatchItem.ShouldProcessSource.Should().BeTrue();
 
+        cache.MarkQueued(firstBatchItem, nowSeconds: 0.05);
+
+        cache.TakePendingBatch(maxCount: 16, nowSeconds: 0.5).Should().BeEmpty();
+        var refreshItem = cache.TakePendingBatch(maxCount: 16, nowSeconds: 1.1).Should().ContainSingle().Which;
+        refreshItem.SourceText.Should().Be("God Mode");
+        refreshItem.ShouldProcessSource.Should().BeFalse();
+    }
+
+    [Fact]
+    public void TakePendingBatch_caps_work_and_skips_items_until_they_are_released()
+    {
+        var cache = new ImguiTranslationStateCache(
+            maxEntries: 128,
+            pendingRefreshSeconds: 1,
+            entryTtlSeconds: 60);
         for (var i = 0; i < 5; i++)
         {
-            cache.Resolve(
-                $"Text {i}",
-                "zh-Hans",
-                "prompt-v5",
-                "scene_01",
-                nowSeconds: 0,
-                frameId: 1,
-                tryGetCachedTranslation: () =>
-                {
-                    cacheLookups++;
-                    return null;
-                },
-                processSourceText: () =>
-                {
-                    processCalls++;
-                    return null;
-                });
+            cache.ResolveForDraw($"Command {i}", "zh-Hans", "prompt-v5", "title_01", 0, 1);
         }
 
-        cacheLookups.Should().Be(2);
-        processCalls.Should().Be(2);
-
-        for (var i = 0; i < 5; i++)
-        {
-            cache.Resolve(
-                $"Text {i}",
-                "zh-Hans",
-                "prompt-v5",
-                "scene_01",
-                nowSeconds: 0.1,
-                frameId: 2,
-                tryGetCachedTranslation: () =>
-                {
-                    cacheLookups++;
-                    return null;
-                },
-                processSourceText: () =>
-                {
-                    processCalls++;
-                    return null;
-                });
-        }
-
-        cacheLookups.Should().Be(4);
-        processCalls.Should().Be(4);
+        var firstBatch = cache.TakePendingBatch(maxCount: 2, nowSeconds: 0.05);
+        firstBatch.Select(item => item.SourceText).Should().Equal("Command 0", "Command 1");
+        cache.TakePendingBatch(maxCount: 5, nowSeconds: 0.06)
+            .Select(item => item.SourceText)
+            .Should().Equal("Command 2", "Command 3", "Command 4");
     }
 
     [Fact]
-    public void Resolve_respects_new_source_time_spacing_across_fast_frames()
+    public void MarkIgnored_keeps_known_untranslated_text_out_of_later_batches()
     {
         var cache = new ImguiTranslationStateCache(
             maxEntries: 128,
-            maxNewItemsPerFrame: 8,
-            maxRefreshesPerFrame: 4,
             pendingRefreshSeconds: 1,
-            entryTtlSeconds: 60,
-            minNewItemIntervalSeconds: 0.25);
-        var cacheLookups = 0;
-        var processCalls = 0;
+            entryTtlSeconds: 60);
+        cache.ResolveForDraw("游戏设置", "zh-Hans", "prompt-v5", "title_01", 0, 1);
+        var pending = cache.TakePendingBatch(maxCount: 16, nowSeconds: 0.05).Should().ContainSingle().Which;
 
-        for (var i = 0; i < 4; i++)
-        {
-            cache.Resolve(
-                $"Command {i}",
-                "zh-Hans",
-                "prompt-v5",
-                "scene_01",
-                nowSeconds: i * 0.05,
-                frameId: i,
-                tryGetCachedTranslation: () =>
-                {
-                    cacheLookups++;
-                    return null;
-                },
-                processSourceText: () =>
-                {
-                    processCalls++;
-                    return null;
-                });
-        }
+        cache.MarkIgnored(pending, nowSeconds: 0.05);
 
-        cacheLookups.Should().Be(1);
-        processCalls.Should().Be(1);
-
-        cache.Resolve(
-            "Command 4",
-            "zh-Hans",
-            "prompt-v5",
-            "scene_01",
-            nowSeconds: 0.25,
-            frameId: 5,
-            tryGetCachedTranslation: () =>
-            {
-                cacheLookups++;
-                return null;
-            },
-            processSourceText: () =>
-            {
-                processCalls++;
-                return null;
-            });
-
-        cacheLookups.Should().Be(2);
-        processCalls.Should().Be(2);
+        cache.ResolveForDraw("游戏设置", "zh-Hans", "prompt-v5", "title_01", 2, 2)
+            .DisplayText.Should().Be("游戏设置");
+        cache.TakePendingBatch(maxCount: 16, nowSeconds: 2).Should().BeEmpty();
     }
 
     [Fact]
-    public void Resolve_allows_burst_processing_within_one_frame_before_spacing_next_frame()
-    {
-        var cache = new ImguiTranslationStateCache(
-            maxEntries: 128,
-            maxNewItemsPerFrame: 16,
-            maxRefreshesPerFrame: 4,
-            pendingRefreshSeconds: 1,
-            entryTtlSeconds: 60,
-            minNewItemIntervalSeconds: 0.05);
-        var processCalls = 0;
-
-        for (var i = 0; i < 20; i++)
-        {
-            cache.Resolve(
-                $"Command {i}",
-                "zh-Hans",
-                "prompt-v5",
-                "scene_01",
-                nowSeconds: 0,
-                frameId: 1,
-                tryGetCachedTranslation: () => null,
-                processSourceText: () =>
-                {
-                    processCalls++;
-                    return null;
-                });
-        }
-
-        processCalls.Should().Be(16);
-
-        cache.Resolve(
-            "Command 16",
-            "zh-Hans",
-            "prompt-v5",
-            "scene_01",
-            nowSeconds: 0.04,
-            frameId: 2,
-            tryGetCachedTranslation: () => null,
-            processSourceText: () =>
-            {
-                processCalls++;
-                return null;
-            });
-
-        processCalls.Should().Be(16);
-
-        cache.Resolve(
-            "Command 16",
-            "zh-Hans",
-            "prompt-v5",
-            "scene_01",
-            nowSeconds: 0.05,
-            frameId: 3,
-            tryGetCachedTranslation: () => null,
-            processSourceText: () =>
-            {
-                processCalls++;
-                return null;
-            });
-
-        processCalls.Should().Be(17);
-    }
-
-    [Fact]
-    public void Resolve_respects_pending_refresh_time_spacing_across_fast_frames()
-    {
-        var cache = new ImguiTranslationStateCache(
-            maxEntries: 128,
-            maxNewItemsPerFrame: 8,
-            maxRefreshesPerFrame: 8,
-            pendingRefreshSeconds: 0.1,
-            entryTtlSeconds: 60,
-            minRefreshIntervalSeconds: 0.25);
-        var cacheLookups = 0;
-        var processCalls = 0;
-
-        for (var i = 0; i < 2; i++)
-        {
-            cache.Resolve(
-                $"Command {i}",
-                "zh-Hans",
-                "prompt-v5",
-                "scene_01",
-                nowSeconds: 0,
-                frameId: 1,
-                tryGetCachedTranslation: () =>
-                {
-                    cacheLookups++;
-                    return null;
-                },
-                processSourceText: () =>
-                {
-                    processCalls++;
-                    return null;
-                });
-        }
-
-        for (var i = 0; i < 2; i++)
-        {
-            cache.Resolve(
-                $"Command {i}",
-                "zh-Hans",
-                "prompt-v5",
-                "scene_01",
-                nowSeconds: 0.15 + (i * 0.05),
-                frameId: 2 + i,
-                tryGetCachedTranslation: () =>
-                {
-                    cacheLookups++;
-                    return null;
-                },
-                processSourceText: () =>
-                {
-                    processCalls++;
-                    return null;
-                });
-        }
-
-        cacheLookups.Should().Be(3);
-        processCalls.Should().Be(2);
-
-        cache.Resolve(
-            "Command 1",
-            "zh-Hans",
-            "prompt-v5",
-            "scene_01",
-            nowSeconds: 0.4,
-            frameId: 5,
-            tryGetCachedTranslation: () =>
-            {
-                cacheLookups++;
-                return null;
-            },
-            processSourceText: () =>
-            {
-                processCalls++;
-                return null;
-            });
-
-        cacheLookups.Should().Be(4);
-        processCalls.Should().Be(2);
-    }
-
-    [Fact]
-    public void Resolve_retains_new_entry_when_capacity_trim_runs()
+    public void Old_entries_are_trimmed_without_dropping_the_newest_entry()
     {
         var cache = new ImguiTranslationStateCache(
             maxEntries: 16,
-            maxNewItemsPerFrame: 32,
-            maxRefreshesPerFrame: 4,
             pendingRefreshSeconds: 1,
             entryTtlSeconds: 60);
-        var processCalls = 0;
-
         for (var i = 0; i < 17; i++)
         {
-            cache.Resolve(
-                $"Command {i}",
-                "zh-Hans",
-                "prompt-v5",
-                "scene_01",
-                nowSeconds: i,
-                frameId: i,
-                tryGetCachedTranslation: () => null,
-                processSourceText: () =>
-                {
-                    processCalls++;
-                    return null;
-                });
+            cache.ResolveForDraw($"Command {i}", "zh-Hans", "prompt-v5", "title_01", i, i);
         }
 
-        cache.Resolve(
-            "Command 16",
-            "zh-Hans",
-            "prompt-v5",
-            "scene_01",
-            nowSeconds: 17.1,
-            frameId: 18,
-            tryGetCachedTranslation: () => null,
-            processSourceText: () =>
-            {
-                processCalls++;
-                return null;
-            });
+        var batch = cache.TakePendingBatch(maxCount: 32, nowSeconds: 17.1);
 
-        processCalls.Should().Be(17);
+        batch.Select(item => item.SourceText).Should().Contain("Command 16");
+        batch.Select(item => item.SourceText).Should().NotContain("Command 0");
     }
 }
