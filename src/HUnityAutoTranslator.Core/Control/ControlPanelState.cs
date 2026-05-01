@@ -89,4 +89,8 @@ public sealed record ControlPanelState(
     string? ActiveProviderProfileName = null,
     ProviderKind? ActiveProviderProfileKind = null,
     string? ActiveProviderProfileModel = null,
-    ProviderActivityPreview? ActiveTranslationProvider = null);
+    ProviderActivityPreview? ActiveTranslationProvider = null,
+    IReadOnlyList<TextureImageProviderProfileState>? TextureImageProviderProfiles = null,
+    string? ActiveTextureImageProviderProfileId = null,
+    string? ActiveTextureImageProviderProfileName = null,
+    string? ActiveTextureImageProviderProfileModel = null);

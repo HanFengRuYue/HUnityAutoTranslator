@@ -137,19 +137,20 @@ public sealed class ControlPanelVueSourceTests
         var storeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "state", "controlPanelStore.ts"));
         var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
 
-        apiTypesSource.Should().Contain("export interface TextureImageTranslationConfig");
-        apiTypesSource.Should().Contain("TextureImageTranslation: TextureImageTranslationConfig;");
-        apiTypesSource.Should().Contain("TextureImageApiKeyConfigured: boolean;");
-        storeSource.Should().Contain("/api/texture-image/key");
-        aiPageSource.Should().Contain("defaultTextureImageConfig");
-        aiPageSource.Should().Contain("TextureImageTranslation: buildTextureImageConfig()");
-        aiPageSource.Should().Contain("id=\"textureImageEnabled\"");
-        aiPageSource.Should().Contain("id=\"textureImageBaseUrl\"");
-        aiPageSource.Should().Contain("id=\"textureImageEditEndpoint\"");
-        aiPageSource.Should().Contain("id=\"textureImageImageModel\"");
-        aiPageSource.Should().Contain("id=\"textureImageVisionEndpoint\"");
-        aiPageSource.Should().Contain("id=\"textureImageApiKey\"");
-        aiPageSource.Should().Contain("/api/texture-image/test");
+        apiTypesSource.Should().Contain("export interface TextureImageProviderProfileState");
+        apiTypesSource.Should().Contain("TextureImageProviderProfiles: TextureImageProviderProfileState[] | null;");
+        apiTypesSource.Should().Contain("TextureImageProviderProfileImportResult");
+        storeSource.Should().NotContain("/api/texture-image/key");
+        aiPageSource.Should().Contain("textureImageProfileManager");
+        aiPageSource.Should().Contain("/api/texture-image-profiles");
+        aiPageSource.Should().Contain("openTextureImageProfileEditor");
+        aiPageSource.Should().Contain("textureImageProfileEditorOpen");
+        aiPageSource.Should().Contain("accept=\".huttextureimage\"");
+        aiPageSource.Should().Contain("id=\"textureImageProfileApiKey\"");
+        aiPageSource.Should().NotContain("defaultTextureImageConfig");
+        aiPageSource.Should().NotContain("TextureImageTranslation: buildTextureImageConfig()");
+        aiPageSource.Should().NotContain("id=\"textureImageBaseUrl\"");
+        aiPageSource.Should().NotContain("id=\"textureImageApiKey\"");
     }
 
     [Fact]
@@ -1330,6 +1331,24 @@ public sealed class ControlPanelVueSourceTests
         texturePageSource.Should().Contain("toggleTextureSelectionFromEvent");
         cssSource.Should().Contain(".texture-text-badge");
         cssSource.Should().Contain(".texture-selection-tools");
+    }
+
+    [Fact]
+    public void Vue_texture_page_uses_override_thumbnails_and_comparison_dialog()
+    {
+        var texturePageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TexturePage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        texturePageSource.Should().Contain("textureImageUrl(item, \"override\")");
+        texturePageSource.Should().Contain("textureDisplayImageUrl(item)");
+        texturePageSource.Should().Contain("openTextureCompare");
+        texturePageSource.Should().Contain("textureCompareDialogOpen");
+        texturePageSource.Should().Contain("原图");
+        texturePageSource.Should().Contain("译图");
+        texturePageSource.Should().Contain("controlPanelStore.textureViewMode");
+        texturePageSource.Should().NotContain("localStorage");
+        cssSource.Should().Contain(".texture-compare-dialog");
+        cssSource.Should().Contain(".texture-compare-grid");
     }
 
     [Fact]

@@ -160,6 +160,10 @@ internal sealed class LocalHttpServer : IDisposable
             {
                 await WriteJsonAsync(context.Response, await TestTextureImageConnectionAsync().ConfigureAwait(false)).ConfigureAwait(false);
             }
+            else if (path.StartsWith("/api/texture-image-profiles", StringComparison.Ordinal))
+            {
+                await HandleTextureImageProviderProfilesAsync(context, path).ConfigureAwait(false);
+            }
             else if (context.Request.HttpMethod == "POST" && path == "/api/fonts/pick")
             {
                 await WriteJsonAsync(context.Response, WindowsFontFilePicker.PickFontFile()).ConfigureAwait(false);
@@ -430,8 +434,7 @@ internal sealed class LocalHttpServer : IDisposable
                     context.Response,
                     await _textureReplacement.AnalyzeTextTexturesAsync(
                         request,
-                        _controlPanel.GetConfig().TextureImageTranslation,
-                        _controlPanel.GetTextureImageApiKey(),
+                        _controlPanel.GetReadyTextureImageProviderProfiles(),
                         _httpClient,
                         CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
             }
@@ -448,7 +451,7 @@ internal sealed class LocalHttpServer : IDisposable
                     await _textureReplacement.TranslateTextTexturesAsync(
                         request,
                         _controlPanel.GetConfig(),
-                        _controlPanel.GetTextureImageApiKey(),
+                        _controlPanel.GetReadyTextureImageProviderProfiles(),
                         _httpClient,
                         CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
             }
@@ -468,7 +471,13 @@ internal sealed class LocalHttpServer : IDisposable
                 path.EndsWith("/image", StringComparison.Ordinal))
             {
                 var sourceHash = ExtractTextureImageHash(path);
-                if (string.IsNullOrWhiteSpace(sourceHash) || !_textureReplacement.TryGetSourceImage(sourceHash, out var imageBytes))
+                var variant = context.Request.QueryString["variant"] ?? "source";
+                var imageBytes = Array.Empty<byte>();
+                var hasImage = !string.IsNullOrWhiteSpace(sourceHash) &&
+                    (string.Equals(variant, "source", StringComparison.OrdinalIgnoreCase)
+                        ? _textureReplacement.TryGetSourceImage(sourceHash, out imageBytes)
+                        : _textureReplacement.TryGetTextureImage(sourceHash, variant, out imageBytes));
+                if (!hasImage)
                 {
                     context.Response.StatusCode = 404;
                     await WriteTextAsync(context.Response, "贴图不存在。").ConfigureAwait(false);
@@ -477,6 +486,7 @@ internal sealed class LocalHttpServer : IDisposable
 
                 context.Response.ContentType = "image/png";
                 context.Response.Headers["Cache-Control"] = "public, max-age=60";
+                context.Response.Headers["X-Texture-Image-Variant"] = "variant=source|override";
                 await WriteBytesAsync(context.Response, imageBytes).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/textures/import")
@@ -586,6 +596,115 @@ internal sealed class LocalHttpServer : IDisposable
         }
 
         await WriteJsonAsync(response, _controlPanel.GetState(_queue.PendingCount, _cache.Count, _dispatcher.PendingCount)).ConfigureAwait(false);
+    }
+
+    private async Task HandleTextureImageProviderProfilesAsync(HttpListenerContext context, string path)
+    {
+        var request = context.Request;
+        var response = context.Response;
+        var segments = path.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+        if (request.HttpMethod == "GET" && path == "/api/texture-image-profiles")
+        {
+            await WriteJsonAsync(response, _controlPanel.GetState(_queue.PendingCount, _cache.Count, _dispatcher.PendingCount).TextureImageProviderProfiles ?? Array.Empty<TextureImageProviderProfileState>()).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "POST" && path == "/api/texture-image-profiles")
+        {
+            var createRequest = await ReadJsonAsync<TextureImageProviderProfileUpdateRequest>(request).ConfigureAwait(false);
+            _controlPanel.CreateTextureImageProviderProfile(createRequest);
+            await WriteStateAsync(response).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "POST" && path == "/api/texture-image-profiles/import")
+        {
+            var content = await ReadBodyAsync(request).ConfigureAwait(false);
+            await WriteJsonAsync(response, _controlPanel.ImportTextureImageProviderProfile(content)).ConfigureAwait(false);
+            return;
+        }
+
+        if (segments.Length < 3)
+        {
+            response.StatusCode = 404;
+            await WriteTextAsync(response, "未找到贴图图片服务配置接口。").ConfigureAwait(false);
+            return;
+        }
+
+        var id = Uri.UnescapeDataString(segments[2]);
+        var action = segments.Length >= 4 ? segments[3] : string.Empty;
+        if (request.HttpMethod == "PUT" && string.IsNullOrEmpty(action))
+        {
+            var updateRequest = await ReadJsonAsync<TextureImageProviderProfileUpdateRequest>(request).ConfigureAwait(false);
+            _controlPanel.UpdateTextureImageProviderProfile(id, updateRequest ?? new TextureImageProviderProfileUpdateRequest());
+            await WriteStateAsync(response).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "DELETE" && string.IsNullOrEmpty(action))
+        {
+            var deleted = _controlPanel.DeleteTextureImageProviderProfile(id);
+            await WriteJsonAsync(response, new { DeletedCount = deleted ? 1 : 0 }).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "POST" && action == "move-up")
+        {
+            _controlPanel.MoveTextureImageProviderProfile(id, -1);
+            await WriteStateAsync(response).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "POST" && action == "move-down")
+        {
+            _controlPanel.MoveTextureImageProviderProfile(id, 1);
+            await WriteStateAsync(response).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "GET" && action == "export")
+        {
+            response.ContentType = "application/octet-stream; charset=utf-8";
+            await WriteTextAsync(response, _controlPanel.ExportTextureImageProviderProfile(id)).ConfigureAwait(false);
+            return;
+        }
+
+        if (!_controlPanel.TryGetTextureImageProviderProfile(id, out var profile))
+        {
+            response.StatusCode = 404;
+            await WriteTextAsync(response, "贴图图片服务配置不存在。").ConfigureAwait(false);
+            return;
+        }
+
+        var utilityClient = CreateTextureImageProviderUtilityClient(profile);
+        var utilityProfile = CreateTextureImageProviderProfile(profile);
+        if (request.HttpMethod == "POST" && action == "test")
+        {
+            if (string.IsNullOrWhiteSpace(profile.ApiKey))
+            {
+                await WriteJsonAsync(response, new ProviderTestResult(false, "请先保存贴图图片服务 API Key。")).ConfigureAwait(false);
+                return;
+            }
+
+            var models = await utilityClient.FetchModelsAsync(utilityProfile, CancellationToken.None).ConfigureAwait(false);
+            await WriteJsonAsync(response, new ProviderTestResult(models.Succeeded, models.Message)).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "GET" && action == "models")
+        {
+            await WriteJsonAsync(response, await utilityClient.FetchModelsAsync(utilityProfile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+            return;
+        }
+
+        if (request.HttpMethod == "GET" && action == "balance")
+        {
+            await WriteJsonAsync(response, await utilityClient.FetchBalanceAsync(utilityProfile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+            return;
+        }
+
+        response.StatusCode = 404;
+        await WriteTextAsync(response, "未找到贴图图片服务配置接口。").ConfigureAwait(false);
     }
 
     private async Task HandleProviderProfilesAsync(HttpListenerContext context, string path)
@@ -810,27 +929,38 @@ internal sealed class LocalHttpServer : IDisposable
         return new ProviderUtilityClient(_httpClient, () => profile.ApiKey);
     }
 
+    private ProviderUtilityClient CreateTextureImageProviderUtilityClient(TextureImageProviderProfileDefinition profile)
+    {
+        var normalized = profile.Normalize();
+        return new ProviderUtilityClient(_httpClient, () => normalized.ApiKey);
+    }
+
+    private static ProviderProfile CreateTextureImageProviderProfile(TextureImageProviderProfileDefinition profile)
+    {
+        var normalized = profile.Normalize();
+        return new ProviderProfile(
+            ProviderKind.OpenAI,
+            normalized.BaseUrl,
+            normalized.EditEndpoint,
+            normalized.ImageModel,
+            !string.IsNullOrWhiteSpace(normalized.ApiKey));
+    }
+
     private async Task<ProviderTestResult> TestTextureImageConnectionAsync()
     {
-        var config = _controlPanel.GetConfig().TextureImageTranslation;
-        var apiKey = _controlPanel.GetTextureImageApiKey();
-        if (string.IsNullOrWhiteSpace(apiKey))
+        var active = _controlPanel.GetReadyTextureImageProviderProfiles().FirstOrDefault();
+        if (active == null)
         {
-            return new ProviderTestResult(false, "请先保存贴图图片生成 API Key。");
+            return new ProviderTestResult(false, "请先保存可用的贴图图片服务配置。");
         }
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, TextureImageEditClient.BuildUri(config.BaseUrl, "/v1/models"));
-            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
-            using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
-            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
-            {
-                return new ProviderTestResult(false, $"贴图图片服务连接失败：HTTP {(int)response.StatusCode}。{body}");
-            }
-
-            return new ProviderTestResult(true, "贴图图片服务连接可用。");
+            var profile = CreateTextureImageProviderProfile(TextureImageProviderProfileDefinition.FromLegacy(active.Config, active.ApiKey, priority: 0));
+            var models = await new ProviderUtilityClient(_httpClient, () => active.ApiKey)
+                .FetchModelsAsync(profile, CancellationToken.None)
+                .ConfigureAwait(false);
+            return new ProviderTestResult(models.Succeeded, models.Message);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
         {

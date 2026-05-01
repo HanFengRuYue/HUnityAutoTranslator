@@ -78,6 +78,48 @@ export interface ProviderProfileImportResult {
   Profile: ProviderProfileState | null;
 }
 
+export interface TextureImageProviderProfileState {
+  Id: string;
+  Name: string;
+  Enabled: boolean;
+  Priority: number;
+  BaseUrl: string;
+  EditEndpoint: string;
+  VisionEndpoint: string;
+  ImageModel: string;
+  VisionModel: string;
+  Quality: string;
+  TimeoutSeconds: number;
+  MaxConcurrentRequests: number;
+  EnableVisionConfirmation: boolean;
+  ApiKeyConfigured: boolean;
+  ApiKeyPreview: string | null;
+}
+
+export interface TextureImageProviderProfileUpdateRequest {
+  Id?: string;
+  Name?: string | null;
+  Enabled?: boolean;
+  Priority?: number;
+  BaseUrl?: string;
+  EditEndpoint?: string;
+  VisionEndpoint?: string;
+  ImageModel?: string;
+  VisionModel?: string;
+  Quality?: string;
+  TimeoutSeconds?: number;
+  MaxConcurrentRequests?: number;
+  EnableVisionConfirmation?: boolean;
+  ApiKey?: string | null;
+  ClearApiKey?: boolean;
+}
+
+export interface TextureImageProviderProfileImportResult {
+  Succeeded: boolean;
+  Message: string;
+  Profile: TextureImageProviderProfileState | null;
+}
+
 export interface FontPickResult {
   Status: FontPickStatus;
   FilePath: string | null;
@@ -309,6 +351,10 @@ export interface ControlPanelState {
   ActiveProviderProfileKind: string | number | null;
   ActiveProviderProfileModel: string | null;
   ActiveTranslationProvider: ProviderActivityPreview | null;
+  TextureImageProviderProfiles: TextureImageProviderProfileState[] | null;
+  ActiveTextureImageProviderProfileId: string | null;
+  ActiveTextureImageProviderProfileName: string | null;
+  ActiveTextureImageProviderProfileModel: string | null;
 }
 
 export interface UpdateConfigRequest {

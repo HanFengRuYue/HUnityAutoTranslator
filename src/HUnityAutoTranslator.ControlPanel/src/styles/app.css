@@ -2303,6 +2303,59 @@ input.compact-check {
 .toast-ok { border-color: color-mix(in srgb, var(--ok), var(--line) 45%); }
 .toast-warn { border-color: color-mix(in srgb, var(--warn), var(--line) 45%); }
 .toast-error { border-color: color-mix(in srgb, var(--danger), var(--line) 45%); }
+.texture-compare-button {
+  min-height: 30px;
+  padding: 4px 10px;
+}
+.texture-compare-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(15 23 42 / 0.46);
+}
+.texture-compare-dialog {
+  width: min(1120px, calc(100vw - 48px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+.texture-compare-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.texture-compare-grid figure {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+.texture-compare-grid figcaption {
+  color: var(--muted);
+  font-size: 13px;
+}
+.texture-compare-grid img {
+  width: 100%;
+  max-height: 62vh;
+  object-fit: contain;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+}
+.texture-compare-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+  color: var(--muted);
+  font-size: 13px;
+}
 @media (max-width: 1080px) {
   .app-shell { grid-template-columns: 1fr; }
   .sidebar {

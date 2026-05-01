@@ -11,8 +11,10 @@ public sealed class ControlPanelService
     private readonly object _gate = new();
     private readonly IControlPanelSettingsStore? _settingsStore;
     private readonly IProviderProfileStore? _providerProfileStore;
+    private readonly ITextureImageProviderProfileStore? _textureImageProviderProfileStore;
     private readonly ControlPanelMetrics _metrics;
     private readonly List<ProviderProfileDefinition> _providerProfiles = new();
+    private readonly List<TextureImageProviderProfileDefinition> _textureImageProviderProfiles = new();
     private readonly Dictionary<string, ProviderFailureState> _providerFailures = new(StringComparer.OrdinalIgnoreCase);
     private RuntimeConfig _config;
     private string? _apiKey;
@@ -29,11 +31,13 @@ public sealed class ControlPanelService
         RuntimeConfig config,
         IControlPanelSettingsStore? settingsStore,
         IProviderProfileStore? providerProfileStore,
+        ITextureImageProviderProfileStore? textureImageProviderProfileStore,
         ControlPanelMetrics metrics)
     {
         _config = config;
         _settingsStore = settingsStore;
         _providerProfileStore = providerProfileStore;
+        _textureImageProviderProfileStore = textureImageProviderProfileStore;
         _metrics = metrics;
         _llamaCppStatus = LlamaCppServerStatus.Stopped(config.LlamaCpp);
     }
@@ -53,10 +57,20 @@ public sealed class ControlPanelService
         IProviderProfileStore? providerProfileStore,
         ControlPanelMetrics? metrics = null)
     {
+        return CreateDefault(settingsStore, providerProfileStore, textureImageProviderProfileStore: null, metrics);
+    }
+
+    public static ControlPanelService CreateDefault(
+        IControlPanelSettingsStore? settingsStore,
+        IProviderProfileStore? providerProfileStore,
+        ITextureImageProviderProfileStore? textureImageProviderProfileStore,
+        ControlPanelMetrics? metrics = null)
+    {
         var service = new ControlPanelService(
             RuntimeConfig.CreateDefault(),
             settingsStore,
             providerProfileStore,
+            textureImageProviderProfileStore,
             metrics ?? new ControlPanelMetrics());
         if (settingsStore != null)
         {
@@ -64,6 +78,7 @@ public sealed class ControlPanelService
         }
 
         service.LoadProviderProfiles();
+        service.LoadTextureImageProviderProfiles();
         return service;
     }
 
@@ -75,6 +90,8 @@ public sealed class ControlPanelService
             var config = BuildEffectiveConfig(_config);
             var activeProfile = ResolveActiveProviderProfile();
             var providerProfiles = BuildProviderProfileStates(activeProfile?.Id);
+            var activeTextureProfile = ResolveActiveTextureImageProviderProfile();
+            var textureProfiles = BuildTextureImageProviderProfileStates();
             return new ControlPanelState(
                 config.Enabled,
                 config.TargetLanguage,
@@ -153,7 +170,7 @@ public sealed class ControlPanelService
                 config.FontSizeAdjustmentValue,
                 _lastError,
                 config.TextureImageTranslation,
-                !string.IsNullOrWhiteSpace(_textureImageApiKey),
+                activeTextureProfile != null || !string.IsNullOrWhiteSpace(_textureImageApiKey),
                 config.LlamaCpp,
                 NormalizeLlamaCppStatusForConfig(),
                 providerProfiles,
@@ -161,7 +178,11 @@ public sealed class ControlPanelService
                 activeProfile?.Name,
                 activeProfile?.Kind,
                 activeProfile?.Model,
-                metrics.ActiveTranslationProvider);
+                metrics.ActiveTranslationProvider,
+                textureProfiles,
+                activeTextureProfile?.Id,
+                activeTextureProfile?.Name,
+                activeTextureProfile?.ImageModel);
         }
     }
 
@@ -185,7 +206,7 @@ public sealed class ControlPanelService
     {
         lock (_gate)
         {
-            return _textureImageApiKey;
+            return ResolveActiveTextureImageProviderProfile()?.ApiKey ?? _textureImageApiKey;
         }
     }
 
@@ -229,6 +250,168 @@ public sealed class ControlPanelService
 
             profile = ProviderRuntimeProfile.Create(definition);
             return true;
+        }
+    }
+
+    public IReadOnlyList<TextureImageProviderRuntimeProfile> GetReadyTextureImageProviderProfiles()
+    {
+        lock (_gate)
+        {
+            return _textureImageProviderProfiles
+                .Select(profile => profile.Normalize())
+                .Where(profile => profile.Enabled)
+                .Where(IsTextureImageProviderProfileReady)
+                .OrderBy(profile => profile.Priority)
+                .ThenBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(profile => new TextureImageProviderRuntimeProfile(
+                    profile.Id,
+                    profile.Name,
+                    profile.ToConfig(),
+                    profile.ApiKey!))
+                .ToArray();
+        }
+    }
+
+    public bool TryGetTextureImageProviderProfile(string id, out TextureImageProviderProfileDefinition profile)
+    {
+        lock (_gate)
+        {
+            var definition = _textureImageProviderProfiles
+                .Select(item => item.Normalize())
+                .FirstOrDefault(item => string.Equals(item.Id, id, StringComparison.OrdinalIgnoreCase));
+            if (definition == null)
+            {
+                profile = null!;
+                return false;
+            }
+
+            profile = definition;
+            return true;
+        }
+    }
+
+    public TextureImageProviderProfileState CreateTextureImageProviderProfile(TextureImageProviderProfileUpdateRequest? request)
+    {
+        lock (_gate)
+        {
+            var priority = _textureImageProviderProfiles.Count == 0 ? 0 : _textureImageProviderProfiles.Max(profile => profile.Priority) + 1;
+            var profile = ApplyTextureImageProviderProfileUpdate(
+                TextureImageProviderProfileDefinition.CreateDefault(request?.Name, priority),
+                request ?? new TextureImageProviderProfileUpdateRequest())
+                .Normalize();
+            _textureImageProviderProfiles.Add(profile);
+            NormalizeTextureImageProviderPriorities();
+            SaveTextureImageProviderProfile(profile);
+            return BuildTextureImageProviderProfileState(profile);
+        }
+    }
+
+    public TextureImageProviderProfileState UpdateTextureImageProviderProfile(string id, TextureImageProviderProfileUpdateRequest request)
+    {
+        lock (_gate)
+        {
+            var normalizedId = TextureImageProviderProfileDefinition.NormalizeId(id);
+            var index = _textureImageProviderProfiles.FindIndex(profile => string.Equals(profile.Id, normalizedId, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+            {
+                throw new InvalidOperationException("Texture image provider profile was not found.");
+            }
+
+            var updated = ApplyTextureImageProviderProfileUpdate(_textureImageProviderProfiles[index], request).Normalize();
+            _textureImageProviderProfiles[index] = updated;
+            NormalizeTextureImageProviderPriorities();
+            SaveTextureImageProviderProfile(updated);
+            return BuildTextureImageProviderProfileState(updated);
+        }
+    }
+
+    public bool DeleteTextureImageProviderProfile(string id)
+    {
+        lock (_gate)
+        {
+            var normalizedId = TextureImageProviderProfileDefinition.NormalizeId(id);
+            var removed = _textureImageProviderProfiles.RemoveAll(profile => string.Equals(profile.Id, normalizedId, StringComparison.OrdinalIgnoreCase)) > 0;
+            if (!removed)
+            {
+                return false;
+            }
+
+            _textureImageProviderProfileStore?.Delete(normalizedId);
+            NormalizeTextureImageProviderPriorities();
+            return true;
+        }
+    }
+
+    public TextureImageProviderProfileState MoveTextureImageProviderProfile(string id, int direction)
+    {
+        lock (_gate)
+        {
+            var ordered = _textureImageProviderProfiles
+                .OrderBy(profile => profile.Priority)
+                .ThenBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            var normalizedId = TextureImageProviderProfileDefinition.NormalizeId(id);
+            var index = ordered.FindIndex(profile => string.Equals(profile.Id, normalizedId, StringComparison.OrdinalIgnoreCase));
+            if (index < 0)
+            {
+                throw new InvalidOperationException("Texture image provider profile was not found.");
+            }
+
+            var target = Math.Max(0, Math.Min(ordered.Count - 1, index + direction));
+            if (target != index)
+            {
+                var item = ordered[index];
+                ordered.RemoveAt(index);
+                ordered.Insert(target, item);
+                _textureImageProviderProfiles.Clear();
+                for (var i = 0; i < ordered.Count; i++)
+                {
+                    var updated = ordered[i] with { Priority = i };
+                    _textureImageProviderProfiles.Add(updated);
+                    SaveTextureImageProviderProfile(updated);
+                }
+            }
+
+            var moved = _textureImageProviderProfiles.First(profile => string.Equals(profile.Id, normalizedId, StringComparison.OrdinalIgnoreCase));
+            return BuildTextureImageProviderProfileState(moved);
+        }
+    }
+
+    public string ExportTextureImageProviderProfile(string id)
+    {
+        lock (_gate)
+        {
+            return _textureImageProviderProfileStore?.Export(TextureImageProviderProfileDefinition.NormalizeId(id))
+                ?? throw new InvalidOperationException("Texture image provider profile store is not configured.");
+        }
+    }
+
+    public TextureImageProviderProfileImportResult ImportTextureImageProviderProfile(string content)
+    {
+        lock (_gate)
+        {
+            if (_textureImageProviderProfileStore == null)
+            {
+                return new TextureImageProviderProfileImportResult(false, "贴图图片服务配置存储不可用。", null);
+            }
+
+            try
+            {
+                var imported = _textureImageProviderProfileStore.Import(
+                    content,
+                    _textureImageProviderProfiles.Select(profile => profile.Id).ToArray()).Normalize();
+                _textureImageProviderProfiles.RemoveAll(profile => string.Equals(profile.Id, imported.Id, StringComparison.OrdinalIgnoreCase));
+                _textureImageProviderProfiles.Add(imported);
+                NormalizeTextureImageProviderPriorities();
+                return new TextureImageProviderProfileImportResult(
+                    true,
+                    "贴图图片服务配置已导入。",
+                    BuildTextureImageProviderProfileState(imported));
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or Newtonsoft.Json.JsonException or FormatException or System.Security.Cryptography.CryptographicException)
+            {
+                return new TextureImageProviderProfileImportResult(false, "导入失败：" + ex.Message, null);
+            }
         }
     }
 
@@ -455,6 +638,11 @@ public sealed class ControlPanelService
         lock (_gate)
         {
             ApplyConfig(request);
+            if (request.TextureImageTranslation != null && _textureImageProviderProfileStore != null)
+            {
+                SyncTextureImageProviderProfileFromLegacyConfig();
+            }
+
             SaveSettings();
         }
     }
@@ -479,7 +667,27 @@ public sealed class ControlPanelService
     {
         lock (_gate)
         {
-            _textureImageApiKey = SelectOptionalText(apiKey, fallback: null);
+            var normalized = SelectOptionalText(apiKey, fallback: null);
+            if (_textureImageProviderProfileStore != null)
+            {
+                var profile = ResolveActiveTextureImageProviderProfile() ??
+                    _textureImageProviderProfiles.OrderBy(item => item.Priority).FirstOrDefault() ??
+                    TextureImageProviderProfileDefinition.FromLegacy(
+                        _config.TextureImageTranslation,
+                        apiKey: null,
+                        _textureImageProviderProfiles.Count);
+                var updated = profile with { ApiKey = normalized };
+                _textureImageProviderProfiles.RemoveAll(item => string.Equals(item.Id, updated.Id, StringComparison.OrdinalIgnoreCase));
+                _textureImageProviderProfiles.Add(updated.Normalize());
+                NormalizeTextureImageProviderPriorities();
+                SaveTextureImageProviderProfile(updated.Normalize());
+                _textureImageApiKey = null;
+            }
+            else
+            {
+                _textureImageApiKey = normalized;
+            }
+
             SaveSettings();
         }
     }
@@ -550,6 +758,182 @@ public sealed class ControlPanelService
             _providerProfiles.AddRange(_providerProfileStore.LoadAll().Select(profile => profile.Normalize()));
             NormalizeProviderPriorities();
         }
+    }
+
+    private void LoadTextureImageProviderProfiles()
+    {
+        if (_textureImageProviderProfileStore == null)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            _textureImageProviderProfiles.Clear();
+            _textureImageProviderProfiles.AddRange(_textureImageProviderProfileStore.LoadAll().Select(profile => profile.Normalize()));
+            NormalizeTextureImageProviderPriorities();
+
+            var hasLegacySecret = !string.IsNullOrWhiteSpace(_textureImageApiKey);
+            var hasLegacyConfig = HasNonDefaultTextureImageConfig(_config.TextureImageTranslation);
+            if (_textureImageProviderProfiles.Count == 0 && (hasLegacySecret || hasLegacyConfig))
+            {
+                var migrated = TextureImageProviderProfileDefinition.FromLegacy(
+                    _config.TextureImageTranslation,
+                    _textureImageApiKey,
+                    priority: 0);
+                _textureImageProviderProfiles.Add(migrated);
+                SaveTextureImageProviderProfile(migrated);
+                _textureImageApiKey = null;
+                SaveSettings();
+            }
+        }
+    }
+
+    private IReadOnlyList<TextureImageProviderProfileState> BuildTextureImageProviderProfileStates()
+    {
+        var active = ResolveActiveTextureImageProviderProfile();
+        return _textureImageProviderProfiles
+            .Select(profile => profile.Normalize())
+            .OrderBy(profile => profile.Priority)
+            .ThenBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(profile => BuildTextureImageProviderProfileState(profile, active?.Id))
+            .ToArray();
+    }
+
+    private TextureImageProviderProfileState BuildTextureImageProviderProfileState(TextureImageProviderProfileDefinition profile)
+    {
+        return BuildTextureImageProviderProfileState(profile, ResolveActiveTextureImageProviderProfile()?.Id);
+    }
+
+    private static TextureImageProviderProfileState BuildTextureImageProviderProfileState(TextureImageProviderProfileDefinition profile, string? activeProfileId)
+    {
+        var normalized = profile.Normalize();
+        _ = activeProfileId;
+        return new TextureImageProviderProfileState(
+            normalized.Id,
+            normalized.Name,
+            normalized.Enabled,
+            normalized.Priority,
+            normalized.BaseUrl,
+            normalized.EditEndpoint,
+            normalized.VisionEndpoint,
+            normalized.ImageModel,
+            normalized.VisionModel,
+            normalized.Quality,
+            normalized.TimeoutSeconds,
+            normalized.MaxConcurrentRequests,
+            normalized.EnableVisionConfirmation,
+            !string.IsNullOrWhiteSpace(normalized.ApiKey),
+            ApiKeyPreview: null);
+    }
+
+    private TextureImageProviderProfileDefinition? ResolveActiveTextureImageProviderProfile()
+    {
+        return _textureImageProviderProfiles
+            .Select(profile => profile.Normalize())
+            .Where(profile => profile.Enabled)
+            .Where(IsTextureImageProviderProfileReady)
+            .OrderBy(profile => profile.Priority)
+            .ThenBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase)
+            .FirstOrDefault();
+    }
+
+    private static bool IsTextureImageProviderProfileReady(TextureImageProviderProfileDefinition profile)
+    {
+        return !string.IsNullOrWhiteSpace(profile.ApiKey);
+    }
+
+    private void SaveTextureImageProviderProfile(TextureImageProviderProfileDefinition profile)
+    {
+        _textureImageProviderProfileStore?.Save(profile);
+    }
+
+    private void NormalizeTextureImageProviderPriorities()
+    {
+        var ordered = _textureImageProviderProfiles
+            .Select(profile => profile.Normalize())
+            .OrderBy(profile => profile.Priority)
+            .ThenBy(profile => profile.Name, StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        _textureImageProviderProfiles.Clear();
+        for (var i = 0; i < ordered.Length; i++)
+        {
+            _textureImageProviderProfiles.Add(ordered[i] with { Priority = i });
+        }
+    }
+
+    private void SyncTextureImageProviderProfileFromLegacyConfig()
+    {
+        var config = _config.TextureImageTranslation;
+        var current = ResolveActiveTextureImageProviderProfile() ??
+            _textureImageProviderProfiles.OrderBy(profile => profile.Priority).FirstOrDefault();
+        var updated = current == null
+            ? TextureImageProviderProfileDefinition.FromLegacy(config, _textureImageApiKey, _textureImageProviderProfiles.Count)
+            : current with
+            {
+                Enabled = config.Enabled,
+                BaseUrl = config.BaseUrl,
+                EditEndpoint = config.EditEndpoint,
+                VisionEndpoint = config.VisionEndpoint,
+                ImageModel = config.ImageModel,
+                VisionModel = config.VisionModel,
+                Quality = config.Quality,
+                TimeoutSeconds = config.TimeoutSeconds,
+                MaxConcurrentRequests = config.MaxConcurrentRequests,
+                EnableVisionConfirmation = config.EnableVisionConfirmation,
+                ApiKey = current.ApiKey ?? _textureImageApiKey
+            };
+
+        updated = updated.Normalize();
+        _textureImageProviderProfiles.RemoveAll(profile => string.Equals(profile.Id, updated.Id, StringComparison.OrdinalIgnoreCase));
+        _textureImageProviderProfiles.Add(updated);
+        NormalizeTextureImageProviderPriorities();
+        SaveTextureImageProviderProfile(updated);
+        _textureImageApiKey = null;
+    }
+
+    private static TextureImageProviderProfileDefinition ApplyTextureImageProviderProfileUpdate(
+        TextureImageProviderProfileDefinition current,
+        TextureImageProviderProfileUpdateRequest request)
+    {
+        var apiKey = request.ClearApiKey == true
+            ? null
+            : request.ApiKey != null
+                ? SelectOptionalText(request.ApiKey, fallback: null)
+                : current.ApiKey;
+
+        return current with
+        {
+            Id = request.Id == null ? current.Id : TextureImageProviderProfileDefinition.NormalizeId(request.Id),
+            Name = request.Name == null ? current.Name : SelectOptionalText(request.Name, current.Name) ?? current.Name,
+            Enabled = request.Enabled ?? current.Enabled,
+            Priority = request.Priority ?? current.Priority,
+            BaseUrl = request.BaseUrl == null ? current.BaseUrl : SelectOptionalText(request.BaseUrl, current.BaseUrl) ?? current.BaseUrl,
+            EditEndpoint = request.EditEndpoint == null ? current.EditEndpoint : NormalizeEndpoint(request.EditEndpoint, current.EditEndpoint),
+            VisionEndpoint = request.VisionEndpoint == null ? current.VisionEndpoint : NormalizeEndpoint(request.VisionEndpoint, current.VisionEndpoint),
+            ImageModel = request.ImageModel == null ? current.ImageModel : SelectOptionalText(request.ImageModel, current.ImageModel) ?? current.ImageModel,
+            VisionModel = request.VisionModel == null ? current.VisionModel : SelectOptionalText(request.VisionModel, current.VisionModel) ?? current.VisionModel,
+            Quality = request.Quality ?? current.Quality,
+            TimeoutSeconds = request.TimeoutSeconds ?? current.TimeoutSeconds,
+            MaxConcurrentRequests = request.MaxConcurrentRequests ?? current.MaxConcurrentRequests,
+            EnableVisionConfirmation = request.EnableVisionConfirmation ?? current.EnableVisionConfirmation,
+            ApiKey = apiKey
+        };
+    }
+
+    private static bool HasNonDefaultTextureImageConfig(TextureImageTranslationConfig config)
+    {
+        var defaults = TextureImageTranslationConfig.Default();
+        return config.Enabled != defaults.Enabled ||
+            !string.Equals(config.BaseUrl, defaults.BaseUrl, StringComparison.Ordinal) ||
+            !string.Equals(config.EditEndpoint, defaults.EditEndpoint, StringComparison.Ordinal) ||
+            !string.Equals(config.VisionEndpoint, defaults.VisionEndpoint, StringComparison.Ordinal) ||
+            !string.Equals(config.ImageModel, defaults.ImageModel, StringComparison.Ordinal) ||
+            !string.Equals(config.VisionModel, defaults.VisionModel, StringComparison.Ordinal) ||
+            !string.Equals(config.Quality, defaults.Quality, StringComparison.OrdinalIgnoreCase) ||
+            config.TimeoutSeconds != defaults.TimeoutSeconds ||
+            config.MaxConcurrentRequests != defaults.MaxConcurrentRequests ||
+            config.EnableVisionConfirmation != defaults.EnableVisionConfirmation;
     }
 
     private IReadOnlyList<ProviderProfileState> BuildProviderProfileStates(string? activeProfileId)
@@ -1084,9 +1468,7 @@ public sealed class ControlPanelService
                 TextureImageTranslation: _config.TextureImageTranslation,
                 LlamaCpp: _config.LlamaCpp)
             ,
-            TextureImageEncryptedSecret = string.IsNullOrWhiteSpace(_textureImageApiKey)
-                ? null
-                : ApiKeyProtector.Protect(_textureImageApiKey)
+            TextureImageEncryptedSecret = null
         });
     }
 

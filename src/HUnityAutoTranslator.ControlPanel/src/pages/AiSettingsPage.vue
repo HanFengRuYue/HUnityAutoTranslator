@@ -58,7 +58,9 @@ import type {
   ProviderProfileState,
   ProviderProfileUpdateRequest,
   ProviderTestResult,
-  TextureImageTranslationConfig,
+  TextureImageProviderProfileImportResult,
+  TextureImageProviderProfileState,
+  TextureImageProviderProfileUpdateRequest,
   UpdateConfigRequest
 } from "../types/api";
 import { targetLanguageOptions } from "../utils/languages";
@@ -139,21 +141,6 @@ function createPromptTemplates(): PromptTemplateConfig {
   };
 }
 
-function defaultTextureImageConfig(): TextureImageTranslationConfig {
-  return {
-    Enabled: false,
-    BaseUrl: "http://192.168.2.10:8317",
-    EditEndpoint: "/v1/images/edits",
-    VisionEndpoint: "/v1/responses",
-    ImageModel: "gpt-image-2",
-    VisionModel: "gpt-5.4-mini",
-    Quality: "medium",
-    TimeoutSeconds: 180,
-    MaxConcurrentRequests: 1,
-    EnableVisionConfirmation: true
-  };
-}
-
 const form = reactive({
   TargetLanguage: "zh-Hans",
   GameTitle: "",
@@ -215,6 +202,23 @@ const profileForm = reactive({
   LlamaCppAutoStartOnStartup: false
 });
 
+const textureImageProfileForm = reactive({
+  Id: "",
+  Name: "",
+  Enabled: true,
+  BaseUrl: "http://192.168.2.10:8317",
+  EditEndpoint: "/v1/images/edits",
+  VisionEndpoint: "/v1/responses",
+  ImageModel: "gpt-image-2",
+  VisionModel: "gpt-5.4-mini",
+  Quality: "medium",
+  TimeoutSeconds: 180,
+  MaxConcurrentRequests: 1,
+  EnableVisionConfirmation: true,
+  ApiKey: "",
+  ClearApiKey: false
+});
+
 const selectedProfileId = ref("");
 const providerEditorOpen = ref(false);
 const profileDirty = ref(false);
@@ -222,6 +226,9 @@ const profileBusy = ref(false);
 const utilityBusy = ref(false);
 const importInput = ref<HTMLInputElement | null>(null);
 const textureImageBusy = ref(false);
+const textureImageProfileEditorOpen = ref(false);
+const textureImageProfileBusy = ref(false);
+const textureImageProfileImportInput = ref<HTMLInputElement | null>(null);
 const llamaCppBusy = ref(false);
 const llamaCppModelPicking = ref(false);
 const llamaCppBenchmarkBusy = ref(false);
@@ -235,8 +242,10 @@ const activePromptTemplateKey = ref<PromptTemplateKey>("SystemPrompt");
 
 const formDirty = computed(() => controlPanelStore.dirtyForms.has(formKey));
 const providerProfiles = computed(() => controlPanelStore.state?.ProviderProfiles ?? []);
+const textureImageProfiles = computed(() => controlPanelStore.state?.TextureImageProviderProfiles ?? []);
 const selectedProfile = computed(() => providerProfiles.value.find((profile) => profile.Id === selectedProfileId.value) ?? null);
 const activeProviderProfileName = computed(() => controlPanelStore.state?.ActiveProviderProfileName ?? "未配置");
+const activeTextureImageProfileName = computed(() => controlPanelStore.state?.ActiveTextureImageProviderProfileName ?? "未配置");
 const hasLlamaCppProfile = computed(() => providerProfiles.value.some((profile) => providerKindToNumber(profile.Kind) === 3));
 const profileKind = computed(() => numberValue(profileForm.Kind));
 const isProfileOpenAi = computed(() => profileKind.value === 0);
@@ -549,17 +558,6 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.EnableTranslationContext = Boolean(state.EnableTranslationContext);
   form.TranslationContextMaxExamples = state.TranslationContextMaxExamples ?? 4;
   form.TranslationContextMaxCharacters = state.TranslationContextMaxCharacters ?? 1200;
-  const textureImage = state.TextureImageTranslation ?? defaultTextureImageConfig();
-  form.TextureImageEnabled = Boolean(textureImage.Enabled);
-  form.TextureImageBaseUrl = textureImage.BaseUrl ?? "http://192.168.2.10:8317";
-  form.TextureImageEditEndpoint = textureImage.EditEndpoint ?? "/v1/images/edits";
-  form.TextureImageVisionEndpoint = textureImage.VisionEndpoint ?? "/v1/responses";
-  form.TextureImageImageModel = textureImage.ImageModel ?? "gpt-image-2";
-  form.TextureImageVisionModel = textureImage.VisionModel ?? "gpt-5.4-mini";
-  form.TextureImageQuality = textureImage.Quality ?? "medium";
-  form.TextureImageTimeoutSeconds = textureImage.TimeoutSeconds ?? 180;
-  form.TextureImageMaxConcurrentRequests = textureImage.MaxConcurrentRequests ?? 1;
-  form.TextureImageEnableVisionConfirmation = textureImage.EnableVisionConfirmation ?? true;
   form.LlamaCppModelPath = state.LlamaCpp?.ModelPath ?? "";
   form.LlamaCppContextSize = state.LlamaCpp?.ContextSize ?? 4096;
   form.LlamaCppGpuLayers = state.LlamaCpp?.GpuLayers ?? 999;
@@ -620,23 +618,7 @@ function buildConfigRequest(providerKind = form.ProviderKind): UpdateConfigReque
     TranslationContextMaxExamples: numberValue(form.TranslationContextMaxExamples),
     TranslationContextMaxCharacters: numberValue(form.TranslationContextMaxCharacters),
     PromptTemplates: buildPromptTemplateOverrides(),
-    TextureImageTranslation: buildTextureImageConfig(),
     LlamaCpp: buildLlamaCppConfig()
-  };
-}
-
-function buildTextureImageConfig(): TextureImageTranslationConfig {
-  return {
-    Enabled: form.TextureImageEnabled,
-    BaseUrl: form.TextureImageBaseUrl.trim(),
-    EditEndpoint: form.TextureImageEditEndpoint.trim(),
-    VisionEndpoint: form.TextureImageVisionEndpoint.trim(),
-    ImageModel: form.TextureImageImageModel.trim(),
-    VisionModel: form.TextureImageVisionModel.trim(),
-    Quality: form.TextureImageQuality,
-    TimeoutSeconds: numberValue(form.TextureImageTimeoutSeconds),
-    MaxConcurrentRequests: numberValue(form.TextureImageMaxConcurrentRequests),
-    EnableVisionConfirmation: form.TextureImageEnableVisionConfirmation
   };
 }
 
@@ -749,6 +731,153 @@ async function testTextureImageConnection(): Promise<void> {
   } finally {
     textureImageBusy.value = false;
   }
+}
+
+function resetTextureImageProfileForm(profile?: TextureImageProviderProfileState): void {
+  textureImageProfileForm.Id = profile?.Id ?? "";
+  textureImageProfileForm.Name = profile?.Name ?? "贴图图片服务";
+  textureImageProfileForm.Enabled = profile?.Enabled ?? true;
+  textureImageProfileForm.BaseUrl = profile?.BaseUrl ?? "http://192.168.2.10:8317";
+  textureImageProfileForm.EditEndpoint = profile?.EditEndpoint ?? "/v1/images/edits";
+  textureImageProfileForm.VisionEndpoint = profile?.VisionEndpoint ?? "/v1/responses";
+  textureImageProfileForm.ImageModel = profile?.ImageModel ?? "gpt-image-2";
+  textureImageProfileForm.VisionModel = profile?.VisionModel ?? "gpt-5.4-mini";
+  textureImageProfileForm.Quality = profile?.Quality ?? "medium";
+  textureImageProfileForm.TimeoutSeconds = profile?.TimeoutSeconds ?? 180;
+  textureImageProfileForm.MaxConcurrentRequests = profile?.MaxConcurrentRequests ?? 1;
+  textureImageProfileForm.EnableVisionConfirmation = profile?.EnableVisionConfirmation ?? true;
+  textureImageProfileForm.ApiKey = "";
+  textureImageProfileForm.ClearApiKey = false;
+}
+
+function openTextureImageProfileEditor(profile?: TextureImageProviderProfileState): void {
+  resetTextureImageProfileForm(profile);
+  textureImageProfileEditorOpen.value = true;
+}
+
+function closeTextureImageProfileEditor(): void {
+  textureImageProfileEditorOpen.value = false;
+}
+
+function buildTextureImageProfileRequest(): TextureImageProviderProfileUpdateRequest {
+  return {
+    Name: textureImageProfileForm.Name.trim() || "贴图图片服务",
+    Enabled: textureImageProfileForm.Enabled,
+    BaseUrl: textureImageProfileForm.BaseUrl.trim(),
+    EditEndpoint: textureImageProfileForm.EditEndpoint.trim(),
+    VisionEndpoint: textureImageProfileForm.VisionEndpoint.trim(),
+    ImageModel: textureImageProfileForm.ImageModel.trim(),
+    VisionModel: textureImageProfileForm.VisionModel.trim(),
+    Quality: textureImageProfileForm.Quality,
+    TimeoutSeconds: numberValue(textureImageProfileForm.TimeoutSeconds),
+    MaxConcurrentRequests: numberValue(textureImageProfileForm.MaxConcurrentRequests),
+    EnableVisionConfirmation: textureImageProfileForm.EnableVisionConfirmation,
+    ApiKey: textureImageProfileForm.ApiKey.trim() || null,
+    ClearApiKey: textureImageProfileForm.ClearApiKey
+  };
+}
+
+async function saveTextureImageProfile(closeEditor = true): Promise<void> {
+  textureImageProfileBusy.value = true;
+  try {
+    const path = textureImageProfileForm.Id
+      ? `/api/texture-image-profiles/${encodeURIComponent(textureImageProfileForm.Id)}`
+      : "/api/texture-image-profiles";
+    const state = await api<ControlPanelState>(path, {
+      method: textureImageProfileForm.Id ? "PUT" : "POST",
+      body: buildTextureImageProfileRequest()
+    });
+    controlPanelStore.state = state;
+    if (closeEditor) {
+      textureImageProfileEditorOpen.value = false;
+    }
+    showToast("贴图图片服务配置已保存。", "ok");
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "保存贴图图片服务配置失败。", "error");
+  } finally {
+    textureImageProfileBusy.value = false;
+  }
+}
+
+async function deleteTextureImageProfile(profile: TextureImageProviderProfileState): Promise<void> {
+  if (!window.confirm(`删除贴图图片服务配置“${profile.Name}”？`)) {
+    return;
+  }
+
+  await api<{ DeletedCount: number }>(`/api/texture-image-profiles/${encodeURIComponent(profile.Id)}`, { method: "DELETE" });
+  await refreshState({ quiet: true });
+  showToast("贴图图片服务配置已删除。", "ok");
+}
+
+async function moveTextureImageProfile(profile: TextureImageProviderProfileState, direction: -1 | 1): Promise<void> {
+  const state = await api<ControlPanelState>(`/api/texture-image-profiles/${encodeURIComponent(profile.Id)}/${direction < 0 ? "move-up" : "move-down"}`, { method: "POST" });
+  controlPanelStore.state = state;
+}
+
+async function exportTextureImageProfile(profile: TextureImageProviderProfileState): Promise<void> {
+  const content = await getText(`/api/texture-image-profiles/${encodeURIComponent(profile.Id)}/export`);
+  const blob = new Blob([content], { type: "application/octet-stream" });
+  const anchor = document.createElement("a");
+  anchor.href = URL.createObjectURL(blob);
+  anchor.download = `${profile.Name || "texture-image"}.huttextureimage`;
+  anchor.click();
+  URL.revokeObjectURL(anchor.href);
+}
+
+function openTextureImageImportPicker(): void {
+  textureImageProfileImportInput.value?.click();
+}
+
+async function importTextureImageProfile(event: Event): Promise<void> {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) {
+    return;
+  }
+
+  const result = await api<TextureImageProviderProfileImportResult>("/api/texture-image-profiles/import", {
+    method: "POST",
+    body: await file.text()
+  });
+  await refreshState({ quiet: true });
+  showToast(result.Message, result.Succeeded ? "ok" : "error");
+}
+
+async function runTextureImageProfileUtility<T>(profile: TextureImageProviderProfileState, label: string, action: () => Promise<T>, render: (result: T) => string): Promise<void> {
+  textureImageBusy.value = true;
+  try {
+    const result = await action();
+    showToast(`${label}：${render(result)}`, "ok", 6200);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : `${label}失败`, "error");
+  } finally {
+    textureImageBusy.value = false;
+  }
+}
+
+async function testTextureImageProfile(profile: TextureImageProviderProfileState): Promise<void> {
+  await runTextureImageProfileUtility(
+    profile,
+    "连接测试",
+    () => api<ProviderTestResult>(`/api/texture-image-profiles/${encodeURIComponent(profile.Id)}/test`, { method: "POST" }),
+    (result) => result.Message);
+}
+
+async function fetchTextureImageModels(profile: TextureImageProviderProfileState): Promise<void> {
+  await runTextureImageProfileUtility(
+    profile,
+    "模型列表",
+    () => api<ProviderModelsResult>(`/api/texture-image-profiles/${encodeURIComponent(profile.Id)}/models`),
+    (result) => result.Models.length ? `${result.Message}：${result.Models.slice(0, 6).map((model) => model.Id).join("、")}` : result.Message);
+}
+
+async function fetchTextureImageBalance(profile: TextureImageProviderProfileState): Promise<void> {
+  await runTextureImageProfileUtility(
+    profile,
+    "余额",
+    () => api<ProviderBalanceResult>(`/api/texture-image-profiles/${encodeURIComponent(profile.Id)}/balance`),
+    formatBalanceToast);
 }
 
 function createProfileDefaults(kind = 0): boolean {
@@ -1295,75 +1424,45 @@ watch(selectedProfileId, () => applySelectedProfile(true));
       </SectionPanel>
 
       <SectionPanel title="贴图文字翻译" :icon="Images">
-        <div class="checks">
-          <label class="check help-target" data-help="启用后，贴图页可以把确认含文字的 PNG 发给图片生成模型翻译。">
-            <input id="textureImageEnabled" v-model="form.TextureImageEnabled" type="checkbox" @change="markDirty">
-            启用贴图文字翻译
-          </label>
-          <label class="check help-target" data-help="对本地疑似项再调用视觉确认；不确定时进入人工确认，不直接跳过。">
-            <input id="textureImageVisionConfirmation" v-model="form.TextureImageEnableVisionConfirmation" type="checkbox" @change="markDirty">
-            启用视觉确认
-          </label>
+        <div class="provider-profile-toolbar">
+          <div>
+            <span>当前配置</span>
+            <strong>{{ activeTextureImageProfileName }}</strong>
+          </div>
+          <div class="actions inline-actions">
+            <button class="secondary" type="button" @click="openTextureImageProfileEditor()"><Plus class="button-icon" />新建配置</button>
+            <button class="secondary" type="button" @click="openTextureImageImportPicker"><FileInput class="button-icon" />导入</button>
+            <input ref="textureImageProfileImportInput" class="sr-only" type="file" accept=".huttextureimage" @change="importTextureImageProfile">
+          </div>
         </div>
 
-        <div class="form-grid four">
-          <label class="field help-target" data-help="CLI Proxy API 的根地址。">
-            <span class="field-label"><Server class="field-label-icon" />Base URL</span>
-            <input id="textureImageBaseUrl" v-model="form.TextureImageBaseUrl" autocomplete="off" @input="markDirty">
-          </label>
-          <label class="field help-target" data-help="图片编辑接口路径，默认使用 /v1/images/edits。">
-            <span class="field-label"><Settings2 class="field-label-icon" />编辑端点</span>
-            <input id="textureImageEditEndpoint" v-model="form.TextureImageEditEndpoint" autocomplete="off" @input="markDirty">
-          </label>
-          <label class="field help-target" data-help="负责生成翻译贴图的图片模型。">
-            <span class="field-label"><Images class="field-label-icon" />图片模型</span>
-            <input id="textureImageImageModel" v-model="form.TextureImageImageModel" autocomplete="off" @input="markDirty">
-          </label>
-          <label class="field help-target" data-help="生成质量会随请求发给图片编辑接口。">
-            <span class="field-label"><Gauge class="field-label-icon" />质量</span>
-            <select id="textureImageQuality" v-model="form.TextureImageQuality" @change="markDirty">
-              <option value="low">低</option>
-              <option value="medium">中</option>
-              <option value="high">高</option>
-              <option value="auto">自动</option>
-            </select>
-          </label>
-          <label class="field help-target" data-help="单次图片生成或视觉确认的超时时间。">
-            <span class="field-label"><Clock3 class="field-label-icon" />超时秒数</span>
-            <input id="textureImageTimeoutSeconds" v-model.number="form.TextureImageTimeoutSeconds" type="number" min="30" max="300" @input="markDirty">
-          </label>
-          <label class="field help-target" data-help="贴图图片生成独立排队，不占用文本翻译并发。">
-            <span class="field-label"><Zap class="field-label-icon" />并发</span>
-            <input id="textureImageMaxConcurrentRequests" v-model.number="form.TextureImageMaxConcurrentRequests" type="number" min="1" max="4" @input="markDirty">
-          </label>
-          <label class="field help-target" data-help="视觉确认接口路径，用于判断艺术字、海报和招牌是否含文字。">
-            <span class="field-label"><Settings2 class="field-label-icon" />视觉端点</span>
-            <input id="textureImageVisionEndpoint" v-model="form.TextureImageVisionEndpoint" autocomplete="off" @input="markDirty">
-          </label>
-          <label class="field help-target" data-help="负责确认贴图中是否有文字的视觉模型。">
-            <span class="field-label"><Brain class="field-label-icon" />视觉模型</span>
-            <input id="textureImageVisionModel" v-model="form.TextureImageVisionModel" autocomplete="off" @input="markDirty">
-          </label>
-        </div>
-
-        <div class="form-grid two">
-          <label class="field help-target" data-help="密钥会加密保存；留空保存会清除贴图图片生成密钥。">
-            <span class="field-label"><KeyRound class="field-label-icon" />API Key</span>
-            <input id="textureImageApiKey" v-model="form.TextureImageApiKey" type="password" autocomplete="off" :placeholder="textureImageKeyText">
-          </label>
-          <div class="field">
-            <span class="field-label"><KeyRound class="field-label-icon" />连接</span>
-            <div class="actions inline-actions">
-              <button class="secondary" type="button" :disabled="textureImageBusy" @click="saveTextureImageKey">
-                <Save class="button-icon" />
-                保存 Key
+        <div class="provider-profile-manager textureImageProfileManager">
+          <div class="provider-profile-list" aria-label="贴图图片服务配置列表">
+            <div
+              v-for="profile in textureImageProfiles"
+              :key="profile.Id"
+              class="provider-profile-card"
+              :class="{ current: profile.Id === controlPanelStore.state?.ActiveTextureImageProviderProfileId }">
+              <button class="provider-profile-select" type="button" @click="openTextureImageProfileEditor(profile)">
+                <span class="profile-rank">#{{ profile.Priority + 1 }}</span>
+                <span class="profile-main">
+                  <strong>{{ profile.Name }}</strong>
+                  <small>{{ profile.ImageModel }} / {{ profile.VisionModel }}</small>
+                </span>
+                <span class="profile-status">{{ profile.Enabled ? (profile.ApiKeyConfigured ? "可用" : "缺少 Key") : "停用" }}</span>
               </button>
-              <button class="secondary" type="button" :disabled="textureImageBusy || !controlPanelStore.state?.TextureImageApiKeyConfigured" @click="testTextureImageConnection">
-                <Play class="button-icon" />
-                连接测试
-              </button>
-              <span class="hint">{{ textureImageKeyText }}</span>
+              <div class="provider-card-actions">
+                <button class="secondary icon-button" type="button" title="编辑" @click.stop="openTextureImageProfileEditor(profile)"><Settings2 /></button>
+                <button class="secondary icon-button" type="button" :disabled="profile.Priority <= 0" title="上移" @click.stop="moveTextureImageProfile(profile, -1)"><ArrowUp /></button>
+                <button class="secondary icon-button" type="button" :disabled="profile.Priority >= textureImageProfiles.length - 1" title="下移" @click.stop="moveTextureImageProfile(profile, 1)"><ArrowDown /></button>
+                <button class="secondary icon-button" type="button" title="测试" :disabled="textureImageBusy" @click.stop="testTextureImageProfile(profile)"><Zap /></button>
+                <button class="secondary icon-button" type="button" title="模型" :disabled="textureImageBusy" @click.stop="fetchTextureImageModels(profile)"><Download /></button>
+                <button class="secondary icon-button" type="button" title="余额" :disabled="textureImageBusy" @click.stop="fetchTextureImageBalance(profile)"><WalletCards /></button>
+                <button class="secondary icon-button" type="button" title="导出" @click.stop="exportTextureImageProfile(profile)"><FileOutput /></button>
+                <button class="danger icon-button" type="button" title="删除" @click.stop="deleteTextureImageProfile(profile)"><Trash2 /></button>
+              </div>
             </div>
+            <div v-if="!textureImageProfiles.length" class="empty-state">还没有贴图图片服务配置</div>
           </div>
         </div>
       </SectionPanel>
@@ -1437,6 +1536,78 @@ watch(selectedProfileId, () => applySelectedProfile(true));
         </div>
         <textarea id="customPrompt" class="prompt-editor-field" v-model="activePromptTemplateText" rows="12" spellcheck="false"></textarea>
       </SectionPanel>
+    </div>
+
+    <div v-if="textureImageProfileEditorOpen" class="provider-editor-backdrop" @click.self="closeTextureImageProfileEditor">
+      <section class="provider-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="textureImageProfileEditorTitle">
+        <div class="provider-profile-editor">
+          <div class="provider-editor-head">
+            <div>
+              <span>贴图图片服务</span>
+              <strong id="textureImageProfileEditorTitle">{{ textureImageProfileForm.Id ? textureImageProfileForm.Name || "未命名配置" : "新建配置" }}</strong>
+            </div>
+            <button class="secondary" type="button" @click="closeTextureImageProfileEditor"><X class="button-icon" />关闭</button>
+          </div>
+          <div class="checks">
+            <label class="check"><input id="textureImageProfileEnabled" v-model="textureImageProfileForm.Enabled" type="checkbox">启用此配置</label>
+            <label class="check"><input id="textureImageProfileVisionConfirmation" v-model="textureImageProfileForm.EnableVisionConfirmation" type="checkbox">启用视觉确认</label>
+            <label class="check"><input id="textureImageProfileClearKey" v-model="textureImageProfileForm.ClearApiKey" type="checkbox">清空已保存 Key</label>
+          </div>
+          <div class="form-grid two">
+            <label class="field">
+              <span class="field-label"><KeyRound class="field-label-icon" />名称</span>
+              <input id="textureImageProfileName" v-model="textureImageProfileForm.Name" autocomplete="off">
+            </label>
+            <label class="field">
+              <span class="field-label"><Server class="field-label-icon" />Base URL</span>
+              <input id="textureImageProfileBaseUrl" v-model="textureImageProfileForm.BaseUrl" autocomplete="off">
+            </label>
+            <label class="field">
+              <span class="field-label"><Settings2 class="field-label-icon" />编辑端点</span>
+              <input id="textureImageProfileEditEndpoint" v-model="textureImageProfileForm.EditEndpoint" autocomplete="off">
+            </label>
+            <label class="field">
+              <span class="field-label"><Settings2 class="field-label-icon" />视觉端点</span>
+              <input id="textureImageProfileVisionEndpoint" v-model="textureImageProfileForm.VisionEndpoint" autocomplete="off">
+            </label>
+            <label class="field">
+              <span class="field-label"><Images class="field-label-icon" />图片模型</span>
+              <input id="textureImageProfileImageModel" v-model="textureImageProfileForm.ImageModel" autocomplete="off">
+            </label>
+            <label class="field">
+              <span class="field-label"><Brain class="field-label-icon" />视觉模型</span>
+              <input id="textureImageProfileVisionModel" v-model="textureImageProfileForm.VisionModel" autocomplete="off">
+            </label>
+            <label class="field">
+              <span class="field-label"><Gauge class="field-label-icon" />质量</span>
+              <select id="textureImageProfileQuality" v-model="textureImageProfileForm.Quality">
+                <option value="low">低</option>
+                <option value="medium">中</option>
+                <option value="high">高</option>
+                <option value="auto">自动</option>
+              </select>
+            </label>
+            <label class="field">
+              <span class="field-label"><KeyRound class="field-label-icon" />API Key</span>
+              <input id="textureImageProfileApiKey" v-model="textureImageProfileForm.ApiKey" autocomplete="off" type="password" placeholder="留空不修改">
+            </label>
+          </div>
+          <div class="form-grid four">
+            <label class="field">
+              <span class="field-label"><Clock3 class="field-label-icon" />超时</span>
+              <input id="textureImageProfileTimeoutSeconds" v-model.number="textureImageProfileForm.TimeoutSeconds" type="number" min="30" max="300">
+            </label>
+            <label class="field">
+              <span class="field-label"><Zap class="field-label-icon" />并发</span>
+              <input id="textureImageProfileMaxConcurrentRequests" v-model.number="textureImageProfileForm.MaxConcurrentRequests" type="number" min="1" max="4">
+            </label>
+          </div>
+          <div class="actions provider-profile-actions">
+            <button class="primary" type="button" :disabled="textureImageProfileBusy" @click="saveTextureImageProfile(true)"><Save class="button-icon" />保存配置</button>
+            <button class="secondary" type="button" @click="closeTextureImageProfileEditor"><X class="button-icon" />取消</button>
+          </div>
+        </div>
+      </section>
     </div>
 
     <div v-if="providerEditorOpen" class="provider-editor-backdrop" @click.self="closeProviderProfileEditor">

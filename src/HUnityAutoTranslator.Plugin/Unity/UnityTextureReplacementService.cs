@@ -5,6 +5,7 @@ using System.Reflection;
 using System.Security.Cryptography;
 using BepInEx.Logging;
 using HUnityAutoTranslator.Core.Configuration;
+using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Textures;
 using HUnityAutoTranslator.Plugin.Capture;
 using UnityEngine;
@@ -31,6 +32,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
     private readonly Dictionary<string, RuntimeTextureRecord> _records = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, UnityEngine.Object> _originalAssets = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Texture2D> _replacementTextures = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, OverrideApplicationKey> _appliedOverrides = new(StringComparer.Ordinal);
     private DateTimeOffset? _scannedUtc;
     private IReadOnlyList<string> _lastErrors = Array.Empty<string>();
     private TextureScanSession? _scanSession;
@@ -72,7 +74,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
             _lastAppliedSceneName = currentSceneName;
             if (_hasPersistedOverrides)
             {
-                StartScanOnMainThread(applyOverrides: true, "正在扫描当前场景并应用已导入贴图。");
+                StartApplyOverridesOnMainThread("正在扫描当前场景并应用已导入贴图。");
             }
             return;
         }
@@ -81,7 +83,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
             !string.Equals(_lastAppliedSceneName, currentSceneName, StringComparison.Ordinal))
         {
             _lastAppliedSceneName = currentSceneName;
-            StartScanOnMainThread(applyOverrides: true, "场景变化，正在扫描并应用已导入贴图。");
+            StartApplyOverridesOnMainThread("场景变化，正在扫描并应用已导入贴图。");
         }
     }
 
@@ -134,17 +136,31 @@ internal sealed class UnityTextureReplacementService : IDisposable
         return _catalogStore.TryReadSourceBytes(sourceHash, out bytes);
     }
 
+    public bool TryGetTextureImage(string sourceHash, string? variant, out byte[] bytes)
+    {
+        bytes = Array.Empty<byte>();
+        if (string.Equals(variant, "override", StringComparison.OrdinalIgnoreCase))
+        {
+            return _store.TryReadOverrideBytes(sourceHash, out bytes);
+        }
+
+        if (string.IsNullOrWhiteSpace(variant) || string.Equals(variant, "source", StringComparison.OrdinalIgnoreCase))
+        {
+            return TryGetSourceImage(sourceHash, out bytes);
+        }
+
+        return false;
+    }
+
     public async Task<TextureTextDetectionResult> AnalyzeTextTexturesAsync(
         TextureTextDetectionRequest? request,
-        TextureImageTranslationConfig config,
-        string? apiKey,
+        IReadOnlyList<TextureImageProviderRuntimeProfile> profiles,
         HttpClient httpClient,
         CancellationToken cancellationToken)
     {
         var items = ResolveRequestedItems(request?.SourceHashes);
         var errors = new List<string>();
         var updated = new List<TextureTextAnalysis>();
-        var vision = new TextureVisionTextClient(httpClient, () => apiKey);
         foreach (var item in items)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -155,23 +171,38 @@ internal sealed class UnityTextureReplacementService : IDisposable
             }
 
             var analysis = TextureTextDetector.Analyze(item, sourceBytes, DateTimeOffset.UtcNow);
-            if (ShouldUseVisionConfirmation(analysis, config, apiKey))
+            var visionProfiles = profiles
+                .Where(profile => ShouldUseVisionConfirmation(analysis, profile.Config, profile.ApiKey))
+                .ToArray();
+            if (visionProfiles.Length > 0)
             {
-                try
+                var visionErrors = new List<string>();
+                foreach (var visionProfile in visionProfiles)
                 {
-                    analysis = ApplyVisionResult(
-                        analysis,
-                        await vision.DetectAsync(config, item, sourceBytes, cancellationToken).ConfigureAwait(false));
+                    var vision = new TextureVisionTextClient(httpClient, () => visionProfile.ApiKey);
+                    try
+                    {
+                        analysis = ApplyVisionResult(
+                            analysis,
+                            await vision.DetectAsync(visionProfile.Config, item, sourceBytes, cancellationToken).ConfigureAwait(false));
+                        visionErrors.Clear();
+                        break;
+                    }
+                    catch (Exception ex) when (IsTextureImageProviderFailure(ex))
+                    {
+                        visionErrors.Add($"贴图文字视觉确认失败：{item.TextureName}：{visionProfile.Name}：{ex.Message}");
+                    }
                 }
-                catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or TaskCanceledException or Newtonsoft.Json.JsonException)
+
+                if (visionErrors.Count > 0)
                 {
                     analysis = analysis with
                     {
                         Status = TextureTextStatus.NeedsManualReview,
                         NeedsManualReview = true,
-                        LastError = ex.Message
+                        LastError = visionErrors.Last()
                     };
-                    errors.Add($"贴图文字视觉确认失败：{item.TextureName}，{ex.Message}");
+                    errors.AddRange(visionErrors);
                 }
             }
 
@@ -205,24 +236,26 @@ internal sealed class UnityTextureReplacementService : IDisposable
     public async Task<TextureImageTranslateResult> TranslateTextTexturesAsync(
         TextureImageTranslateRequest? request,
         RuntimeConfig config,
-        string? apiKey,
+        IReadOnlyList<TextureImageProviderRuntimeProfile> profiles,
         HttpClient httpClient,
         CancellationToken cancellationToken)
     {
-        if (!config.TextureImageTranslation.Enabled)
+        var readyProfiles = profiles
+            .Where(profile => profile.Config.Enabled && !string.IsNullOrWhiteSpace(profile.ApiKey))
+            .ToArray();
+        if (readyProfiles.Length == 0 && !config.TextureImageTranslation.Enabled)
         {
             return new TextureImageTranslateResult(0, 0, 0, Array.Empty<TextureTextAnalysis>(), new[] { "请先在 AI 翻译设置中启用贴图文字翻译。" });
         }
 
-        if (string.IsNullOrWhiteSpace(apiKey))
+        if (readyProfiles.Length == 0)
         {
-            return new TextureImageTranslateResult(0, 0, 0, Array.Empty<TextureTextAnalysis>(), new[] { "请先保存贴图图片生成 API Key。" });
+            return new TextureImageTranslateResult(0, 0, 0, Array.Empty<TextureTextAnalysis>(), new[] { "请先保存可用的贴图图片服务配置和 API Key。" });
         }
 
         var items = ResolveRequestedItems(request?.SourceHashes);
         var generated = new List<TextureTextAnalysis>();
         var errors = new List<string>();
-        var client = new TextureImageEditClient(httpClient, () => apiKey);
         var generatedCount = 0;
         foreach (var item in items)
         {
@@ -243,14 +276,27 @@ internal sealed class UnityTextureReplacementService : IDisposable
             try
             {
                 var preparation = TextureImagePreprocessor.PrepareForEdit(sourceBytes);
-                var result = await client.EditAsync(
-                    config.TextureImageTranslation,
+                var result = await GenerateTextureImageWithFailoverAsync(
+                    item,
+                    readyProfiles,
+                    httpClient,
                     BuildTextureImagePrompt(item, currentAnalysis, config.TargetLanguage),
-                    preparation.PngBytes,
-                    preparation.RequestSize,
+                    preparation,
                     cancellationToken).ConfigureAwait(false);
-                var restored = TextureImagePreprocessor.RestoreGeneratedImage(preparation, result.PngBytes);
-                var saveResult = _store.SaveOverride(item, restored);
+                if (result.PngBytes == null)
+                {
+                    errors.AddRange(result.Errors);
+                    generated.Add(_textAnalysisStore.Upsert(currentAnalysis with
+                    {
+                        Status = TextureTextStatus.Failed,
+                        NeedsManualReview = true,
+                        UpdatedUtc = DateTimeOffset.UtcNow,
+                        LastError = result.LastError
+                    }));
+                    continue;
+                }
+
+                var saveResult = _store.SaveOverride(item, result.PngBytes);
                 if (saveResult.ImportedCount <= 0)
                 {
                     var message = saveResult.Errors.FirstOrDefault() ?? "生成贴图保存失败。";
@@ -274,9 +320,9 @@ internal sealed class UnityTextureReplacementService : IDisposable
                     LastError = null
                 }));
             }
-            catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or InvalidOperationException or HttpRequestException or TaskCanceledException or Newtonsoft.Json.JsonException)
+            catch (Exception ex) when (ex is InvalidDataException or NotSupportedException)
             {
-                errors.Add($"贴图翻译生成失败：{item.TextureName}，{ex.Message}");
+                errors.Add($"贴图源图预处理失败：{item.TextureName}：{ex.Message}");
                 generated.Add(_textAnalysisStore.Upsert(currentAnalysis with
                 {
                     Status = TextureTextStatus.Failed,
@@ -298,6 +344,59 @@ internal sealed class UnityTextureReplacementService : IDisposable
             : 0;
         return new TextureImageTranslateResult(items.Count, generatedCount, applied, generated, errors);
     }
+
+    private async Task<TextureImageGenerationResult> GenerateTextureImageWithFailoverAsync(
+        TextureCatalogItem item,
+        IReadOnlyList<TextureImageProviderRuntimeProfile> profiles,
+        HttpClient httpClient,
+        string prompt,
+        PreparedTextureImage preparation,
+        CancellationToken cancellationToken)
+    {
+        var providerErrors = new List<string>();
+        foreach (var profile in profiles)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var client = new TextureImageEditClient(httpClient, () => profile.ApiKey);
+            try
+            {
+                var result = await client.EditAsync(
+                    profile.Config,
+                    prompt,
+                    preparation.PngBytes,
+                    preparation.RequestSize,
+                    cancellationToken).ConfigureAwait(false);
+                return new TextureImageGenerationResult(
+                    TextureImagePreprocessor.RestoreGeneratedImage(preparation, result.PngBytes),
+                    null,
+                    Array.Empty<string>());
+            }
+            catch (Exception ex) when (IsTextureImageProviderFailure(ex))
+            {
+                var message = $"贴图翻译生成失败：{item.TextureName}：{profile.Name}：{ex.Message}";
+                providerErrors.Add(message);
+                _logger.LogWarning(message);
+            }
+        }
+
+        return new TextureImageGenerationResult(null, providerErrors.LastOrDefault(), providerErrors);
+    }
+
+    private static bool IsTextureImageProviderFailure(Exception ex)
+    {
+        return ex is InvalidOperationException
+            or HttpRequestException
+            or TaskCanceledException
+            or Newtonsoft.Json.JsonException
+            or FormatException
+            or InvalidDataException
+            or NotSupportedException;
+    }
+
+    private sealed record TextureImageGenerationResult(
+        byte[]? PngBytes,
+        string? LastError,
+        IReadOnlyList<string> Errors);
 
     public async Task<TextureImportResult> ImportOverridesAsync(byte[] archiveBytes)
     {
@@ -474,7 +573,12 @@ internal sealed class UnityTextureReplacementService : IDisposable
         _replacementTextures.Clear();
     }
 
-    private TextureScanResult StartScanOnMainThread(bool applyOverrides, string message)
+    private TextureScanResult StartApplyOverridesOnMainThread(string message)
+    {
+        return StartScanOnMainThread(applyOverrides: true, message, applyOnly: true);
+    }
+
+    private TextureScanResult StartScanOnMainThread(bool applyOverrides, string message, bool applyOnly = false)
     {
         if (_scanSession != null)
         {
@@ -482,9 +586,20 @@ internal sealed class UnityTextureReplacementService : IDisposable
         }
 
         var errors = new List<string>();
+        var overrideIndex = applyOverrides ? _store.LoadIndex() : TextureOverrideIndex.Empty;
+        var overrideDimensions = new HashSet<string>(
+            overrideIndex.Records.Select(record => DimensionKey(record.Width, record.Height)),
+            StringComparer.Ordinal);
+        if (applyOnly && overrideIndex.Records.Count == 0)
+        {
+            return BuildScanResult("没有需要应用的覆盖贴图。");
+        }
+
         _scanSession = new TextureScanSession(
             EnumerateTargets(errors).GetEnumerator(),
             applyOverrides,
+            applyOnly,
+            overrideDimensions,
             DateTimeOffset.UtcNow,
             errors);
         _scanStatusMessage = message;
@@ -531,6 +646,11 @@ internal sealed class UnityTextureReplacementService : IDisposable
     private void ProcessScanTarget(TextureScanSession session, ITextureTarget target)
     {
         session.ProcessedTargets++;
+        if (session.ApplyOnly && !session.OverrideDimensions.Contains(DimensionKey(target.Width, target.Height)))
+        {
+            return;
+        }
+
         if (!TryEncodeTexture(target.SourceTexture, out var pngBytes, out var error))
         {
             AddError(session.Errors, $"跳过贴图 {target.TextureName}：{error}");
@@ -538,6 +658,15 @@ internal sealed class UnityTextureReplacementService : IDisposable
         }
 
         var hash = ComputeHash(pngBytes);
+        TextureOverrideRecord? overrideRecord = null;
+        var hasOverride = session.ApplyOverrides &&
+            _store.TryGetOverride(hash, out overrideRecord) &&
+            overrideRecord != null;
+        if (session.ApplyOnly && !hasOverride)
+        {
+            return;
+        }
+
         var fileName = TextureArchiveNaming.BuildTextureEntryName(hash, target.TextureName);
         RuntimeTextureRecord record;
         lock (_gate)
@@ -558,31 +687,39 @@ internal sealed class UnityTextureReplacementService : IDisposable
             record.AddTarget(target);
         }
 
-        _catalogStore.Upsert(
-            new TextureCatalogItem(
-                hash,
-                target.TextureName,
-                target.Width,
-                target.Height,
-                target.Format,
-                fileName,
-                1,
-                new[]
-                {
-                    new TextureReferenceInfo(
-                        target.TargetId,
-                        target.SceneName,
-                        target.HierarchyPath,
-                        target.ComponentType)
-                },
-                false,
-                null),
-            pngBytes);
-        session.DiscoveredHashes.Add(hash);
-        session.DiscoveredReferenceCount++;
+        if (!session.ApplyOnly)
+        {
+            _catalogStore.Upsert(
+                new TextureCatalogItem(
+                    hash,
+                    target.TextureName,
+                    target.Width,
+                    target.Height,
+                    target.Format,
+                    fileName,
+                    1,
+                    new[]
+                    {
+                        new TextureReferenceInfo(
+                            target.TargetId,
+                            target.SceneName,
+                            target.HierarchyPath,
+                            target.ComponentType)
+                    },
+                    false,
+                    null),
+                pngBytes);
+            session.DiscoveredHashes.Add(hash);
+            session.DiscoveredReferenceCount++;
+        }
+        else if (hasOverride)
+        {
+            session.DiscoveredHashes.Add(hash);
+            session.DiscoveredReferenceCount++;
+        }
 
         var applyError = string.Empty;
-        if (session.ApplyOverrides && TryApplyOverrideToTarget(record, target, out applyError))
+        if (session.ApplyOverrides && hasOverride && TryApplyOverrideToTarget(record, target, overrideRecord!, out applyError))
         {
             session.AppliedOverrideCount++;
         }
@@ -595,7 +732,11 @@ internal sealed class UnityTextureReplacementService : IDisposable
     private void CompleteScanSession(TextureScanSession session)
     {
         session.Targets.Dispose();
-        _catalogStore.Save();
+        if (!session.ApplyOnly)
+        {
+            _catalogStore.Save();
+        }
+
         _scannedUtc = DateTimeOffset.UtcNow;
         _lastErrors = session.Errors.ToArray();
         _scanStatusMessage = "空闲";
@@ -643,26 +784,36 @@ internal sealed class UnityTextureReplacementService : IDisposable
         var applied = 0;
         foreach (var record in _records.Values.ToArray())
         {
+            if (!_store.TryGetOverride(record.SourceHash, out var overrideRecord) || overrideRecord == null)
+            {
+                continue;
+            }
+
+            var pendingTargets = record.Targets
+                .Where(target => target.IsAlive)
+                .Where(target => !SkipAlreadyAppliedOverride(target, overrideRecord))
+                .ToArray();
+            if (pendingTargets.Length == 0)
+            {
+                continue;
+            }
+
             if (!_store.TryReadOverrideBytes(record.SourceHash, out var bytes))
             {
                 continue;
             }
 
-            if (!TryGetReplacementTexture(record, bytes, out var replacement, out var error))
+            if (!TryGetReplacementTexture(record, overrideRecord, bytes, out var replacement, out var error))
             {
                 _logger.LogWarning($"贴图覆盖加载失败：{record.TextureName}，{error}");
                 continue;
             }
 
-            foreach (var target in record.Targets.ToArray())
+            foreach (var target in pendingTargets)
             {
-                if (!target.IsAlive)
-                {
-                    continue;
-                }
-
                 if (target.ApplyOverride(replacement, out var applyError))
                 {
+                    _appliedOverrides[target.TargetId] = BuildOverrideApplicationKey(overrideRecord);
                     applied++;
                 }
                 else
@@ -675,15 +826,20 @@ internal sealed class UnityTextureReplacementService : IDisposable
         return applied;
     }
 
-    private bool TryApplyOverrideToTarget(RuntimeTextureRecord record, ITextureTarget target, out string error)
+    private bool TryApplyOverrideToTarget(RuntimeTextureRecord record, ITextureTarget target, TextureOverrideRecord overrideRecord, out string error)
     {
         error = string.Empty;
+        if (SkipAlreadyAppliedOverride(target, overrideRecord))
+        {
+            return false;
+        }
+
         if (!_store.TryReadOverrideBytes(record.SourceHash, out var bytes))
         {
             return false;
         }
 
-        if (!TryGetReplacementTexture(record, bytes, out var replacement, out var loadError))
+        if (!TryGetReplacementTexture(record, overrideRecord, bytes, out var replacement, out var loadError))
         {
             error = $"贴图覆盖加载失败：{record.TextureName}，{loadError}";
             return false;
@@ -691,11 +847,23 @@ internal sealed class UnityTextureReplacementService : IDisposable
 
         if (target.ApplyOverride(replacement, out var applyError))
         {
+            _appliedOverrides[target.TargetId] = BuildOverrideApplicationKey(overrideRecord);
             return true;
         }
 
         error = $"贴图覆盖应用失败：{target.ComponentType}，{applyError}";
         return false;
+    }
+
+    private bool SkipAlreadyAppliedOverride(ITextureTarget target, TextureOverrideRecord overrideRecord)
+    {
+        return _appliedOverrides.TryGetValue(target.TargetId, out var applied) &&
+            applied == BuildOverrideApplicationKey(overrideRecord);
+    }
+
+    private static OverrideApplicationKey BuildOverrideApplicationKey(TextureOverrideRecord overrideRecord)
+    {
+        return new OverrideApplicationKey(overrideRecord.SourceHash, overrideRecord.UpdatedUtc);
     }
 
     private int RestoreKnownTargets()
@@ -705,11 +873,13 @@ internal sealed class UnityTextureReplacementService : IDisposable
         {
             if (!target.IsAlive)
             {
+                _appliedOverrides.Remove(target.TargetId);
                 continue;
             }
 
             if (target.RestoreOriginal(out var error))
             {
+                _appliedOverrides.Remove(target.TargetId);
                 restored++;
             }
             else if (!string.IsNullOrWhiteSpace(error))
@@ -723,14 +893,16 @@ internal sealed class UnityTextureReplacementService : IDisposable
 
     private bool TryGetReplacementTexture(
         RuntimeTextureRecord record,
+        TextureOverrideRecord overrideRecord,
         byte[] bytes,
         out Texture2D replacement,
         out string error)
     {
         replacement = null!;
         error = string.Empty;
+        var cacheKey = record.SourceHash + ":" + overrideRecord.UpdatedUtc.UtcTicks.ToString(System.Globalization.CultureInfo.InvariantCulture);
 
-        if (_replacementTextures.TryGetValue(record.SourceHash, out var cached) && cached != null)
+        if (_replacementTextures.TryGetValue(cacheKey, out var cached) && cached != null)
         {
             replacement = cached;
             return true;
@@ -752,7 +924,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
         }
 
         texture.name = "HUnityTextureOverride_" + record.SourceHash;
-        _replacementTextures[record.SourceHash] = texture;
+        _replacementTextures[cacheKey] = texture;
         replacement = texture;
         return true;
     }
@@ -1009,6 +1181,12 @@ internal sealed class UnityTextureReplacementService : IDisposable
         return texture.width > 0 && texture.height > 0;
     }
 
+    private static string DimensionKey(int width, int height)
+    {
+        return width.ToString(System.Globalization.CultureInfo.InvariantCulture) + "x" +
+            height.ToString(System.Globalization.CultureInfo.InvariantCulture);
+    }
+
     private static bool IsFullTextureSprite(Sprite sprite)
     {
         var rect = sprite.textureRect;
@@ -1076,16 +1254,22 @@ internal sealed class UnityTextureReplacementService : IDisposable
         }
     }
 
+    private sealed record OverrideApplicationKey(string SourceHash, DateTimeOffset OverrideUpdatedUtc);
+
     private sealed class TextureScanSession
     {
         public TextureScanSession(
             IEnumerator<ITextureTarget> targets,
             bool applyOverrides,
+            bool applyOnly,
+            HashSet<string> overrideDimensions,
             DateTimeOffset startedUtc,
             List<string> errors)
         {
             Targets = targets;
             ApplyOverrides = applyOverrides;
+            ApplyOnly = applyOnly;
+            OverrideDimensions = overrideDimensions;
             StartedUtc = startedUtc;
             Errors = errors;
         }
@@ -1093,6 +1277,10 @@ internal sealed class UnityTextureReplacementService : IDisposable
         public IEnumerator<ITextureTarget> Targets { get; }
 
         public bool ApplyOverrides { get; }
+
+        public bool ApplyOnly { get; }
+
+        public HashSet<string> OverrideDimensions { get; }
 
         public DateTimeOffset StartedUtc { get; }
 
@@ -1437,7 +1625,13 @@ internal sealed class UnityTextureReplacementService : IDisposable
             try
             {
                 var renderer = _renderer;
-                renderer.material.mainTexture = texture;
+                if (renderer.sharedMaterial == null)
+                {
+                    error = "Renderer sharedMaterial is null.";
+                    return false;
+                }
+
+                renderer.sharedMaterial.mainTexture = texture;
                 return true;
             }
             catch (Exception ex)

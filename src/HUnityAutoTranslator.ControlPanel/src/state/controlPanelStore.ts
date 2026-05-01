@@ -18,6 +18,7 @@ interface Toast {
 
 interface ControlPanelStore {
   activePage: PageKey;
+  textureViewMode: "list" | "gallery";
   connection: ConnectionState;
   state: ControlPanelState | null;
   isRefreshing: boolean;
@@ -42,6 +43,7 @@ function loadTheme(): ThemeMode {
 
 export const controlPanelStore = reactive<ControlPanelStore>({
   activePage: "status",
+  textureViewMode: "list",
   connection: "connecting",
   state: null,
   isRefreshing: false,
@@ -177,7 +179,7 @@ export async function saveApiKey(apiKey: string, options: SaveOptions = {}): Pro
 
 export async function saveTextureImageApiKey(apiKey: string, options: SaveOptions = {}): Promise<ControlPanelState | null> {
   try {
-    const state = await postJson<ControlPanelState>("/api/texture-image/key", { ApiKey: apiKey });
+    const state = await postJson<ControlPanelState>("/api/texture-image-profiles", { ApiKey: apiKey });
     controlPanelStore.state = state;
     controlPanelStore.connection = "online";
     controlPanelStore.lastRefreshUtc = new Date().toISOString();

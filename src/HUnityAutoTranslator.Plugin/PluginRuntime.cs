@@ -56,6 +56,7 @@ internal sealed class PluginRuntime : IDisposable
             var dataDirectory = Path.Combine(Paths.ConfigPath, MyPluginInfo.PLUGIN_NAME);
             var settingsPath = Path.Combine(Paths.ConfigPath, $"{MyPluginInfo.PLUGIN_GUID}.cfg");
             var providerProfilesPath = Path.Combine(dataDirectory, "providers");
+            var textureImageProviderProfilesPath = Path.Combine(dataDirectory, "texture-image-providers");
             var cachePath = Path.Combine(dataDirectory, "translation-cache.sqlite");
             var glossaryPath = Path.Combine(dataDirectory, "translation-glossary.sqlite");
             var textureOverridesPath = Path.Combine(dataDirectory, "texture-overrides");
@@ -64,6 +65,7 @@ internal sealed class PluginRuntime : IDisposable
             _controlPanel = ControlPanelService.CreateDefault(
                 new CfgControlPanelSettingsStore(settingsPath),
                 new EncryptedProviderProfileStore(providerProfilesPath),
+                new EncryptedTextureImageProviderProfileStore(textureImageProviderProfilesPath),
                 _metrics);
             _controlPanel.SetAutomaticGameTitle(Application.productName);
             var config = _controlPanel.GetConfig();

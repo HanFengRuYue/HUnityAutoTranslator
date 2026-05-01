@@ -56,9 +56,11 @@ const importFile = ref<HTMLInputElement | null>(null);
 const operationErrors = ref<string[]>([]);
 const selectedScene = ref("");
 const textStatusFilter = ref("");
-const viewMode = ref<TextureViewMode>("list");
+const viewMode = computed<TextureViewMode>(() => controlPanelStore.textureViewMode);
 const currentPage = ref(1);
 const selectedHashes = ref(new Set<string>());
+const textureCompareDialogOpen = ref(false);
+const textureCompareItem = ref<TextureCatalogItem | null>(null);
 let scanPollTimer: number | null = null;
 
 const items = computed(() => catalog.value?.Items ?? []);
@@ -245,8 +247,29 @@ function primaryReference(item: TextureCatalogItem): string {
     .join(" / ") || reference.TargetId;
 }
 
-function textureImageUrl(item: TextureCatalogItem): string {
-  return `/api/textures/${encodeURIComponent(item.SourceHash)}/image`;
+function textureImageUrl(item: TextureCatalogItem, variant: "source" | "override" = "source"): string {
+  const version = variant === "override"
+    ? item.OverrideUpdatedUtc ?? "override"
+    : item.SourceHash;
+  return `/api/textures/${encodeURIComponent(item.SourceHash)}/image?variant=${variant}&v=${encodeURIComponent(version)}`;
+}
+
+function textureDisplayImageUrl(item: TextureCatalogItem): string {
+  return item.HasOverride ? textureImageUrl(item, "override") : textureImageUrl(item, "source");
+}
+
+function textureSourceImageUrl(item: TextureCatalogItem): string {
+  return textureImageUrl(item);
+}
+
+function openTextureCompare(item: TextureCatalogItem): void {
+  textureCompareItem.value = item;
+  textureCompareDialogOpen.value = true;
+}
+
+function closeTextureCompare(): void {
+  textureCompareDialogOpen.value = false;
+  textureCompareItem.value = null;
 }
 
 function textureMeta(item: TextureCatalogItem): string {
@@ -401,7 +424,7 @@ async function translateSelectedTextures(): Promise<void> {
 }
 
 function setViewMode(mode: TextureViewMode): void {
-  viewMode.value = mode;
+  controlPanelStore.textureViewMode = mode;
 }
 
 function goToPage(page: number): void {
@@ -537,7 +560,7 @@ onUnmounted(clearScanPoll);
             选择
           </label>
           <div class="texture-gallery-thumb">
-            <img :src="textureImageUrl(item)" :alt="item.TextureName" loading="lazy" decoding="async">
+            <img :src="textureDisplayImageUrl(item)" :alt="item.TextureName" loading="lazy" decoding="async">
           </div>
           <div class="texture-card-copy">
             <strong>{{ item.TextureName }}</strong>
@@ -545,6 +568,7 @@ onUnmounted(clearScanPoll);
             <span class="texture-text-badge" :class="textureTextStatusClass(item)">{{ textureTextStatusLabel(item) }}</span>
             <small>{{ textureTextDetail(item) }}</small>
             <small>{{ item.HasOverride ? "已覆盖" : "原图" }}</small>
+            <button v-if="item.HasOverride" class="secondary texture-compare-button" type="button" @click="openTextureCompare(item)">对比</button>
           </div>
         </article>
       </div>
@@ -554,7 +578,7 @@ onUnmounted(clearScanPoll);
             <input type="checkbox" :checked="isTextureSelected(item)" @change="toggleTextureSelectionFromEvent(item, $event)">
           </label>
           <div class="texture-thumb">
-            <img :src="textureImageUrl(item)" :alt="item.TextureName" loading="lazy" decoding="async">
+            <img :src="textureDisplayImageUrl(item)" :alt="item.TextureName" loading="lazy" decoding="async">
           </div>
           <div class="texture-main">
             <h3>{{ item.TextureName }}</h3>
@@ -566,6 +590,7 @@ onUnmounted(clearScanPoll);
           <div class="texture-status-stack">
             <span class="texture-text-badge" :class="textureTextStatusClass(item)">{{ textureTextStatusLabel(item) }}</span>
             <span class="texture-status">{{ item.HasOverride ? "已覆盖" : "原图" }}</span>
+            <button v-if="item.HasOverride" class="secondary texture-compare-button" type="button" @click="openTextureCompare(item)">对比</button>
           </div>
         </article>
       </div>
@@ -584,5 +609,33 @@ onUnmounted(clearScanPoll);
         </div>
       </div>
     </SectionPanel>
+
+    <div v-if="textureCompareDialogOpen && textureCompareItem" class="texture-compare-backdrop" @click.self="closeTextureCompare">
+      <div class="texture-compare-dialog" role="dialog" aria-modal="true" aria-labelledby="textureCompareTitle">
+        <div class="provider-editor-head">
+          <div>
+            <h2 id="textureCompareTitle">{{ textureCompareItem.TextureName }}</h2>
+            <p>{{ textureMeta(textureCompareItem) }}</p>
+          </div>
+          <button class="secondary icon-button" type="button" title="关闭" @click="closeTextureCompare">
+            <XCircle />
+          </button>
+        </div>
+        <div class="texture-compare-grid">
+          <figure>
+            <figcaption>原图</figcaption>
+            <img :src="textureSourceImageUrl(textureCompareItem)" :alt="`${textureCompareItem.TextureName} 原图`">
+          </figure>
+          <figure>
+            <figcaption>译图</figcaption>
+            <img :src="textureImageUrl(textureCompareItem, 'override')" :alt="`${textureCompareItem.TextureName} 译图`">
+          </figure>
+        </div>
+        <div class="texture-compare-meta">
+          <span>{{ textureTextStatusLabel(textureCompareItem) }}</span>
+          <span>{{ textureCompareItem.OverrideUpdatedUtc ? formatDateTime(textureCompareItem.OverrideUpdatedUtc) : "未覆盖" }}</span>
+        </div>
+      </div>
+    </div>
   </section>
 </template>

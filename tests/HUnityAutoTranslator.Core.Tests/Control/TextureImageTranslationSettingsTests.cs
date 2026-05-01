@@ -59,10 +59,14 @@ public sealed class TextureImageTranslationSettingsTests
     }
 
     [Fact]
-    public void Cfg_store_persists_texture_image_api_key_encrypted()
+    public void Legacy_texture_image_key_is_not_rewritten_to_cfg_after_profile_migration()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
-        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+        var profileDirectory = Path.Combine(Path.GetDirectoryName(path)!, "texture-image-providers");
+        var first = ControlPanelService.CreateDefault(
+            new CfgControlPanelSettingsStore(path),
+            providerProfileStore: null,
+            textureImageProviderProfileStore: new EncryptedTextureImageProviderProfileStore(profileDirectory));
 
         first.SetTextureImageApiKey("texture-secret");
         first.UpdateConfig(new UpdateConfigRequest(TextureImageTranslation: TextureImageTranslationConfig.Default() with
@@ -72,12 +76,14 @@ public sealed class TextureImageTranslationSettingsTests
         }));
 
         var cfg = File.ReadAllText(path);
-        cfg.Should().Contain("TextureImageSecret =");
         cfg.Should().NotContain("texture-secret");
+        cfg.Should().NotContain("TextureImageSecret =");
 
-        var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
-        second.GetTextureImageApiKey().Should().Be("texture-secret");
-        second.GetState().TextureImageApiKeyConfigured.Should().BeTrue();
-        second.GetState().TextureImageTranslation.Enabled.Should().BeTrue();
+        var second = ControlPanelService.CreateDefault(
+            new CfgControlPanelSettingsStore(path),
+            providerProfileStore: null,
+            textureImageProviderProfileStore: new EncryptedTextureImageProviderProfileStore(profileDirectory));
+        second.GetReadyTextureImageProviderProfiles().Should().ContainSingle().Which.ApiKey.Should().Be("texture-secret");
+        second.GetState().TextureImageProviderProfiles.Should().ContainSingle().Which.ApiKeyConfigured.Should().BeTrue();
     }
 }

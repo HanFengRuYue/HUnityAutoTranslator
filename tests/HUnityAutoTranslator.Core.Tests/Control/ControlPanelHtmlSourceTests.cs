@@ -243,6 +243,8 @@ public sealed class ControlPanelHtmlSourceTests
         serverSource.Should().Contain("ParseTextureCatalogQuery");
         serverSource.Should().Contain("path.StartsWith(\"/api/textures/\", StringComparison.Ordinal)");
         serverSource.Should().Contain("TryGetSourceImage");
+        serverSource.Should().Contain("TryGetTextureImage");
+        serverSource.Should().Contain("variant=source|override");
         serverSource.Should().Contain("context.Request.QueryString[\"scene\"]");
         serverSource.Should().Contain("ReadBytesAsync(context.Request)");
         serverSource.Should().Contain("request.ContentLength64");
@@ -254,6 +256,26 @@ public sealed class ControlPanelHtmlSourceTests
         pluginSource.Should().Contain("texture-catalog");
         pluginSource.Should().Contain("UnityTextureReplacementService");
         pluginSource.Should().Contain("new LocalHttpServer(");
+    }
+
+    [Fact]
+    public void Local_http_server_exposes_texture_image_provider_profile_endpoints()
+    {
+        var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+        var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+
+        serverSource.Should().Contain("path.StartsWith(\"/api/texture-image-profiles\", StringComparison.Ordinal)");
+        serverSource.Should().Contain("HandleTextureImageProviderProfilesAsync");
+        serverSource.Should().Contain("TextureImageProviderProfileUpdateRequest");
+        serverSource.Should().Contain("/api/texture-image-profiles/import");
+        serverSource.Should().Contain("move-up");
+        serverSource.Should().Contain("move-down");
+        serverSource.Should().Contain("export");
+        serverSource.Should().Contain("test");
+        serverSource.Should().Contain("models");
+        serverSource.Should().Contain("balance");
+        pluginSource.Should().Contain("texture-image-providers");
+        pluginSource.Should().Contain("EncryptedTextureImageProviderProfileStore");
     }
 
     [Fact]
@@ -269,8 +291,16 @@ public sealed class ControlPanelHtmlSourceTests
         serviceSource.Should().Contain("RawImage");
         serviceSource.Should().Contain("Image.sprite");
         serviceSource.Should().Contain("SpriteRenderer");
-        serviceSource.Should().Contain("renderer.material.mainTexture");
+        serviceSource.Should().Contain("renderer.sharedMaterial.mainTexture");
+        serviceSource.Should().Contain("_appliedOverrides");
+        serviceSource.Should().Contain("OverrideApplicationKey");
+        serviceSource.Should().Contain("SkipAlreadyAppliedOverride");
+        serviceSource.Should().NotContain("renderer.material.mainTexture");
         serviceSource.Should().Contain("sharedMaterial");
+        serviceSource.Should().Contain("GenerateTextureImageWithFailoverAsync");
+        serviceSource.Should().Contain("foreach (var profile in profiles)");
+        serviceSource.Should().Contain("foreach (var visionProfile in visionProfiles)");
+        serviceSource.Should().Contain("IsTextureImageProviderFailure");
         serviceSource.Should().Contain("ConcurrentQueue<Action>");
         serviceSource.Should().Contain("TaskCreationOptions.RunContinuationsAsynchronously");
         serviceSource.Should().Contain("SceneManager.GetActiveScene()");
