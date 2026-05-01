@@ -231,7 +231,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "打开控制面板的快捷键。写 None 可禁用。", "Alt+H", "格式示例：Alt+H、Ctrl+Shift+P、None。", "OpenControlPanelHotkey", Text(config.OpenControlPanelHotkey ?? defaults.OpenControlPanelHotkey));
         Option(builder, "临时启用或暂停翻译的快捷键。写 None 可禁用。", "Alt+F", "格式示例：Alt+F、Ctrl+T、None。", "ToggleTranslationHotkey", Text(config.ToggleTranslationHotkey ?? defaults.ToggleTranslationHotkey));
         Option(builder, "强制重新扫描当前画面文字的快捷键。写 None 可禁用。", "Alt+G", "格式示例：Alt+G、Ctrl+G、None。", "ForceScanHotkey", Text(config.ForceScanHotkey ?? defaults.ForceScanHotkey));
-        Option(builder, "临时启用或暂停字体替换的快捷键。写 None 可禁用。", "Alt+D", "格式示例：Alt+D、Shift+F8、None。", "ToggleFontHotkey", Text(config.ToggleFontHotkey ?? defaults.ToggleFontHotkey));
+        Option(builder, "临时启用或暂停字体辅助的快捷键。TMP 会优先保留原字体材质和效果。写 None 可禁用。", "Alt+D", "格式示例：Alt+D、Shift+F8、None。", "ToggleFontHotkey", Text(config.ToggleFontHotkey ?? defaults.ToggleFontHotkey));
 
         Section(builder, PromptTemplateSection);
         Option(builder, "系统提示词模板。留空使用内置默认；需要换行时写 \\n。", "内置默认", "可用：{TargetLanguage}、{StyleInstruction}、{GameTitle}、{GameContext}、{GlossarySystemPolicy}。", "SystemPrompt", Prompt(promptTemplates.SystemPrompt));

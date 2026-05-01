@@ -75,8 +75,8 @@ internal sealed class RuntimeHotkeyController
         _useReplacementFonts = !_useReplacementFonts;
         var changed = _fontReplacement.SetReplacementFontsEnabledForRuntime(_useReplacementFonts);
         _logger.LogInfo(_useReplacementFonts
-            ? $"热键已切换为替换字体（已更新 {changed} 个目标）。"
-            : $"热键已恢复原始字体（已更新 {changed} 个目标）。");
+            ? $"热键已切换为字体辅助模式（TMP 会优先保留原字体效果，已更新 {changed} 个目标）。"
+            : $"热键已恢复原始字体模式（不会清理已挂载的 TMP 中文后备字体，已更新 {changed} 个目标）。");
     }
 
     private static bool IsPressed(string binding)

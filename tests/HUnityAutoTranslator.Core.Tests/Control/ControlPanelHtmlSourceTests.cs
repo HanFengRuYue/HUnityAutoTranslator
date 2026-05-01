@@ -356,7 +356,7 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
-    public void Tmp_font_replacement_directly_assigns_components_before_global_fallbacks()
+    public void Tmp_font_replacement_supports_fallback_first_and_direct_assignment_fallback()
     {
         var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
 
@@ -389,6 +389,29 @@ public sealed class ControlPanelHtmlSourceTests
         serviceSource.Should().Contain("TMP 全局后备字体未安装");
         serviceSource.Should().Contain("TMP 组件字体直接替换失败");
         serviceSource.Should().Contain("TMP 组件字体后备表已挂载");
+    }
+
+    [Fact]
+    public void Tmp_font_replacement_preserves_original_material_when_fallbacks_are_available()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+        var applyToTmpBlock = serviceSource[
+            serviceSource.IndexOf("public void ApplyToTmp", StringComparison.Ordinal)..
+            serviceSource.IndexOf("public void RestoreTmp", StringComparison.Ordinal)];
+
+        applyToTmpBlock.Should().Contain("var componentFallbackInstalled = AddTmpFallbackToComponentFont(component, fontAsset);");
+        applyToTmpBlock.Should().Contain("var globalFallbackInstalled = AddTmpFallback(fontAsset);");
+        applyToTmpBlock.Should().Contain("if (!componentFallbackInstalled && !globalFallbackInstalled)");
+        applyToTmpBlock.IndexOf("AddTmpFallbackToComponentFont(component, fontAsset)", StringComparison.Ordinal)
+            .Should().BeLessThan(applyToTmpBlock.IndexOf("SetTmpFont(component, fontAsset)", StringComparison.Ordinal));
+        applyToTmpBlock.IndexOf("AddTmpFallback(fontAsset)", StringComparison.Ordinal)
+            .Should().BeLessThan(applyToTmpBlock.IndexOf("SetTmpFont(component, fontAsset)", StringComparison.Ordinal));
+
+        var addGlobalFallbackBlock = serviceSource[
+            serviceSource.IndexOf("private bool AddTmpFallback(object fontAsset)", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private static bool AddTmpFallbackToComponentFont", StringComparison.Ordinal)]
+            .Replace("\r\n", "\n");
+        addGlobalFallbackBlock.Should().Contain("if (fallbacks.Contains(fontAsset))\n        {\n            return true;\n        }");
     }
 
     [Fact]

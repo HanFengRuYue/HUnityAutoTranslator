@@ -173,28 +173,30 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
-        RememberFontTarget(component, _tmpFontTargets, _tmpOriginalFonts);
-        var addedInstanceFallback = AddTmpFallbackToComponentFont(component, fontAsset);
-        _tmpReplacementFonts[component.GetInstanceID()] = fontAsset;
-        if (SetTmpFont(component, fontAsset))
-        {
-            LogTmpDirectAssignment(fontAsset);
-        }
-        else
-        {
-            WarnTmpDirectAssignmentFailed(component, fontAsset);
-        }
-
-        if (addedInstanceFallback)
+        var componentFallbackInstalled = AddTmpFallbackToComponentFont(component, fontAsset);
+        var globalFallbackInstalled = AddTmpFallback(fontAsset);
+        if (componentFallbackInstalled)
         {
             LogTmpInstanceFallback(fontAsset);
         }
-        else
+        else if (!globalFallbackInstalled)
         {
             WarnTmpInstanceFallbackFailed(component, fontAsset);
         }
 
-        AddTmpFallback(fontAsset);
+        if (!componentFallbackInstalled && !globalFallbackInstalled)
+        {
+            RememberFontTarget(component, _tmpFontTargets, _tmpOriginalFonts);
+            _tmpReplacementFonts[component.GetInstanceID()] = fontAsset;
+            if (SetTmpFont(component, fontAsset))
+            {
+                LogTmpDirectAssignment(fontAsset);
+            }
+            else
+            {
+                WarnTmpDirectAssignmentFailed(component, fontAsset);
+            }
+        }
     }
 
     public void RestoreTmp(UnityEngine.Object component)
@@ -949,7 +951,7 @@ internal sealed class UnityTextFontReplacementService
 
         if (fallbacks.Contains(fontAsset))
         {
-            return false;
+            return true;
         }
 
         fallbacks.Add(fontAsset);
