@@ -941,16 +941,14 @@ onBeforeUnmount(() => {
                   @keydown.stop
                   @input="updateCell(rowIndex, column, $event)"
                 ></textarea>
-                <button
+                <div
                   v-else-if="column.key === 'ReplacementFont'"
-                  class="font-override-button"
+                  class="cell-text font-override-text"
                   :class="{ automatic: !row.ReplacementFont?.trim() }"
-                  type="button"
                   @dblclick="openFontEditor(row, rowIndex)"
                 >
-                  <Type class="table-icon" />
-                  <span>{{ replacementFontCellLabel(row) }}</span>
-                </button>
+                  {{ replacementFontCellLabel(row) }}
+                </div>
                 <div v-else class="cell-text">{{ displayCellValue(row, column) }}</div>
               </td>
             </tr>
