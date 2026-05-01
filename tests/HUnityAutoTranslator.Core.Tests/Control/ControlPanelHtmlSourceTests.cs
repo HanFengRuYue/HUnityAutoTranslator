@@ -140,7 +140,9 @@ public sealed class ControlPanelHtmlSourceTests
         var pickerSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "WindowsFontFilePicker.cs"));
 
         serverSource.Should().Contain("context.Request.HttpMethod == \"POST\" && path == \"/api/fonts/pick\"");
-        serverSource.Should().Contain("WindowsFontFilePicker.PickFontFile()");
+        serverSource.Should().Contain("ReadJsonAsync<FontPickRequest>(context.Request)");
+        serverSource.Should().Contain("CopyToConfig == true");
+        serverSource.Should().Contain("CopyToFontConfigDirectory");
         serverSource.Should().NotContain("_controlPanel.UpdateConfig(new UpdateConfigRequest(ReplacementFont");
         pickerSource.Should().Contain("SetApartmentState(ApartmentState.STA)");
         pickerSource.Should().Contain("IFileOpenDialog");

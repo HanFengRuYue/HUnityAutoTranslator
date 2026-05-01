@@ -253,6 +253,27 @@ public sealed class ControlPanelService
         }
     }
 
+    public ProviderRuntimeProfile CreateDraftProviderRuntimeProfile(ProviderProfileUpdateRequest? request)
+    {
+        lock (_gate)
+        {
+            var update = request ?? new ProviderProfileUpdateRequest();
+            var normalizedId = string.IsNullOrWhiteSpace(update.Id)
+                ? null
+                : ProviderProfileDefinition.NormalizeId(update.Id);
+            var current = normalizedId == null
+                ? null
+                : _providerProfiles.FirstOrDefault(profile => string.Equals(profile.Id, normalizedId, StringComparison.OrdinalIgnoreCase));
+            var kind = update.Kind ?? current?.Kind ?? ProviderKind.OpenAI;
+            var priority = current?.Priority ?? (_providerProfiles.Count == 0 ? 0 : _providerProfiles.Max(profile => profile.Priority) + 1);
+            var draft = ApplyProviderProfileUpdate(
+                current ?? ProviderProfileDefinition.CreateDefault(update.Name, kind, priority),
+                update).Normalize();
+
+            return ProviderRuntimeProfile.Create(draft);
+        }
+    }
+
     public IReadOnlyList<TextureImageProviderRuntimeProfile> GetReadyTextureImageProviderProfiles()
     {
         lock (_gate)

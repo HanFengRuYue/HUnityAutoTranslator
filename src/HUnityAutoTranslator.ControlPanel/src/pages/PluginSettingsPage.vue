@@ -53,8 +53,16 @@ const form = reactive({
 });
 
 const formDirty = computed(() => controlPanelStore.dirtyForms.has(formKey));
-const automaticFontName = computed(() => controlPanelStore.state?.AutomaticReplacementFontName ?? "自动选择");
-const automaticFontFile = computed(() => controlPanelStore.state?.AutomaticReplacementFontFile ?? "自动选择");
+const automaticFontSummary = computed(() => {
+  const name = controlPanelStore.state?.AutomaticReplacementFontName?.trim() || "";
+  const file = controlPanelStore.state?.AutomaticReplacementFontFile?.trim() || "";
+  return {
+    name: name || "尚未检测到自动字体",
+    file: file || "尚未检测到自动字体文件"
+  };
+});
+const automaticFontName = computed(() => automaticFontSummary.value.name);
+const automaticFontFile = computed(() => automaticFontSummary.value.file);
 const listeningHotkeyField = ref<HotkeyField | null>(null);
 const isPickingFontFile = ref(false);
 
@@ -362,6 +370,16 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
           <label class="check help-target" data-help="为 TextMeshPro 安装 fallback 字体，不直接改原 TMP 字体资产。"><input id="replaceTmpFonts" v-model="form.ReplaceTmpFonts" type="checkbox">TextMeshPro fallback</label>
           <label class="check help-target" data-help="替换 IMGUI 绘制文本时使用的字体，主要影响旧式界面。"><input id="replaceImguiFonts" v-model="form.ReplaceImguiFonts" type="checkbox">IMGUI 替换字体</label>
           <label class="check help-target" data-help="未手动指定字体时自动选择系统 CJK 字体，适合作为默认兜底。"><input id="autoUseCjkFallbackFonts" v-model="form.AutoUseCjkFallbackFonts" type="checkbox">自动使用 CJK 字体</label>
+        </div>
+        <div id="automaticReplacementFontSummary" class="automatic-font-summary">
+          <div>
+            <span>自动字体名</span>
+            <strong>{{ automaticFontSummary.name }}</strong>
+          </div>
+          <div>
+            <span>自动字体文件</span>
+            <strong>{{ automaticFontSummary.file }}</strong>
+          </div>
         </div>
         <div class="form-grid two">
           <label class="field help-target" data-help="指定字体 family 名称；留空时使用自动检测到的中文字体。">

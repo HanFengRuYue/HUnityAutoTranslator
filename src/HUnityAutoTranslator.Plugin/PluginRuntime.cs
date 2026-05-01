@@ -108,6 +108,7 @@ internal sealed class PluginRuntime : IDisposable
                 _textureReplacement,
                 _llamaCppServer,
                 _llamaCppModelDownloads,
+                dataDirectory,
                 _logger);
             _httpServer.Start(config.HttpHost, config.HttpPort);
             _hotkeys = new RuntimeHotkeyController(_httpServer, _captureCoordinator, _resultApplier, _fontReplacement, _logger);

@@ -3,6 +3,7 @@ import { api, getJson, postJson } from "../api/client";
 import type {
   ConnectionState,
   ControlPanelState,
+  FontPickOptions,
   FontPickResult,
   PageKey,
   ThemeMode,
@@ -195,6 +196,6 @@ export async function saveTextureImageApiKey(apiKey: string, options: SaveOption
   }
 }
 
-export async function pickFontFile(): Promise<FontPickResult> {
-  return api<FontPickResult>("/api/fonts/pick", { method: "POST" });
+export async function pickFontFile(options: FontPickOptions = {}): Promise<FontPickResult> {
+  return api<FontPickResult>("/api/fonts/pick", { method: "POST", body: options });
 }
