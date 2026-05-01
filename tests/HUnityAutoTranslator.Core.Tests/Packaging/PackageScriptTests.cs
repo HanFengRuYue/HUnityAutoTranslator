@@ -12,7 +12,10 @@ public sealed class PackageScriptTests
 
         script.Should().Contain("$outputRoot = Resolve-Path -LiteralPath $PSScriptRoot");
         script.Should().Contain("$packageRoot = Join-Path $outputRoot \"HUnityAutoTranslator\"");
+        script.Should().Contain("$bepInEx5PackageRoot = Join-Path $outputRoot \"HUnityAutoTranslator-bepinex5\"");
+        script.Should().Contain("$bepInEx5Project = Join-Path $root \"src\\HUnityAutoTranslator.Plugin.BepInEx5\\HUnityAutoTranslator.Plugin.BepInEx5.csproj\"");
         script.Should().Contain("$zipPath = Join-Path $outputRoot \"HUnityAutoTranslator-0.1.0.zip\"");
+        script.Should().Contain("$bepInEx5ZipPath = Join-Path $outputRoot \"HUnityAutoTranslator-0.1.0-bepinex5.zip\"");
         script.Should().Contain("$il2CppZipPath = Join-Path $outputRoot \"HUnityAutoTranslator-0.1.0-il2cpp.zip\"");
         script.Should().NotContain("Join-Path $root \"artifacts\"");
     }
@@ -22,14 +25,20 @@ public sealed class PackageScriptTests
     {
         var script = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "build", "package.ps1"));
 
-        script.Should().Contain("[ValidateSet(\"Mono\", \"IL2CPP\", \"All\")]");
+        script.Should().Contain("[ValidateSet(\"BepInEx5\", \"Mono\", \"IL2CPP\", \"All\")]");
         script.Should().Contain("[string]$Runtime = \"All\"");
         script.Should().Contain("function Build-PluginPackage");
         script.Should().Contain("Get-PluginRuntimeBuilds -Runtime $Runtime");
+        script.Should().Contain("Project = $bepInEx5Project");
         script.Should().Contain("TargetFramework = \"netstandard2.1\"");
         script.Should().Contain("TargetFramework = \"net6.0\"");
+        script.Should().Contain("HUnityAutoTranslator.Plugin.BepInEx5.dll");
         script.Should().Contain("HUnityAutoTranslator.Plugin.IL2CPP.dll");
+        script.Should().Contain("HUnityAutoTranslator-0.1.0-bepinex5.zip");
         script.Should().Contain("HUnityAutoTranslator-0.1.0-il2cpp.zip");
+        script.Should().Contain("$runtimeProject = $Build.Project");
+        script.Should().Contain("$runtimeProjectDirectory = Split-Path -Parent $runtimeProject");
+        script.Should().Contain("$_.Name -ne \"BepInEx.dll\"");
     }
 
     [Fact]
@@ -145,7 +154,7 @@ public sealed class PackageScriptTests
                 """
                 param(
                     [string]$Configuration = "Release",
-                    [ValidateSet("Mono", "IL2CPP", "All")]
+                    [ValidateSet("BepInEx5", "Mono", "IL2CPP", "All")]
                     [string]$Runtime = "All",
                     [ValidateSet("None", "Cuda13", "Vulkan", "All")]
                     [string]$LlamaCppVariant = "All",

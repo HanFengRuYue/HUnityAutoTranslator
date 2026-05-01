@@ -1,6 +1,6 @@
 param(
     [string]$Configuration = "Release",
-    [ValidateSet("Mono", "IL2CPP", "All")]
+    [ValidateSet("BepInEx5", "Mono", "IL2CPP", "All")]
     [string]$Runtime = "All",
     [ValidateSet("None", "Cuda13", "Vulkan", "All")]
     [string]$LlamaCppVariant = "All",
@@ -12,12 +12,16 @@ $ErrorActionPreference = "Stop"
 
 $root = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")
 $project = Join-Path $root "src\HUnityAutoTranslator.Plugin\HUnityAutoTranslator.Plugin.csproj"
+$bepInEx5Project = Join-Path $root "src\HUnityAutoTranslator.Plugin.BepInEx5\HUnityAutoTranslator.Plugin.BepInEx5.csproj"
 $outputRoot = Resolve-Path -LiteralPath $PSScriptRoot
+$bepInEx5PackageRoot = Join-Path $outputRoot "HUnityAutoTranslator-bepinex5"
+$bepInEx5PluginRoot = Join-Path $bepInEx5PackageRoot "BepInEx\plugins\HUnityAutoTranslator"
 $packageRoot = Join-Path $outputRoot "HUnityAutoTranslator"
 $pluginRoot = Join-Path $packageRoot "BepInEx\plugins\HUnityAutoTranslator"
 $il2CppPackageRoot = Join-Path $outputRoot "HUnityAutoTranslator-il2cpp"
 $il2CppPluginRoot = Join-Path $il2CppPackageRoot "BepInEx\plugins\HUnityAutoTranslator"
 $buildOutput = Join-Path $root "src\HUnityAutoTranslator.Plugin\bin\$Configuration\netstandard2.1"
+$bepInEx5ZipPath = Join-Path $outputRoot "HUnityAutoTranslator-0.1.0-bepinex5.zip"
 $zipPath = Join-Path $outputRoot "HUnityAutoTranslator-0.1.0.zip"
 $il2CppZipPath = Join-Path $outputRoot "HUnityAutoTranslator-0.1.0-il2cpp.zip"
 $controlPanelRoot = Join-Path $root "src\HUnityAutoTranslator.ControlPanel"
@@ -328,6 +332,18 @@ function Build-LlamaCppPackage([string]$Variant) {
 
 function Get-PluginRuntimeBuilds([string]$Runtime) {
     $builds = @()
+    if ($Runtime -eq "BepInEx5" -or $Runtime -eq "All") {
+        $builds += @{
+            Runtime = "BepInEx5"
+            Project = $bepInEx5Project
+            TargetFramework = "netstandard2.1"
+            PackageRoot = $bepInEx5PackageRoot
+            PluginRoot = $bepInEx5PluginRoot
+            ZipPath = $bepInEx5ZipPath
+            AssemblyName = "HUnityAutoTranslator.Plugin.BepInEx5.dll"
+        }
+    }
+
     if ($Runtime -eq "Mono" -or $Runtime -eq "All") {
         $builds += @{
             Runtime = "Mono"
@@ -374,18 +390,24 @@ function Copy-NativeSqlite([string]$BuildOutput, [string]$TargetRoot) {
 }
 
 function Build-PluginPackage([hashtable]$Build) {
-    Invoke-CheckedNative "dotnet" @("build", $project, "-c", $Configuration, "-f", $Build.TargetFramework)
+    $runtimeProject = $Build.Project
+    if (-not $runtimeProject) {
+        $runtimeProject = $project
+    }
+
+    Invoke-CheckedNative "dotnet" @("build", $runtimeProject, "-c", $Configuration, "-f", $Build.TargetFramework)
 
     $runtimePackageRoot = $Build.PackageRoot
     $runtimePluginRoot = $Build.PluginRoot
     $runtimeZipPath = $Build.ZipPath
-    $runtimeBuildOutput = Join-Path $root "src\HUnityAutoTranslator.Plugin\bin\$Configuration\$($Build.TargetFramework)"
+    $runtimeProjectDirectory = Split-Path -Parent $runtimeProject
+    $runtimeBuildOutput = Join-Path $runtimeProjectDirectory "bin\$Configuration\$($Build.TargetFramework)"
 
     Remove-BuildSubdirectory -Path $runtimePackageRoot
     New-Item -ItemType Directory -Force -Path $runtimePluginRoot | Out-Null
 
     Get-ChildItem -LiteralPath $runtimeBuildOutput -Filter "*.dll" |
-        Where-Object { $_.Name -notlike "BepInEx.*" -and $_.Name -notlike "UnityEngine.*" -and $_.Name -ne "0Harmony.dll" } |
+        Where-Object { $_.Name -ne "BepInEx.dll" -and $_.Name -notlike "BepInEx.*" -and $_.Name -notlike "UnityEngine.*" -and $_.Name -ne "0Harmony.dll" } |
         Copy-Item -Destination $runtimePluginRoot -Force
 
     $expectedPlugin = Join-Path $runtimePluginRoot $Build.AssemblyName

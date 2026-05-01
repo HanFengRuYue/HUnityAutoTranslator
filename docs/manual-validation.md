@@ -5,7 +5,7 @@
 - Unity Mono 游戏或 Unity IL2CPP 游戏各一套，至少覆盖目标用户实际后端。
 - BepInEx 6 Bleeding Edge：Mono 游戏安装 Unity Mono 包，IL2CPP 游戏安装 Unity IL2CPP 包。当前构建适配目标为 `6.0.0-be.755+3fab71a`。
 - 插件文件位于 `BepInEx/plugins/HUnityAutoTranslator/`。
-- Mono 游戏使用 `HUnityAutoTranslator-0.1.0.zip`，IL2CPP 游戏使用 `HUnityAutoTranslator-0.1.0-il2cpp.zip`，不要混放两个插件 DLL。
+- BepInEx 5 Unity Mono 游戏使用 `HUnityAutoTranslator-0.1.0-bepinex5.zip`，BepInEx 6 Unity Mono 游戏使用 `HUnityAutoTranslator-0.1.0.zip`，IL2CPP 游戏使用 `HUnityAutoTranslator-0.1.0-il2cpp.zip`，不要混放多个插件 DLL。
 
 ## 启动验证
 

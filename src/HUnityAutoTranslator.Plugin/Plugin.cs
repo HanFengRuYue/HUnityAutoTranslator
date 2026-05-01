@@ -2,7 +2,7 @@ using BepInEx;
 
 #if HUNITY_IL2CPP
 using BepInEx.Unity.IL2CPP;
-#else
+#elif !HUNITY_BEPINEX5
 using BepInEx.Unity.Mono;
 #endif
 

@@ -92,6 +92,7 @@ HUnityAutoTranslator 是一个面向 Unity 游戏的运行时自动翻译插件�
 ### 只打包某个 Unity 后端
 
 ```powershell
+.\build\package-plugin.ps1 -Runtime BepInEx5
 .\build\package-plugin.ps1 -Runtime Mono
 .\build\package-plugin.ps1 -Runtime IL2CPP
 ```
@@ -113,6 +114,8 @@ HUnityAutoTranslator 是一个面向 Unity 游戏的运行时自动翻译插件�
 
 | 路径 | 内容 |
 | --- | --- |
+| `build/HUnityAutoTranslator-bepinex5/BepInEx/plugins/HUnityAutoTranslator` | BepInEx 5 Unity Mono 插件目录。 |
+| `build/HUnityAutoTranslator-0.1.0-bepinex5.zip` | BepInEx 5 Unity Mono 插件包。 |
 | `build/HUnityAutoTranslator/BepInEx/plugins/HUnityAutoTranslator` | Unity Mono 插件目录。 |
 | `build/HUnityAutoTranslator-0.1.0.zip` | Unity Mono 插件包。 |
 | `build/HUnityAutoTranslator-il2cpp/BepInEx/plugins/HUnityAutoTranslator` | Unity IL2CPP 插件目录。 |

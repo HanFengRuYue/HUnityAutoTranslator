@@ -1,6 +1,6 @@
 param(
     [string]$Configuration = "Release",
-    [ValidateSet("Mono", "IL2CPP", "All")]
+    [ValidateSet("BepInEx5", "Mono", "IL2CPP", "All")]
     [string]$Runtime = "All",
     [switch]$SkipNpmInstall
 )
