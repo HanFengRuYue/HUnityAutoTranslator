@@ -546,7 +546,10 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("async function moveProviderProfile(profile: ProviderProfileState, direction: -1 | 1): Promise<void>");
         aiPageSource.Should().Contain("async function exportProviderProfile(profile: ProviderProfileState): Promise<void>");
         aiPageSource.Should().Contain("async function importProviderProfile(event: Event): Promise<void>");
-        aiPageSource.Should().Contain("async function runProfileUtility<T>");
+        aiPageSource.Should().Contain("async function runProfileUtility<T extends { Succeeded?: boolean }>");
+        aiPageSource.Should().Contain("const profileModelOptions = ref<ProviderModelInfo[]>([]);");
+        aiPageSource.Should().Contain("profileModelOptions.value = result.Models;");
+        aiPageSource.Should().Contain("v-if=\"profileModelOptions.length\"");
         aiPageSource.Should().Contain("const providerEditorOpen = ref(false);");
         aiPageSource.Should().Contain("function openProviderProfileEditor(profile: ProviderProfileState): void");
         aiPageSource.Should().Contain("function openNewProviderProfile(): void");
@@ -1304,7 +1307,9 @@ public sealed class ControlPanelVueSourceTests
         editorPageSource.Should().Contain("async function pickComponentFontFile()");
         editorPageSource.Should().Contain("pickFontFile({ CopyToConfig: true })");
         editorPageSource.Should().Contain("id=\"componentFontDialog\"");
+        editorPageSource.Should().Contain("class=\"cell-text font-override-text\"");
         editorPageSource.Should().Contain("@dblclick=\"openFontEditor(row, rowIndex)\"");
+        editorPageSource.Should().NotContain("class=\"font-override-button\"");
     }
 
     [Fact]

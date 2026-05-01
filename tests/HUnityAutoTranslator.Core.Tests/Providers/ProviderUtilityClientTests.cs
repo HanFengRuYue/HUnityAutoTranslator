@@ -114,7 +114,7 @@ public sealed class ProviderUtilityClientTests
         var result = await client.TestConnectionAsync(profile, CancellationToken.None);
 
         result.Succeeded.Should().BeTrue();
-        result.Message.Should().Contain("/v1/chat/completions");
+        result.Message.Should().Contain("ok");
         handler.Method.Should().Be(HttpMethod.Post);
         handler.RequestPath.Should().Be("/v1/chat/completions");
         handler.AuthorizationHeader.Should().Be("Bearer key");
@@ -126,6 +126,35 @@ public sealed class ProviderUtilityClientTests
         body["messages"]!.Should().HaveCount(2);
         body.Value<bool>("stream").Should().BeFalse();
         body["metadata"]!.Value<string>("source").Should().Be("test");
+    }
+
+    [Fact]
+    public async Task TestConnectionAsync_posts_deepseek_chat_endpoint_instead_of_fetching_models()
+    {
+        var handler = new CaptureHandler("""{"choices":[{"message":{"content":"ok"}}]}""");
+        var client = new ProviderUtilityClient(new HttpClient(handler), () => "key");
+
+        var result = await client.TestConnectionAsync(ProviderProfile.DefaultDeepSeek(), CancellationToken.None);
+
+        result.Succeeded.Should().BeTrue();
+        result.Message.Should().Contain("ok");
+        handler.Method.Should().Be(HttpMethod.Post);
+        handler.RequestPath.Should().Be("/chat/completions");
+        var body = Newtonsoft.Json.Linq.JObject.Parse(handler.Body);
+        body.Value<string>("model").Should().Be(ProviderProfile.DefaultDeepSeek().Model);
+        body["messages"]!.Should().HaveCount(2);
+    }
+
+    [Fact]
+    public async Task TestConnectionAsync_fails_when_generation_response_has_no_text()
+    {
+        var handler = new CaptureHandler("""{"choices":[{"message":{"content":""}}]}""");
+        var client = new ProviderUtilityClient(new HttpClient(handler), () => "key");
+
+        var result = await client.TestConnectionAsync(ProviderProfile.DefaultDeepSeek(), CancellationToken.None);
+
+        result.Succeeded.Should().BeFalse();
+        result.Message.Should().Contain("没有返回模型文本");
     }
 
     [Fact]

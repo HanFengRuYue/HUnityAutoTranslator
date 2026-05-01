@@ -55,15 +55,14 @@ public sealed class ProviderUtilityClient
 
     public async Task<ProviderTestResult> TestConnectionAsync(ProviderProfile profile, CancellationToken cancellationToken)
     {
-        if (profile.Kind != ProviderKind.OpenAICompatible)
+        if (profile.Kind == ProviderKind.LlamaCpp)
         {
-            var models = await FetchModelsAsync(profile, cancellationToken).ConfigureAwait(false);
-            return new ProviderTestResult(models.Succeeded, models.Message);
+            return new ProviderTestResult(true, "本地模型使用当前 GGUF 文件。");
         }
 
-        using var request = CreateOpenAICompatibleTestRequest(profile);
+        using var request = CreateTestRequest(profile);
         using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        _ = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+        var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
         var path = request.RequestUri?.AbsolutePath;
         if (!response.IsSuccessStatusCode)
         {
@@ -72,7 +71,13 @@ public sealed class ProviderUtilityClient
                 BuildFailureMessage("连接测试失败", response.StatusCode, path, HasSavedApiKey()));
         }
 
-        return new ProviderTestResult(true, $"连接可用（路径 {path ?? profile.Endpoint}）。");
+        var reply = ParseTestReply(profile, json);
+        if (string.IsNullOrWhiteSpace(reply))
+        {
+            return new ProviderTestResult(false, $"连接测试失败：接口已响应，但没有返回模型文本（路径 {path ?? profile.Endpoint}）。");
+        }
+
+        return new ProviderTestResult(true, $"模型已返回测试回复：{TrimForMessage(reply)}");
     }
 
     public async Task<ProviderBalanceResult> FetchBalanceAsync(ProviderProfile profile, CancellationToken cancellationToken)
@@ -132,7 +137,40 @@ public sealed class ProviderUtilityClient
         return new ProviderBalanceResult(true, "已获取最近 7 天成本。OpenAI 成本接口通常需要管理员密钥。", costs);
     }
 
-    private HttpRequestMessage CreateOpenAICompatibleTestRequest(ProviderProfile profile)
+    private HttpRequestMessage CreateTestRequest(ProviderProfile profile)
+    {
+        var body = profile.Kind == ProviderKind.OpenAI
+            ? CreateOpenAiResponsesTestBody(profile)
+            : CreateChatCompletionsTestBody(profile);
+        var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            new Uri(new Uri(profile.BaseUrl.TrimEnd('/') + "/"), profile.Endpoint.TrimStart('/')))
+        {
+            Content = new StringContent(JsonConvert.SerializeObject(body, Formatting.None), Encoding.UTF8, "application/json")
+        };
+
+        var apiKey = _apiKeyProvider();
+        if (!string.IsNullOrWhiteSpace(apiKey))
+        {
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+        }
+
+        OpenAICompatibleRequestOptions.ApplyCustomHeaders(request, profile);
+        return request;
+    }
+
+    private static JObject CreateOpenAiResponsesTestBody(ProviderProfile profile)
+    {
+        return new JObject
+        {
+            ["model"] = profile.Model,
+            ["instructions"] = "You are a connectivity test endpoint. Reply with a short answer only.",
+            ["input"] = "Reply with ok.",
+            ["text"] = new JObject { ["verbosity"] = "low" }
+        };
+    }
+
+    private static JObject CreateChatCompletionsTestBody(ProviderProfile profile)
     {
         var body = new JObject
         {
@@ -153,22 +191,20 @@ public sealed class ProviderUtilityClient
             ["stream"] = false
         };
         OpenAICompatibleRequestOptions.ApplyExtraBody(body, profile);
+        return body;
+    }
 
-        var request = new HttpRequestMessage(
-            HttpMethod.Post,
-            new Uri(new Uri(profile.BaseUrl.TrimEnd('/') + "/"), profile.Endpoint.TrimStart('/')))
-        {
-            Content = new StringContent(JsonConvert.SerializeObject(body, Formatting.None), Encoding.UTF8, "application/json")
-        };
+    private static string ParseTestReply(ProviderProfile profile, string json)
+    {
+        return profile.Kind == ProviderKind.OpenAI
+            ? ProviderJsonParsers.ParseOpenAiResponsesText(json)
+            : ProviderJsonParsers.ParseChatCompletionsText(json);
+    }
 
-        var apiKey = _apiKeyProvider();
-        if (!string.IsNullOrWhiteSpace(apiKey))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
-        }
-
-        OpenAICompatibleRequestOptions.ApplyCustomHeaders(request, profile);
-        return request;
+    private static string TrimForMessage(string value)
+    {
+        var normalized = value.Replace("\r", " ").Replace("\n", " ").Trim();
+        return normalized.Length <= 80 ? normalized : normalized[..80] + "...";
     }
 
     private HttpRequestMessage CreateGet(ProviderProfile profile, string path)

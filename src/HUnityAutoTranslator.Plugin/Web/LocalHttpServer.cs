@@ -549,25 +549,12 @@ internal sealed class LocalHttpServer : IDisposable
                         ready,
                         ready ? "llama.cpp 本地模型连接可用。" : status.Message);
                 }
-                else if (config.Provider.Kind == ProviderKind.OpenAICompatible)
+                else
                 {
                     var active = _controlPanel.GetReadyProviderRuntimeProfiles().FirstOrDefault();
                     result = active == null
                         ? new ProviderTestResult(false, "没有可用的在线服务商配置。")
                         : await CreateProviderUtilityClient(active).TestConnectionAsync(active.Profile, CancellationToken.None).ConfigureAwait(false);
-                }
-                else
-                {
-                    var active = _controlPanel.GetReadyProviderRuntimeProfiles().FirstOrDefault();
-                    if (active == null)
-                    {
-                        result = new ProviderTestResult(false, "没有可用的在线服务商配置。");
-                    }
-                    else
-                    {
-                        var models = await CreateProviderUtilityClient(active).FetchModelsAsync(active.Profile, CancellationToken.None).ConfigureAwait(false);
-                        result = new ProviderTestResult(models.Succeeded, models.Message);
-                    }
                 }
 
                 _controlPanel.SetProviderStatus(new ProviderStatus(result.Succeeded ? "ok" : "error", result.Message, DateTimeOffset.UtcNow));
@@ -804,17 +791,7 @@ internal sealed class LocalHttpServer : IDisposable
         var utilityClient = CreateProviderUtilityClient(profile);
         if (request.HttpMethod == "POST" && action == "test")
         {
-            ProviderTestResult result;
-            if (profile.Profile.Kind == ProviderKind.OpenAICompatible)
-            {
-                result = await utilityClient.TestConnectionAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false);
-            }
-            else
-            {
-                var models = await utilityClient.FetchModelsAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false);
-                result = new ProviderTestResult(models.Succeeded, models.Message);
-            }
-
+            var result = await utilityClient.TestConnectionAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false);
             _controlPanel.SetProviderStatus(new ProviderStatus(result.Succeeded ? "ok" : "error", result.Message, DateTimeOffset.UtcNow));
             await WriteJsonAsync(response, result).ConfigureAwait(false);
             return;
@@ -858,17 +835,7 @@ internal sealed class LocalHttpServer : IDisposable
         var utilityClient = CreateProviderUtilityClient(profile);
         if (action == "test")
         {
-            ProviderTestResult result;
-            if (profile.Profile.Kind == ProviderKind.OpenAICompatible)
-            {
-                result = await utilityClient.TestConnectionAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false);
-            }
-            else
-            {
-                var models = await utilityClient.FetchModelsAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false);
-                result = new ProviderTestResult(models.Succeeded, models.Message);
-            }
-
+            var result = await utilityClient.TestConnectionAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false);
             _controlPanel.SetProviderStatus(new ProviderStatus(result.Succeeded ? "ok" : "error", result.Message, DateTimeOffset.UtcNow));
             await WriteJsonAsync(response, result).ConfigureAwait(false);
             return;

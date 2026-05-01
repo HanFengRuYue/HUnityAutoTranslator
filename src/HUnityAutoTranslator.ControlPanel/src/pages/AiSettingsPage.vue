@@ -53,6 +53,7 @@ import type {
   PromptTemplateConfig,
   ProviderBalanceInfo,
   ProviderBalanceResult,
+  ProviderModelInfo,
   ProviderModelsResult,
   ProviderProfileImportResult,
   ProviderProfileState,
@@ -225,6 +226,7 @@ const providerEditorOpen = ref(false);
 const profileDirty = ref(false);
 const profileBusy = ref(false);
 const utilityBusy = ref(false);
+const profileModelOptions = ref<ProviderModelInfo[]>([]);
 const importInput = ref<HTMLInputElement | null>(null);
 const textureImageBusy = ref(false);
 const textureImageProfileEditorOpen = ref(false);
@@ -253,6 +255,7 @@ const isProfileOpenAi = computed(() => profileKind.value === 0);
 const isProfileDeepSeek = computed(() => profileKind.value === 1);
 const isProfileOpenAiCompatible = computed(() => profileKind.value === 2);
 const isProfileLlamaCpp = computed(() => profileKind.value === 3);
+const profileModelOptionValues = computed(() => new Set(profileModelOptions.value.map((model) => model.Id)));
 const profileTemperatureValue = computed(() => {
   const parsed = Number(profileForm.Temperature);
   return Number.isFinite(parsed) ? Math.max(0, Math.min(2, parsed)) : 0.2;
@@ -322,6 +325,10 @@ function markDirty(): void {
 
 function markProfileDirty(): void {
   profileDirty.value = true;
+}
+
+function resetProfileModelOptions(): void {
+  profileModelOptions.value = [];
 }
 
 function numberValue(value: number | string): number {
@@ -596,6 +603,7 @@ function applySelectedProfile(force = false): void {
   profileForm.OpenAICompatibleCustomHeaders = profile.OpenAICompatibleCustomHeaders ?? "";
   profileForm.OpenAICompatibleExtraBodyJson = profile.OpenAICompatibleExtraBodyJson ?? "";
   applyProfileLlamaCppConfig(profile.LlamaCpp);
+  resetProfileModelOptions();
   profileDirty.value = false;
 }
 
@@ -912,6 +920,7 @@ function createProfileDefaults(kind = 0): boolean {
   profileForm.OpenAICompatibleCustomHeaders = "";
   profileForm.OpenAICompatibleExtraBodyJson = "";
   applyProfileLlamaCppConfig(null);
+  resetProfileModelOptions();
   selectedProfileId.value = "";
   profileDirty.value = true;
   return true;
@@ -970,6 +979,7 @@ function applyProfileKindDefaults(): void {
   if (profileKind.value === 3) {
     applyProfileLlamaCppConfig(null);
   }
+  resetProfileModelOptions();
   markProfileDirty();
 }
 
@@ -1097,13 +1107,15 @@ function buildProviderProfileUtilityPath(action: "test" | "models" | "balance"):
   return `/api/provider-profiles/draft/${action}`;
 }
 
-async function runProfileUtility<T>(label: string, action: () => Promise<T>, render: (result: T) => string): Promise<void> {
+async function runProfileUtility<T extends { Succeeded?: boolean }>(label: string, action: () => Promise<T>, render: (result: T) => string): Promise<T | null> {
   utilityBusy.value = true;
   try {
     const result = await action();
-    showToast(`${label}：${render(result)}`, "ok", 6200);
+    showToast(`${label}：${render(result)}`, result.Succeeded === false ? "error" : "ok", 6200);
+    return result;
   } catch (error) {
     showToast(error instanceof Error ? error.message : `${label}失败`, "error");
+    return null;
   } finally {
     utilityBusy.value = false;
   }
@@ -1130,10 +1142,19 @@ async function testProfile(): Promise<void> {
 }
 
 async function fetchProfileModels(): Promise<void> {
-  await runProfileUtility(
+  const result = await runProfileUtility(
     "模型列表",
     () => api<ProviderModelsResult>(buildProviderProfileUtilityPath("models"), { method: "POST", body: buildProviderProfileRequest() }),
-    (result) => result.Models.length ? `${result.Message}：${result.Models.slice(0, 6).map((model) => model.Id).join("、")}` : result.Message);
+    (result) => result.Models.length ? `${result.Message}：已加入模型下拉菜单。` : result.Message);
+  if (!result?.Succeeded) {
+    return;
+  }
+
+  profileModelOptions.value = result.Models;
+  if (result.Models.length && !profileModelOptionValues.value.has(profileForm.Model.trim())) {
+    profileForm.Model = result.Models[0].Id;
+    markProfileDirty();
+  }
 }
 
 async function fetchProfileBalance(): Promise<void> {
@@ -1659,7 +1680,12 @@ watch(selectedProfileId, () => {
             </label>
             <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="模型名称。">
               <span class="field-label"><Brain class="field-label-icon" />模型</span>
-              <input id="providerProfileModel" v-model="profileForm.Model" autocomplete="off" @input="markProfileDirty">
+              <select v-if="profileModelOptions.length" id="providerProfileModel" v-model="profileForm.Model" @change="markProfileDirty">
+                <option v-for="model in profileModelOptions" :key="model.Id" :value="model.Id">
+                  {{ model.OwnedBy ? `${model.Id}（${model.OwnedBy}）` : model.Id }}
+                </option>
+              </select>
+              <input v-else id="providerProfileModel" v-model="profileForm.Model" autocomplete="off" @input="markProfileDirty">
             </label>
             <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="留空表示不修改已保存 Key；新 Key 会进入加密配置文件。">
               <span class="field-label"><KeyRound class="field-label-icon" />API Key</span>
