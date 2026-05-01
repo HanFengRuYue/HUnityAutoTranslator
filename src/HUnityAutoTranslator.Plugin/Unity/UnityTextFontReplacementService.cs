@@ -87,6 +87,7 @@ internal sealed class UnityTextFontReplacementService
     private bool _loggedTmpDirectAssignment;
     private bool _warnedTmpInstanceFallbackFailure;
     private bool _loggedTmpInstanceFallback;
+    private bool _loggedUguiReplacement;
 
     public UnityTextFontReplacementService(
         ITranslationCache cache,
@@ -139,7 +140,10 @@ internal sealed class UnityTextFontReplacementService
 
         RememberFontTarget(component, _uguiFontTargets, _uguiOriginalFonts);
         _uguiReplacementFonts[component.GetInstanceID()] = resolved.Font;
-        SetProperty(component, "font", resolved.Font);
+        if (SetProperty(component, "font", resolved.Font))
+        {
+            LogUguiReplacement(resolved);
+        }
     }
 
     public void RestoreUgui(UnityEngine.Object component)
@@ -563,16 +567,16 @@ internal sealed class UnityTextFontReplacementService
             }
         }
 
-        var fontNameCandidate = FontCandidate.Create("name", config.ReplacementFontName, warnOnUnityFailure: true);
-        if (fontNameCandidate != null)
-        {
-            yield return fontNameCandidate;
-        }
-
         var fontFileCandidate = FontCandidate.Create("file", config.ReplacementFontFile, warnOnUnityFailure: true);
         if (fontFileCandidate != null)
         {
             yield return fontFileCandidate;
+        }
+
+        var fontNameCandidate = FontCandidate.Create("name", config.ReplacementFontName, warnOnUnityFailure: true);
+        if (fontNameCandidate != null)
+        {
+            yield return fontNameCandidate;
         }
 
         if (!config.AutoUseCjkFallbackFonts)
@@ -684,32 +688,49 @@ internal sealed class UnityTextFontReplacementService
             }
         }
 
-        return CreateUnityFont(candidate.Value, size);
+        if (candidate.Source == "file" || candidate.Source == "auto-file")
+        {
+            return CreateUnityFontFromFile(candidate.Value);
+        }
+
+        if (candidate.Source == "name" || candidate.Source == "auto-name")
+        {
+            return CreateUnityFont(candidate.Value, size);
+        }
+
+        if (candidate.Source == "row")
+        {
+            var fontFromFile = CreateUnityFontFromFile(candidate.Value);
+            return fontFromFile ?? CreateUnityFont(candidate.Value, size);
+        }
+
+        return File.Exists(candidate.Value)
+            ? CreateUnityFontFromFile(candidate.Value)
+            : CreateUnityFont(candidate.Value, size);
     }
 
     private static Font? CreateUnityFont(string value, int size)
     {
-        if (File.Exists(value))
+        if (!IsInstalledOsFontName(value))
         {
-            try
-            {
-                return new Font(value);
-            }
-            catch
-            {
-            }
+            return null;
         }
 
         try
         {
-            var dynamicFont = Font.CreateDynamicFontFromOSFont(value, size);
-            if (dynamicFont != null)
-            {
-                return dynamicFont;
-            }
+            return Font.CreateDynamicFontFromOSFont(value, size);
         }
         catch
         {
+            return null;
+        }
+    }
+
+    private static Font? CreateUnityFontFromFile(string value)
+    {
+        if (!File.Exists(value))
+        {
+            return null;
         }
 
         try
@@ -719,6 +740,19 @@ internal sealed class UnityTextFontReplacementService
         catch
         {
             return null;
+        }
+    }
+
+    private static bool IsInstalledOsFontName(string value)
+    {
+        try
+        {
+            return Font.GetOSInstalledFontNames()
+                .Any(fontName => string.Equals(fontName, value, StringComparison.OrdinalIgnoreCase));
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -1425,6 +1459,17 @@ internal sealed class UnityTextFontReplacementService
 
         _loggedTmpDirectAssignment = true;
         _logger.LogInfo($"TMP 组件字体已直接替换：{fontAsset.GetType().FullName}。");
+    }
+
+    private void LogUguiReplacement(ResolvedFont resolved)
+    {
+        if (_loggedUguiReplacement)
+        {
+            return;
+        }
+
+        _loggedUguiReplacement = true;
+        _logger.LogInfo($"UGUI 字体已替换：{resolved.DisplayName}。");
     }
 
     private void WarnTmpInstanceFallbackFailed(UnityEngine.Object component, object fontAsset)

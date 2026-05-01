@@ -73,7 +73,8 @@ public sealed class ComponentRefreshSourceTests
             "_fontReplacement?.ApplyToUgui(component,");
 
         var imguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ImguiHookInstaller.cs"));
-        var cacheHitIndex = imguiSource.IndexOf("if (_cache.TryGet(key, context, out var translated))", StringComparison.Ordinal);
+        imguiSource.Should().Contain("() => TryGetCachedImguiTranslation(key, context)");
+        var cacheHitIndex = imguiSource.IndexOf("if (stateResult.IsTranslated)", StringComparison.Ordinal);
         cacheHitIndex.Should().BeGreaterThanOrEqualTo(0);
         imguiSource.IndexOf("_fontReplacement?.ApplyToImgui(key, context);", StringComparison.Ordinal)
             .Should().BeGreaterThan(cacheHitIndex);

@@ -4,7 +4,9 @@ using HarmonyLib;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Pipeline;
+using HUnityAutoTranslator.Core.Runtime;
 using HUnityAutoTranslator.Plugin.Unity;
+using UnityEngine;
 using UnityEngine.SceneManagement;
 
 namespace HUnityAutoTranslator.Plugin.Capture;
@@ -12,6 +14,13 @@ namespace HUnityAutoTranslator.Plugin.Capture;
 internal sealed class ImguiHookInstaller : ITextCaptureModule
 {
     private const string HarmonyId = "com.hanfeng.hunityautotranslator.imgui";
+    private const int MaxImguiStateEntries = 2048;
+    private const int MaxImguiNewCapturesPerFrame = 1;
+    private const int MaxImguiCacheRefreshesPerFrame = 1;
+    private const double ImguiPendingRefreshSeconds = 1;
+    private const double ImguiStateTtlSeconds = 300;
+    private const double ImguiNewCaptureIntervalSeconds = 0.25;
+    private const double ImguiCacheRefreshIntervalSeconds = 0.25;
     private static ImguiHookInstaller? _instance;
 
     private readonly TextPipeline _pipeline;
@@ -19,6 +28,14 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
     private readonly ManualLogSource _logger;
     private readonly Func<RuntimeConfig> _configProvider;
     private readonly UnityTextFontReplacementService? _fontReplacement;
+    private readonly ImguiTranslationStateCache _stateCache = new(
+        MaxImguiStateEntries,
+        MaxImguiNewCapturesPerFrame,
+        MaxImguiCacheRefreshesPerFrame,
+        ImguiPendingRefreshSeconds,
+        ImguiStateTtlSeconds,
+        ImguiNewCaptureIntervalSeconds,
+        ImguiCacheRefreshIntervalSeconds);
     private Harmony? _harmony;
     private bool _enabled;
     private bool _warned;
@@ -120,17 +137,46 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
     private string TranslateOrQueue(string text)
     {
         var config = _configProvider();
-        var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, TextPipeline.GetPromptPolicyVersion(config));
-        var context = new TranslationCacheContext(GetActiveSceneName(), ComponentHierarchy: null, ComponentType: "IMGUI");
-        if (_cache.TryGet(key, context, out var translated))
+        var promptPolicyVersion = TextPipeline.GetPromptPolicyVersion(config);
+        var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, promptPolicyVersion);
+        var sceneName = GetActiveSceneName();
+        var context = new TranslationCacheContext(sceneName, ComponentHierarchy: null, ComponentType: "IMGUI");
+        var stateResult = _stateCache.Resolve(
+            text,
+            key.TargetLanguage,
+            key.PromptPolicyVersion,
+            sceneName,
+            Time.unscaledTime,
+            Time.frameCount,
+            () => TryGetCachedImguiTranslation(key, context),
+            () => ProcessImguiText(text, context));
+
+        if (stateResult.IsTranslated)
         {
             _fontReplacement?.ApplyToImgui(key, context);
-            return translated;
+            return stateResult.DisplayText;
         }
 
         _fontReplacement?.RestoreImgui();
-        _pipeline.Process(new CapturedText("imgui:" + key.SourceText, text, isVisible: true, context));
-        return text;
+        return stateResult.DisplayText;
+    }
+
+    private string? TryGetCachedImguiTranslation(TranslationCacheKey key, TranslationCacheContext context)
+    {
+        if (_cache.TryGet(key, context, out var translated))
+        {
+            return translated;
+        }
+
+        return null;
+    }
+
+    private string? ProcessImguiText(string text, TranslationCacheContext context)
+    {
+        var decision = _pipeline.Process(new CapturedText("imgui:" + text, text, isVisible: true, context));
+        return decision.Kind == PipelineDecisionKind.UseCachedTranslation
+            ? decision.TranslatedText
+            : null;
     }
 
     private static string? GetActiveSceneName()

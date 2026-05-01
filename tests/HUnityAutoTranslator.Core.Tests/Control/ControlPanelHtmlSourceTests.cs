@@ -360,7 +360,7 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
-    public void Ugui_font_replacement_prefers_os_font_names_while_tmp_keeps_file_candidates()
+    public void Ugui_font_replacement_prefers_manual_file_before_os_font_names_while_tmp_keeps_file_candidates()
     {
         var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
 
@@ -378,6 +378,20 @@ public sealed class ControlPanelHtmlSourceTests
         uguiBlock.Should().Contain("ResolveUnityTextFont(config, key, context)");
         imguiBlock.Should().Contain("ResolveUnityTextFont(config, key, context)");
         serviceSource.Should().Contain("foreach (var candidate in EnumerateTmpFontCandidates(config, key, context))");
+
+        var uguiCandidateBlock = serviceSource[
+            serviceSource.IndexOf("private IEnumerable<FontCandidate> EnumerateUnityFontCandidates", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private IEnumerable<FontCandidate> EnumerateTmpFontCandidates", StringComparison.Ordinal)];
+        uguiCandidateBlock.IndexOf("FontCandidate.Create(\"file\", config.ReplacementFontFile", StringComparison.Ordinal)
+            .Should().BeLessThan(uguiCandidateBlock.IndexOf("FontCandidate.Create(\"name\", config.ReplacementFontName", StringComparison.Ordinal));
+        serviceSource.Should().Contain("Font.GetOSInstalledFontNames()");
+
+        var createUnityFontBlock = serviceSource[
+            serviceSource.IndexOf("private static Font? CreateUnityFont(FontCandidate candidate, int size)", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private static Font? CreateUnityFont(string value, int size)", StringComparison.Ordinal)];
+        createUnityFontBlock.Should().Contain("candidate.Source == \"file\"");
+        createUnityFontBlock.Should().Contain("candidate.Source == \"name\"");
+        createUnityFontBlock.Should().NotContain("Font.CreateDynamicFontFromOSFont(candidate.Value");
     }
 
     [Fact]

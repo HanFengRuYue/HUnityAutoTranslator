@@ -83,6 +83,21 @@ public sealed class BoundedRuntimeLoopSourceTests
         uguiSource.Should().Contain("forceFullScan ? objects.Length : _configProvider().MaxScanTargetsPerTick");
     }
 
+    [Fact]
+    public void Imgui_hook_uses_state_cache_and_frame_budgets_for_hot_path_work()
+    {
+        var imguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ImguiHookInstaller.cs"));
+
+        imguiSource.Should().Contain("ImguiTranslationStateCache");
+        imguiSource.Should().Contain("MaxImguiNewCapturesPerFrame = 1");
+        imguiSource.Should().Contain("MaxImguiCacheRefreshesPerFrame = 1");
+        imguiSource.Should().Contain("ImguiNewCaptureIntervalSeconds = 0.25");
+        imguiSource.Should().Contain("ImguiCacheRefreshIntervalSeconds = 0.25");
+        imguiSource.Should().Contain("Time.frameCount");
+        imguiSource.Should().Contain("_stateCache.Resolve(");
+        imguiSource.Should().Contain("ProcessImguiText(");
+    }
+
     private static string FindRepositoryFile(params string[] relativeSegments)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
