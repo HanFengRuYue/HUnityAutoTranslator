@@ -1,7 +1,9 @@
 using System.Reflection;
 using System.Reflection.Emit;
+using System.Runtime.CompilerServices;
 using FluentAssertions;
 using HUnityAutoTranslator.Core.Providers;
+using HUnityAutoTranslator.Core.Textures;
 
 namespace HUnityAutoTranslator.Core.Tests.Providers;
 
@@ -59,6 +61,18 @@ public sealed class NewtonsoftJsonCompatibilityTests
             .BeFalse("Unity games can preload Newtonsoft.Json 12.x, which lacks this Newtonsoft.Json 13.x overload");
     }
 
+    [Fact]
+    public void Texture_vision_detection_request_creation_avoids_jtoken_to_string_formatting_overload()
+    {
+        var detect = typeof(TextureVisionTextClient).GetMethod(nameof(TextureVisionTextClient.DetectAsync));
+
+        detect.Should().NotBeNull();
+        GetCalledMethodsIncludingAsyncStateMachine(detect!)
+            .Any(IsJTokenToStringFormattingCall)
+            .Should()
+            .BeFalse("Unity games can preload Newtonsoft.Json 12.x, which lacks this Newtonsoft.Json 13.x overload");
+    }
+
     private static bool IsJTokenToStringFormattingCall(MethodBase method)
     {
         var parameters = method.GetParameters();
@@ -97,6 +111,26 @@ public sealed class NewtonsoftJsonCompatibilityTests
             }
 
             SkipOperand(il, ref index, opCode.OperandType);
+        }
+    }
+
+    private static IEnumerable<MethodBase> GetCalledMethodsIncludingAsyncStateMachine(MethodInfo method)
+    {
+        foreach (var calledMethod in GetCalledMethods(method))
+        {
+            yield return calledMethod;
+        }
+
+        var stateMachine = method.GetCustomAttribute<AsyncStateMachineAttribute>()?.StateMachineType;
+        var moveNext = stateMachine?.GetMethod("MoveNext", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+        if (moveNext == null)
+        {
+            yield break;
+        }
+
+        foreach (var calledMethod in GetCalledMethods(moveNext))
+        {
+            yield return calledMethod;
         }
     }
 

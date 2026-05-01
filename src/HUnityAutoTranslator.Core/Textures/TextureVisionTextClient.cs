@@ -63,7 +63,7 @@ public sealed class TextureVisionTextClient
                 }
             }
         };
-        request.Content = new StringContent(payload.ToString(Formatting.None), Encoding.UTF8, "application/json");
+        request.Content = new StringContent(JsonConvert.SerializeObject(payload, Formatting.None), Encoding.UTF8, "application/json");
 
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(30, config.TimeoutSeconds)));
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
