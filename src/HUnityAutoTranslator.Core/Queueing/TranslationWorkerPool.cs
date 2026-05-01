@@ -16,7 +16,7 @@ namespace HUnityAutoTranslator.Core.Queueing;
 public sealed class TranslationWorkerPool
 {
     private static readonly TimeSpan IdleWorkerPollInterval = TimeSpan.FromMilliseconds(40);
-    private const int MaxBatchItems = 4;
+    private const int MaxBatchItems = 16;
     private const int MaxQualityRetryCount = 3;
 
     private readonly TranslationJobQueue _queue;

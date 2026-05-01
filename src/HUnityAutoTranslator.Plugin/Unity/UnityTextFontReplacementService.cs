@@ -240,6 +240,32 @@ internal sealed class UnityTextFontReplacementService
         _imguiReplacementFont = null;
     }
 
+    public bool TryResolveImguiFont(
+        TranslationCacheKey key,
+        TranslationCacheContext context,
+        int fontSize,
+        string sampleText,
+        out Font font)
+    {
+        font = null!;
+        var config = _configProvider();
+        ReportAutomaticFontFallbacks(config);
+        if (!config.EnableFontReplacement || !config.ReplaceImguiFonts || !_runtimeReplacementFontsEnabled)
+        {
+            return false;
+        }
+
+        var resolved = ResolveUnityTextFont(config, key, context, Math.Max(1, fontSize));
+        if (resolved?.Font == null)
+        {
+            return false;
+        }
+
+        TryRequestCharacters(resolved.Font, sampleText, Math.Max(1, fontSize));
+        font = resolved.Font;
+        return true;
+    }
+
     public int SetReplacementFontsEnabledForRuntime(bool enabled)
     {
         _runtimeReplacementFontsEnabled = enabled;
@@ -473,11 +499,16 @@ internal sealed class UnityTextFontReplacementService
         return null;
     }
 
-    private ResolvedFont? ResolveUnityTextFont(RuntimeConfig config, TranslationCacheKey? key, TranslationCacheContext? context)
+    private ResolvedFont? ResolveUnityTextFont(
+        RuntimeConfig config,
+        TranslationCacheKey? key,
+        TranslationCacheContext? context,
+        int? sizeOverride = null)
     {
+        var pointSize = sizeOverride ?? config.FontSamplingPointSize;
         foreach (var candidate in EnumerateUnityFontCandidates(config, key, context))
         {
-            var resolved = ResolveExplicitFont(candidate, config.FontSamplingPointSize);
+            var resolved = ResolveExplicitFont(candidate, pointSize);
             if (resolved != null)
             {
                 return resolved;
@@ -486,6 +517,22 @@ internal sealed class UnityTextFontReplacementService
 
         WarnNoUnityFont();
         return null;
+    }
+
+    private static void TryRequestCharacters(Font font, string text, int fontSize)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        try
+        {
+            font.RequestCharactersInTexture(text, fontSize);
+        }
+        catch
+        {
+        }
     }
 
     private object? ResolveTmpFontAsset(

@@ -80,6 +80,8 @@ public sealed record ControlPanelState(
     FontSizeAdjustmentMode FontSizeAdjustmentMode,
     double FontSizeAdjustmentValue,
     string? LastError,
+    TextureImageTranslationConfig TextureImageTranslation,
+    bool TextureImageApiKeyConfigured,
     LlamaCppConfig LlamaCpp,
     LlamaCppServerStatus LlamaCppStatus,
     IReadOnlyList<ProviderProfileState>? ProviderProfiles = null,

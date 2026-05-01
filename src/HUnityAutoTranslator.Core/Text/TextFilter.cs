@@ -27,6 +27,11 @@ public static class TextFilter
             return false;
         }
 
+        if (PreservableTextClassifier.ShouldSkipTranslation(normalized))
+        {
+            return false;
+        }
+
         var hasLetter = false;
         var hasNonSymbol = false;
         var nonSymbolCount = 0;

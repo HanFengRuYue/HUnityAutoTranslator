@@ -76,8 +76,10 @@ public sealed class ComponentRefreshSourceTests
         imguiSource.Should().Contain("() => TryGetCachedImguiTranslation(key, context)");
         var cacheHitIndex = imguiSource.IndexOf("if (stateResult.IsTranslated)", StringComparison.Ordinal);
         cacheHitIndex.Should().BeGreaterThanOrEqualTo(0);
-        imguiSource.IndexOf("_fontReplacement?.ApplyToImgui(key, context);", StringComparison.Ordinal)
+        imguiSource.IndexOf("new ImguiTextResolution(stateResult.DisplayText, true, key, context)", StringComparison.Ordinal)
             .Should().BeGreaterThan(cacheHitIndex);
+        imguiSource.Should().Contain("TryBeginFontScope(__originalMethod, __args, resolution)");
+        imguiSource.Should().NotContain("_fontReplacement?.ApplyToImgui(key, context);");
     }
 
     [Fact]

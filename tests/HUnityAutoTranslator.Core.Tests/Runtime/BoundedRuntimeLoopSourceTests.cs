@@ -89,13 +89,15 @@ public sealed class BoundedRuntimeLoopSourceTests
         var imguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ImguiHookInstaller.cs"));
 
         imguiSource.Should().Contain("ImguiTranslationStateCache");
-        imguiSource.Should().Contain("MaxImguiNewCapturesPerFrame = 1");
-        imguiSource.Should().Contain("MaxImguiCacheRefreshesPerFrame = 1");
-        imguiSource.Should().Contain("ImguiNewCaptureIntervalSeconds = 0.25");
-        imguiSource.Should().Contain("ImguiCacheRefreshIntervalSeconds = 0.25");
+        imguiSource.Should().Contain("MaxImguiNewCapturesPerFrame = 16");
+        imguiSource.Should().Contain("MaxImguiCacheRefreshesPerFrame = 32");
+        imguiSource.Should().Contain("ImguiNewCaptureIntervalSeconds = 0.05");
+        imguiSource.Should().Contain("ImguiCacheRefreshIntervalSeconds = 0.05");
         imguiSource.Should().Contain("Time.frameCount");
         imguiSource.Should().Contain("_stateCache.Resolve(");
         imguiSource.Should().Contain("ProcessImguiText(");
+        imguiSource.Should().Contain("PostfixStringText");
+        imguiSource.Should().Contain("publishResult: false");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)

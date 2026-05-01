@@ -57,6 +57,7 @@ public sealed record RuntimeConfig(
     int FontSamplingPointSize,
     FontSizeAdjustmentMode FontSizeAdjustmentMode,
     double FontSizeAdjustmentValue,
+    TextureImageTranslationConfig TextureImageTranslation,
     LlamaCppConfig LlamaCpp)
 {
     public int EffectiveMaxConcurrentRequests => RuntimeConfigLimits.GetEffectiveMaxConcurrentRequests(this);
@@ -118,6 +119,7 @@ public sealed record RuntimeConfig(
             FontSamplingPointSize: 90,
             FontSizeAdjustmentMode: FontSizeAdjustmentMode.Disabled,
             FontSizeAdjustmentValue: 0,
+            TextureImageTranslation: TextureImageTranslationConfig.Default(),
             LlamaCpp: LlamaCppConfig.Default());
     }
 }

@@ -1578,7 +1578,7 @@ input[type="range"] {
 }
 .texture-directory-tools {
   display: grid;
-  grid-template-columns: minmax(240px, 420px) auto;
+  grid-template-columns: minmax(220px, 1fr) minmax(180px, 230px) auto auto;
   align-items: end;
   justify-content: space-between;
   gap: 12px;
@@ -1589,9 +1589,16 @@ input[type="range"] {
   border-radius: var(--radius);
   background: var(--surface-2);
 }
-.texture-scene-filter {
+.texture-scene-filter,
+.texture-text-filter {
   width: 100%;
   min-width: 0;
+}
+.texture-selection-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
 }
 .texture-view-toggle {
   display: inline-flex;
@@ -1619,7 +1626,7 @@ input[type="range"] {
 }
 .texture-item {
   display: grid;
-  grid-template-columns: 46px minmax(0, 1fr) auto;
+  grid-template-columns: 24px 46px minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
   padding: 11px 12px;
@@ -1635,6 +1642,34 @@ input[type="range"] {
 }
 .texture-item.overridden {
   border-color: color-mix(in srgb, var(--accent), transparent 48%);
+}
+.texture-item.selected,
+.texture-card.selected {
+  border-color: color-mix(in srgb, var(--accent), transparent 35%);
+  background: color-mix(in srgb, var(--accent-soft), var(--surface-2) 72%);
+}
+.texture-row-check,
+.texture-select-check {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 650;
+}
+.texture-row-check {
+  justify-content: center;
+}
+.texture-select-check {
+  justify-content: flex-start;
+}
+.texture-row-check input,
+.texture-select-check input {
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  accent-color: var(--accent);
 }
 .texture-thumb {
   display: grid;
@@ -1705,6 +1740,53 @@ input[type="range"] {
   background: var(--accent-soft);
   color: var(--accent-strong);
 }
+.texture-status-stack {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+.texture-text-detail {
+  color: var(--muted);
+}
+.texture-text-badge {
+  display: inline-block;
+  width: fit-content;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 4px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: center;
+  white-space: nowrap;
+}
+.texture-text-badge.text-candidate,
+.texture-text-badge.text-needsmanualreview {
+  border-color: color-mix(in srgb, var(--warn), transparent 45%);
+  background: color-mix(in srgb, var(--warn), transparent 90%);
+  color: var(--warn);
+}
+.texture-text-badge.text-confirmedtext,
+.texture-text-badge.text-generated {
+  border-color: color-mix(in srgb, var(--ok), transparent 45%);
+  background: color-mix(in srgb, var(--ok), transparent 90%);
+  color: var(--ok);
+}
+.texture-text-badge.text-failed {
+  border-color: color-mix(in srgb, var(--danger), transparent 45%);
+  background: color-mix(in srgb, var(--danger), transparent 90%);
+  color: var(--danger);
+}
+.texture-text-badge.text-likelynotext,
+.texture-text-badge.text-notext {
+  border-color: var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+}
 .texture-gallery {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(142px, 1fr));
@@ -1749,7 +1831,7 @@ input[type="range"] {
   min-width: 0;
 }
 .texture-card-copy strong,
-.texture-card-copy span,
+.texture-card-copy span:not(.texture-text-badge),
 .texture-card-copy small {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1759,7 +1841,7 @@ input[type="range"] {
   color: var(--ink);
   font-size: 13px;
 }
-.texture-card-copy span,
+.texture-card-copy span:not(.texture-text-badge),
 .texture-card-copy small {
   color: var(--muted);
   font-size: 12px;
@@ -2334,6 +2416,12 @@ input.compact-check {
     width: 100%;
     justify-self: stretch;
   }
+  .texture-selection-tools {
+    width: 100%;
+  }
+  .texture-selection-tools button {
+    flex: 1 1 0;
+  }
   .texture-view-toggle button {
     flex: 1 1 0;
   }
@@ -2341,11 +2429,12 @@ input.compact-check {
     grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
   }
   .texture-item {
-    grid-template-columns: 42px minmax(0, 1fr);
+    grid-template-columns: 24px 42px minmax(0, 1fr);
   }
-  .texture-status {
-    grid-column: 2;
+  .texture-status-stack {
+    grid-column: 3;
     justify-self: start;
+    justify-items: start;
   }
   .column-filter-menu {
     width: min(320px, calc(100vw - 24px));

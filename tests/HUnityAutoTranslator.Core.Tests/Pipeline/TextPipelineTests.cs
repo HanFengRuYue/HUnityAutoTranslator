@@ -202,6 +202,19 @@ public sealed class TextPipelineTests
     }
 
     [Fact]
+    public void Process_preserves_publish_result_flag_for_imgui_cache_only_jobs()
+    {
+        var queue = new TranslationJobQueue();
+        var pipeline = new TextPipeline(new MemoryTranslationCache(), queue, RuntimeConfig.CreateDefault());
+        var context = new TranslationCacheContext("title_01", null, "IMGUI");
+
+        pipeline.Process(new CapturedText("imgui:FreeShop", "FreeShop", isVisible: true, context, publishResult: false));
+
+        queue.TryDequeueBatch(1, 100, out var batch).Should().BeTrue();
+        batch[0].PublishResult.Should().BeFalse();
+    }
+
+    [Fact]
     public void Process_records_valid_capture_in_cache_before_queueing()
     {
         var cache = new MemoryTranslationCache();

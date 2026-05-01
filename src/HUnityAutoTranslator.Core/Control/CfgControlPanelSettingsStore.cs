@@ -15,6 +15,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
     private const string GlossarySection = "术语库";
     private const string PromptTemplateSection = "提示词模板";
     private const string FontSection = "字体";
+    private const string TextureImageSection = "贴图文字翻译";
     private const string LlamaCppSection = "llama.cpp";
 
     private readonly string _filePath;
@@ -41,7 +42,8 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             var values = Parse(lines);
             return new ControlPanelSettings
             {
-                Config = BuildConfig(values)
+                Config = BuildConfig(values),
+                TextureImageEncryptedSecret = ReadString(values, TextureImageSection, "TextureImageSecret")
             };
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -110,7 +112,42 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             FontSamplingPointSize: ReadInt(values, FontSection, "FontSamplingPointSize"),
             FontSizeAdjustmentMode: ReadEnum<FontSizeAdjustmentMode>(values, FontSection, "FontSizeAdjustmentMode"),
             FontSizeAdjustmentValue: ReadDouble(values, FontSection, "FontSizeAdjustmentValue"),
+            TextureImageTranslation: BuildTextureImageTranslationConfig(values),
             LlamaCpp: BuildLlamaCppConfig(values));
+    }
+
+    private static TextureImageTranslationConfig? BuildTextureImageTranslationConfig(Dictionary<string, Dictionary<string, string>> values)
+    {
+        var keys = new[]
+        {
+            "Enabled",
+            "BaseUrl",
+            "EditEndpoint",
+            "VisionEndpoint",
+            "ImageModel",
+            "VisionModel",
+            "Quality",
+            "TimeoutSeconds",
+            "MaxConcurrentRequests",
+            "EnableVisionConfirmation"
+        };
+        if (!keys.Any(key => HasValue(values, TextureImageSection, key)))
+        {
+            return null;
+        }
+
+        var defaults = TextureImageTranslationConfig.Default();
+        return new TextureImageTranslationConfig(
+            ReadBool(values, TextureImageSection, "Enabled") ?? defaults.Enabled,
+            ReadString(values, TextureImageSection, "BaseUrl") ?? defaults.BaseUrl,
+            ReadString(values, TextureImageSection, "EditEndpoint") ?? defaults.EditEndpoint,
+            ReadString(values, TextureImageSection, "VisionEndpoint") ?? defaults.VisionEndpoint,
+            ReadString(values, TextureImageSection, "ImageModel") ?? defaults.ImageModel,
+            ReadString(values, TextureImageSection, "VisionModel") ?? defaults.VisionModel,
+            ReadString(values, TextureImageSection, "Quality") ?? defaults.Quality,
+            ReadInt(values, TextureImageSection, "TimeoutSeconds") ?? defaults.TimeoutSeconds,
+            ReadInt(values, TextureImageSection, "MaxConcurrentRequests") ?? defaults.MaxConcurrentRequests,
+            ReadBool(values, TextureImageSection, "EnableVisionConfirmation") ?? defaults.EnableVisionConfirmation);
     }
 
     private static LlamaCppConfig? BuildLlamaCppConfig(Dictionary<string, Dictionary<string, string>> values)
@@ -249,6 +286,20 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "构建 TMP 字体资产时使用的采样字号。", "90", "范围：16 到 180。", "FontSamplingPointSize", Int(config.FontSamplingPointSize ?? defaults.FontSamplingPointSize));
         Option(builder, "译文字号调整方式。", "Disabled", "可选：Disabled 不调整、Points 加减点数、Percent 按百分比。", "FontSizeAdjustmentMode", EnumText(config.FontSizeAdjustmentMode ?? defaults.FontSizeAdjustmentMode));
         Option(builder, "译文字号调整值。Points 表示点数，Percent 表示百分比。", "0", "范围：-99 到 300。", "FontSizeAdjustmentValue", Double(config.FontSizeAdjustmentValue ?? defaults.FontSizeAdjustmentValue));
+
+        var textureImage = config.TextureImageTranslation ?? defaults.TextureImageTranslation;
+        Section(builder, TextureImageSection);
+        Option(builder, "是否启用贴图文字翻译生成。", "false", "true 或 false。", "Enabled", Bool(textureImage.Enabled));
+        Option(builder, "贴图图片生成服务地址。", "http://192.168.2.10:8317", "CLI Proxy API 默认端口为 8317。", "BaseUrl", Text(textureImage.BaseUrl));
+        Option(builder, "贴图图片编辑端点。", "/v1/images/edits", null, "EditEndpoint", Text(textureImage.EditEndpoint));
+        Option(builder, "文字贴图视觉确认端点。", "/v1/responses", null, "VisionEndpoint", Text(textureImage.VisionEndpoint));
+        Option(builder, "贴图翻译图片生成模型。", "gpt-image-2", null, "ImageModel", Text(textureImage.ImageModel));
+        Option(builder, "文字贴图视觉确认模型。", "gpt-5.4-mini", null, "VisionModel", Text(textureImage.VisionModel));
+        Option(builder, "图片生成质量。", "medium", "可选：low、medium、high、auto。", "Quality", Text(textureImage.Quality));
+        Option(builder, "单张贴图图片生成超时秒数。", "180", "范围：30 到 300。", "TimeoutSeconds", Int(textureImage.TimeoutSeconds));
+        Option(builder, "同时处理的贴图图片生成请求数。", "1", "范围：1 到 4。", "MaxConcurrentRequests", Int(textureImage.MaxConcurrentRequests));
+        Option(builder, "是否对疑似文字贴图调用视觉模型确认。", "true", "关闭后只使用本地保守筛选。", "EnableVisionConfirmation", Bool(textureImage.EnableVisionConfirmation));
+        Option(builder, "贴图图片生成 API Key 的加密值。", "留空", "请优先在控制面板保存；不要手工填写明文。", "TextureImageSecret", Text(settings.TextureImageEncryptedSecret));
 
         Section(builder, LlamaCppSection);
         Option(builder, "llama.cpp 模型文件完整路径。ProviderKind 为 LlamaCpp 时使用。", "留空", "示例：D:\\Models\\qwen.gguf。", "ModelPath", Text(llamaCpp.ModelPath));

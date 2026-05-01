@@ -96,6 +96,19 @@ export interface LlamaCppConfig {
   AutoStartOnStartup: boolean;
 }
 
+export interface TextureImageTranslationConfig {
+  Enabled: boolean;
+  BaseUrl: string;
+  EditEndpoint: string;
+  VisionEndpoint: string;
+  ImageModel: string;
+  VisionModel: string;
+  Quality: string;
+  TimeoutSeconds: number;
+  MaxConcurrentRequests: number;
+  EnableVisionConfirmation: boolean;
+}
+
 export interface LlamaCppServerStatus {
   State: string;
   Backend: string;
@@ -286,6 +299,8 @@ export interface ControlPanelState {
   FontSizeAdjustmentMode: number | string;
   FontSizeAdjustmentValue: number;
   LastError: string | null;
+  TextureImageTranslation: TextureImageTranslationConfig;
+  TextureImageApiKeyConfigured: boolean;
   LlamaCpp: LlamaCppConfig;
   LlamaCppStatus: LlamaCppServerStatus;
   ProviderProfiles: ProviderProfileState[] | null;
@@ -354,6 +369,7 @@ export interface UpdateConfigRequest {
   FontSamplingPointSize?: number;
   FontSizeAdjustmentMode?: number;
   FontSizeAdjustmentValue?: number;
+  TextureImageTranslation?: TextureImageTranslationConfig;
   LlamaCpp?: LlamaCppConfig;
 }
 
@@ -496,6 +512,21 @@ export interface TextureCatalogItem {
   References: TextureReferenceInfo[];
   HasOverride: boolean;
   OverrideUpdatedUtc: string | null;
+  TextAnalysis: TextureTextAnalysis | null;
+}
+
+export type TextureTextStatus = number | string;
+
+export interface TextureTextAnalysis {
+  SourceHash: string;
+  Status: TextureTextStatus;
+  Confidence: number;
+  DetectedText: string | null;
+  Reason: string | null;
+  NeedsManualReview: boolean;
+  UserReviewed: boolean;
+  UpdatedUtc: string;
+  LastError: string | null;
 }
 
 export interface TextureCatalogScanStatus {
@@ -542,5 +573,26 @@ export interface TextureImportResult {
 export interface TextureOverrideClearResult {
   DeletedCount: number;
   RestoredCount: number;
+  Errors: string[];
+}
+
+export interface TextureTextDetectionResult {
+  RequestedCount: number;
+  UpdatedCount: number;
+  Items: TextureTextAnalysis[];
+  Errors: string[];
+}
+
+export interface TextureTextStatusUpdateResult {
+  UpdatedCount: number;
+  Items: TextureTextAnalysis[];
+  Errors: string[];
+}
+
+export interface TextureImageTranslateResult {
+  RequestedCount: number;
+  GeneratedCount: number;
+  AppliedCount: number;
+  Items: TextureTextAnalysis[];
   Errors: string[];
 }

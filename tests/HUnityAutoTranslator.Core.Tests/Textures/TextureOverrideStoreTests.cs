@@ -134,6 +134,26 @@ public sealed class TextureOverrideStoreTests
         Directory.EnumerateFiles(Path.Combine(temp.Path, "texture-overrides"), "*.png").Should().BeEmpty();
     }
 
+    [Fact]
+    public void SaveOverride_persists_single_generated_png_and_rejects_dimension_mismatch()
+    {
+        using var temp = new TemporaryDirectory();
+        var store = new TextureOverrideStore(Path.Combine(temp.Path, "texture-overrides"));
+        var item = CatalogItem("abc123", "Generated Logo", 2, 1);
+
+        var saved = store.SaveOverride(item, PngBytes(2, 1));
+        var rejected = store.SaveOverride(item, PngBytes(1, 1));
+
+        saved.ImportedCount.Should().Be(1);
+        saved.Errors.Should().BeEmpty();
+        rejected.ImportedCount.Should().Be(0);
+        rejected.Errors.Should().Contain(error => error.Contains("尺寸", StringComparison.Ordinal) || error.Contains("灏哄", StringComparison.Ordinal));
+        store.TryGetOverride("abc123", out var record).Should().BeTrue();
+        record!.Width.Should().Be(2);
+        record.Height.Should().Be(1);
+        File.Exists(record.FilePath).Should().BeTrue();
+    }
+
     private static TextureCatalogItem CatalogItem(string hash, string name, int width, int height)
     {
         return new TextureCatalogItem(

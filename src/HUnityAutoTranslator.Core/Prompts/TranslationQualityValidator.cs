@@ -188,6 +188,11 @@ public static class TranslationQualityValidator
             return false;
         }
 
+        if (PreservableTextClassifier.CanRemainUntranslated(normalizedSource))
+        {
+            return false;
+        }
+
         if (IsAllowedUntranslatedToken(normalizedSource))
         {
             return false;

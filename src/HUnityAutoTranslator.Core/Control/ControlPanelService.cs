@@ -17,6 +17,7 @@ public sealed class ControlPanelService
     private RuntimeConfig _config;
     private string? _apiKey;
     private bool _apiKeyConfigured;
+    private string? _textureImageApiKey;
     private string? _lastError;
     private string? _automaticReplacementFontName;
     private string? _automaticReplacementFontFile;
@@ -151,6 +152,8 @@ public sealed class ControlPanelService
                 config.FontSizeAdjustmentMode,
                 config.FontSizeAdjustmentValue,
                 _lastError,
+                config.TextureImageTranslation,
+                !string.IsNullOrWhiteSpace(_textureImageApiKey),
                 config.LlamaCpp,
                 NormalizeLlamaCppStatusForConfig(),
                 providerProfiles,
@@ -175,6 +178,14 @@ public sealed class ControlPanelService
         lock (_gate)
         {
             return ResolveActiveProviderProfile()?.ApiKey ?? _apiKey;
+        }
+    }
+
+    public string? GetTextureImageApiKey()
+    {
+        lock (_gate)
+        {
+            return _textureImageApiKey;
         }
     }
 
@@ -461,6 +472,15 @@ public sealed class ControlPanelService
             _providerProfiles.Add(updated.Normalize());
             NormalizeProviderPriorities();
             SaveProviderProfile(updated.Normalize());
+        }
+    }
+
+    public void SetTextureImageApiKey(string apiKey)
+    {
+        lock (_gate)
+        {
+            _textureImageApiKey = SelectOptionalText(apiKey, fallback: null);
+            SaveSettings();
         }
     }
 
@@ -849,6 +869,7 @@ public sealed class ControlPanelService
         lock (_gate)
         {
             ApplyConfig(settings.Config ?? new UpdateConfigRequest());
+            _textureImageApiKey = ApiKeyProtector.Unprotect(settings.TextureImageEncryptedSecret);
         }
     }
 
@@ -913,6 +934,7 @@ public sealed class ControlPanelService
         var fontSizeAdjustmentValue = request.FontSizeAdjustmentValue.HasValue
             ? FontSizeAdjustment.ClampValue(request.FontSizeAdjustmentValue.Value)
             : _config.FontSizeAdjustmentValue;
+        var textureImageTranslation = BuildTextureImageTranslationConfig(request.TextureImageTranslation);
         var temperature = request.ClearTemperature == true
             ? null
             : request.Temperature.HasValue
@@ -988,6 +1010,7 @@ public sealed class ControlPanelService
             FontSamplingPointSize = fontSamplingPointSize,
             FontSizeAdjustmentMode = request.FontSizeAdjustmentMode ?? _config.FontSizeAdjustmentMode,
             FontSizeAdjustmentValue = fontSizeAdjustmentValue,
+            TextureImageTranslation = textureImageTranslation,
             LlamaCpp = llamaCpp
         };
     }
@@ -1058,7 +1081,12 @@ public sealed class ControlPanelService
                 FontSamplingPointSize: _config.FontSamplingPointSize,
                 FontSizeAdjustmentMode: _config.FontSizeAdjustmentMode,
                 FontSizeAdjustmentValue: _config.FontSizeAdjustmentValue,
+                TextureImageTranslation: _config.TextureImageTranslation,
                 LlamaCpp: _config.LlamaCpp)
+            ,
+            TextureImageEncryptedSecret = string.IsNullOrWhiteSpace(_textureImageApiKey)
+                ? null
+                : ApiKeyProtector.Protect(_textureImageApiKey)
         });
     }
 
@@ -1116,6 +1144,42 @@ public sealed class ControlPanelService
             RuntimeConfigLimits.ClampLlamaCppUBatchSize(request.UBatchSize, batchSize),
             RuntimeConfigLimits.NormalizeLlamaCppFlashAttentionMode(request.FlashAttentionMode),
             request.AutoStartOnStartup);
+    }
+
+    private TextureImageTranslationConfig BuildTextureImageTranslationConfig(TextureImageTranslationConfig? request)
+    {
+        if (request == null)
+        {
+            return _config.TextureImageTranslation;
+        }
+
+        var defaults = TextureImageTranslationConfig.Default();
+        var current = _config.TextureImageTranslation ?? defaults;
+        var baseUrl = SelectOptionalText(request.BaseUrl, current.BaseUrl) ?? defaults.BaseUrl;
+        var editEndpoint = NormalizeEndpoint(request.EditEndpoint, current.EditEndpoint);
+        var visionEndpoint = NormalizeEndpoint(request.VisionEndpoint, current.VisionEndpoint);
+        var imageModel = SelectOptionalText(request.ImageModel, current.ImageModel) ?? defaults.ImageModel;
+        var visionModel = SelectOptionalText(request.VisionModel, current.VisionModel) ?? defaults.VisionModel;
+        var quality = SelectKnown(request.Quality, current.Quality, "low", "medium", "high", "auto");
+        return new TextureImageTranslationConfig(
+            request.Enabled,
+            baseUrl.TrimEnd('/'),
+            editEndpoint,
+            visionEndpoint,
+            imageModel,
+            visionModel,
+            quality,
+            Clamp(request.TimeoutSeconds, 30, 300),
+            Clamp(request.MaxConcurrentRequests, 1, 4),
+            request.EnableVisionConfirmation);
+    }
+
+    private static string NormalizeEndpoint(string? value, string fallback)
+    {
+        var selected = SelectOptionalText(value, fallback) ?? fallback;
+        return selected.StartsWith("/", StringComparison.Ordinal)
+            ? selected
+            : "/" + selected;
     }
 
     private RuntimeConfig BuildEffectiveConfig(RuntimeConfig config)

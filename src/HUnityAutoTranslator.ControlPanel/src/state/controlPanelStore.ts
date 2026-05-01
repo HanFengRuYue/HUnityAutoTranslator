@@ -175,6 +175,24 @@ export async function saveApiKey(apiKey: string, options: SaveOptions = {}): Pro
   }
 }
 
+export async function saveTextureImageApiKey(apiKey: string, options: SaveOptions = {}): Promise<ControlPanelState | null> {
+  try {
+    const state = await postJson<ControlPanelState>("/api/texture-image/key", { ApiKey: apiKey });
+    controlPanelStore.state = state;
+    controlPanelStore.connection = "online";
+    controlPanelStore.lastRefreshUtc = new Date().toISOString();
+    controlPanelStore.lastError = state.LastError;
+    if (!options.quiet) {
+      showToast(apiKey.trim() ? "贴图图片 API Key 已加密保存" : "贴图图片 API Key 已清除", "ok");
+    }
+    return state;
+  } catch (error) {
+    markPanelDisconnected(error);
+    showToast(controlPanelStore.lastError ?? "贴图图片 API Key 保存失败", "error");
+    return null;
+  }
+}
+
 export async function pickFontFile(): Promise<FontPickResult> {
   return api<FontPickResult>("/api/fonts/pick", { method: "POST" });
 }

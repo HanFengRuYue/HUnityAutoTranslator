@@ -32,6 +32,7 @@ internal sealed class PluginRuntime : IDisposable
     private UnityTextFontReplacementService? _fontReplacement;
     private UnityTextHighlighter? _highlighter;
     private TextureOverrideStore? _textureOverrides;
+    private TextureTextAnalysisStore? _textureTextAnalysis;
     private UnityTextureReplacementService? _textureReplacement;
     private RuntimeHotkeyController? _hotkeys;
     private LlamaCppServerManager? _llamaCppServer;
@@ -73,9 +74,11 @@ internal sealed class PluginRuntime : IDisposable
             _resultApplier = new UnityMainThreadResultApplier(_controlPanel.GetConfig, message => _logger.LogInfo(message));
             _highlighter = new UnityTextHighlighter(_resultApplier, _logger);
             _textureOverrides = new TextureOverrideStore(textureOverridesPath);
+            _textureTextAnalysis = new TextureTextAnalysisStore(Path.Combine(textureCatalogPath, "text-analysis.json"));
             _textureReplacement = new UnityTextureReplacementService(
                 _textureOverrides,
                 new TextureCatalogStore(textureCatalogPath),
+                _textureTextAnalysis,
                 () => _controlPanel?.GetConfig().GameTitle ?? Application.productName,
                 _logger);
             var pluginDirectory = _pluginDirectory ?? Path.GetDirectoryName(typeof(PluginRuntime).Assembly.Location) ?? Paths.PluginPath;

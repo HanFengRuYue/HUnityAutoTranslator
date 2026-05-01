@@ -1,8 +1,10 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Net.Http;
 using System.Reflection;
 using System.Security.Cryptography;
 using BepInEx.Logging;
+using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Textures;
 using HUnityAutoTranslator.Plugin.Capture;
 using UnityEngine;
@@ -21,6 +23,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
 
     private readonly TextureOverrideStore _store;
     private readonly TextureCatalogStore _catalogStore;
+    private readonly TextureTextAnalysisStore _textAnalysisStore;
     private readonly Func<string?> _gameTitleProvider;
     private readonly ManualLogSource _logger;
     private readonly ConcurrentQueue<Action> _mainThreadActions = new();
@@ -40,11 +43,13 @@ internal sealed class UnityTextureReplacementService : IDisposable
     public UnityTextureReplacementService(
         TextureOverrideStore store,
         TextureCatalogStore catalogStore,
+        TextureTextAnalysisStore textAnalysisStore,
         Func<string?> gameTitleProvider,
         ManualLogSource logger)
     {
         _store = store;
         _catalogStore = catalogStore;
+        _textAnalysisStore = textAnalysisStore;
         _gameTitleProvider = gameTitleProvider;
         _logger = logger;
         _hasPersistedOverrides = _store.OverrideCount > 0;
@@ -97,16 +102,27 @@ internal sealed class UnityTextureReplacementService : IDisposable
 
     public TextureCatalogPage GetCatalog(TextureCatalogQuery query)
     {
-        var result = _catalogStore.Query(query, _store.LoadIndex());
+        var effectiveQuery = string.IsNullOrWhiteSpace(query.TextStatus)
+            ? query
+            : query with { Offset = 0, Limit = int.MaxValue, TextStatus = null };
+        var result = _catalogStore.Query(effectiveQuery, _store.LoadIndex());
+        var statusFilter = ParseTextStatus(query.TextStatus);
+        var items = result.Items
+            .Select(AttachTextAnalysis)
+            .Where(item => statusFilter == null || item.TextAnalysis?.Status == statusFilter.Value)
+            .ToArray();
+        var pageItems = string.IsNullOrWhiteSpace(query.TextStatus)
+            ? items
+            : items.Skip(Math.Max(0, query.Offset)).Take(NormalizeTexturePageLimit(query.Limit)).ToArray();
         return new TextureCatalogPage(
             _scannedUtc,
             result.TotalCount,
             result.ReferenceCount,
             _store.OverrideCount,
-            result.Items,
+            pageItems,
             _lastErrors,
             result.TotalCount,
-            result.FilteredCount,
+            string.IsNullOrWhiteSpace(query.TextStatus) ? result.FilteredCount : items.Length,
             result.Offset,
             result.Limit,
             result.Scenes,
@@ -116,6 +132,171 @@ internal sealed class UnityTextureReplacementService : IDisposable
     public bool TryGetSourceImage(string sourceHash, out byte[] bytes)
     {
         return _catalogStore.TryReadSourceBytes(sourceHash, out bytes);
+    }
+
+    public async Task<TextureTextDetectionResult> AnalyzeTextTexturesAsync(
+        TextureTextDetectionRequest? request,
+        TextureImageTranslationConfig config,
+        string? apiKey,
+        HttpClient httpClient,
+        CancellationToken cancellationToken)
+    {
+        var items = ResolveRequestedItems(request?.SourceHashes);
+        var errors = new List<string>();
+        var updated = new List<TextureTextAnalysis>();
+        var vision = new TextureVisionTextClient(httpClient, () => apiKey);
+        foreach (var item in items)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!_catalogStore.TryReadSourceBytes(item.SourceHash, out var sourceBytes))
+            {
+                errors.Add($"贴图源图不存在：{item.TextureName}");
+                continue;
+            }
+
+            var analysis = TextureTextDetector.Analyze(item, sourceBytes, DateTimeOffset.UtcNow);
+            if (ShouldUseVisionConfirmation(analysis, config, apiKey))
+            {
+                try
+                {
+                    analysis = ApplyVisionResult(
+                        analysis,
+                        await vision.DetectAsync(config, item, sourceBytes, cancellationToken).ConfigureAwait(false));
+                }
+                catch (Exception ex) when (ex is HttpRequestException or InvalidOperationException or TaskCanceledException or Newtonsoft.Json.JsonException)
+                {
+                    analysis = analysis with
+                    {
+                        Status = TextureTextStatus.NeedsManualReview,
+                        NeedsManualReview = true,
+                        LastError = ex.Message
+                    };
+                    errors.Add($"贴图文字视觉确认失败：{item.TextureName}，{ex.Message}");
+                }
+            }
+
+            updated.Add(_textAnalysisStore.Upsert(analysis));
+        }
+
+        return new TextureTextDetectionResult(items.Count, updated.Count, updated, errors);
+    }
+
+    public TextureTextStatusUpdateResult MarkTextStatus(TextureTextStatusUpdateRequest? request)
+    {
+        if (request?.SourceHashes == null || request.SourceHashes.Count == 0)
+        {
+            return new TextureTextStatusUpdateResult(0, Array.Empty<TextureTextAnalysis>(), new[] { "请先选择贴图。" });
+        }
+
+        if (!TryParseManualTextStatus(request.Status, out var status))
+        {
+            return new TextureTextStatusUpdateResult(0, Array.Empty<TextureTextAnalysis>(), new[] { "贴图文字状态无效。" });
+        }
+
+        var updated = new List<TextureTextAnalysis>();
+        foreach (var hash in request.SourceHashes.Where(hash => !string.IsNullOrWhiteSpace(hash)).Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            updated.Add(_textAnalysisStore.Mark(hash, status, DateTimeOffset.UtcNow));
+        }
+
+        return new TextureTextStatusUpdateResult(updated.Count, updated, Array.Empty<string>());
+    }
+
+    public async Task<TextureImageTranslateResult> TranslateTextTexturesAsync(
+        TextureImageTranslateRequest? request,
+        RuntimeConfig config,
+        string? apiKey,
+        HttpClient httpClient,
+        CancellationToken cancellationToken)
+    {
+        if (!config.TextureImageTranslation.Enabled)
+        {
+            return new TextureImageTranslateResult(0, 0, 0, Array.Empty<TextureTextAnalysis>(), new[] { "请先在 AI 翻译设置中启用贴图文字翻译。" });
+        }
+
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            return new TextureImageTranslateResult(0, 0, 0, Array.Empty<TextureTextAnalysis>(), new[] { "请先保存贴图图片生成 API Key。" });
+        }
+
+        var items = ResolveRequestedItems(request?.SourceHashes);
+        var generated = new List<TextureTextAnalysis>();
+        var errors = new List<string>();
+        var client = new TextureImageEditClient(httpClient, () => apiKey);
+        var generatedCount = 0;
+        foreach (var item in items)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var currentAnalysis = item.TextAnalysis ?? _textAnalysisStore.GetOrUnknown(item.SourceHash);
+            if (request?.Force != true && !CanGenerate(currentAnalysis.Status))
+            {
+                errors.Add($"跳过未确认的贴图：{item.TextureName}");
+                continue;
+            }
+
+            if (!_catalogStore.TryReadSourceBytes(item.SourceHash, out var sourceBytes))
+            {
+                errors.Add($"贴图源图不存在：{item.TextureName}");
+                continue;
+            }
+
+            try
+            {
+                var preparation = TextureImagePreprocessor.PrepareForEdit(sourceBytes);
+                var result = await client.EditAsync(
+                    config.TextureImageTranslation,
+                    BuildTextureImagePrompt(item, currentAnalysis, config.TargetLanguage),
+                    preparation.PngBytes,
+                    preparation.RequestSize,
+                    cancellationToken).ConfigureAwait(false);
+                var restored = TextureImagePreprocessor.RestoreGeneratedImage(preparation, result.PngBytes);
+                var saveResult = _store.SaveOverride(item, restored);
+                if (saveResult.ImportedCount <= 0)
+                {
+                    var message = saveResult.Errors.FirstOrDefault() ?? "生成贴图保存失败。";
+                    errors.Add(message);
+                    generated.Add(_textAnalysisStore.Upsert(currentAnalysis with
+                    {
+                        Status = TextureTextStatus.Failed,
+                        NeedsManualReview = true,
+                        UpdatedUtc = DateTimeOffset.UtcNow,
+                        LastError = message
+                    }));
+                    continue;
+                }
+
+                generatedCount++;
+                generated.Add(_textAnalysisStore.Upsert(currentAnalysis with
+                {
+                    Status = TextureTextStatus.Generated,
+                    NeedsManualReview = false,
+                    UpdatedUtc = DateTimeOffset.UtcNow,
+                    LastError = null
+                }));
+            }
+            catch (Exception ex) when (ex is InvalidDataException or NotSupportedException or InvalidOperationException or HttpRequestException or TaskCanceledException or Newtonsoft.Json.JsonException)
+            {
+                errors.Add($"贴图翻译生成失败：{item.TextureName}，{ex.Message}");
+                generated.Add(_textAnalysisStore.Upsert(currentAnalysis with
+                {
+                    Status = TextureTextStatus.Failed,
+                    NeedsManualReview = true,
+                    UpdatedUtc = DateTimeOffset.UtcNow,
+                    LastError = ex.Message
+                }));
+            }
+        }
+
+        var applied = generatedCount > 0
+            ? await EnqueueOnMainThread(() =>
+            {
+                ClearReplacementTextureCache();
+                _hasPersistedOverrides = _store.OverrideCount > 0;
+                _lastAppliedSceneName = ActiveSceneName();
+                return ApplyOverridesToKnownTargets();
+            }).ConfigureAwait(false)
+            : 0;
+        return new TextureImageTranslateResult(items.Count, generatedCount, applied, generated, errors);
     }
 
     public async Task<TextureImportResult> ImportOverridesAsync(byte[] archiveBytes)
@@ -158,6 +339,103 @@ internal sealed class UnityTextureReplacementService : IDisposable
     {
         _disposed = true;
         ClearReplacementTextureCache();
+    }
+
+    private TextureCatalogItem AttachTextAnalysis(TextureCatalogItem item)
+    {
+        return _textAnalysisStore.TryGet(item.SourceHash, out var analysis) && analysis != null
+            ? item with { TextAnalysis = analysis }
+            : item with { TextAnalysis = TextureTextAnalysis.Unknown(item.SourceHash) };
+    }
+
+    private IReadOnlyList<TextureCatalogItem> ResolveRequestedItems(IReadOnlyList<string>? sourceHashes)
+    {
+        var all = _catalogStore
+            .Query(new TextureCatalogQuery(null, 0, int.MaxValue), _store.LoadIndex())
+            .Items
+            .Select(AttachTextAnalysis)
+            .ToArray();
+        if (sourceHashes == null || sourceHashes.Count == 0)
+        {
+            return all;
+        }
+
+        var selected = new HashSet<string>(sourceHashes.Where(hash => !string.IsNullOrWhiteSpace(hash)), StringComparer.OrdinalIgnoreCase);
+        return all.Where(item => selected.Contains(item.SourceHash)).ToArray();
+    }
+
+    private static TextureTextStatus? ParseTextStatus(string? value)
+    {
+        return Enum.TryParse<TextureTextStatus>(value, ignoreCase: true, out var status)
+            ? status
+            : null;
+    }
+
+    private static bool TryParseManualTextStatus(string? value, out TextureTextStatus status)
+    {
+        if (Enum.TryParse(value, ignoreCase: true, out status))
+        {
+            return status is TextureTextStatus.ConfirmedText or
+                TextureTextStatus.NoText or
+                TextureTextStatus.NeedsManualReview or
+                TextureTextStatus.Candidate;
+        }
+
+        status = TextureTextStatus.Unknown;
+        return false;
+    }
+
+    private static int NormalizeTexturePageLimit(int limit)
+    {
+        if (limit <= 0)
+        {
+            return 20;
+        }
+
+        return Math.Min(500, limit);
+    }
+
+    private static bool ShouldUseVisionConfirmation(TextureTextAnalysis analysis, TextureImageTranslationConfig config, string? apiKey)
+    {
+        return config.Enabled &&
+            config.EnableVisionConfirmation &&
+            !string.IsNullOrWhiteSpace(apiKey) &&
+            analysis.Status is TextureTextStatus.Candidate or TextureTextStatus.NeedsManualReview;
+    }
+
+    private static TextureTextAnalysis ApplyVisionResult(TextureTextAnalysis local, TextureVisionTextResult vision)
+    {
+        var status = vision.HasText
+            ? vision.Confidence >= 0.7 ? TextureTextStatus.ConfirmedText : TextureTextStatus.NeedsManualReview
+            : vision.Confidence >= 0.8 ? TextureTextStatus.LikelyNoText : TextureTextStatus.NeedsManualReview;
+        return local with
+        {
+            Status = status,
+            Confidence = Math.Max(local.Confidence, vision.Confidence),
+            DetectedText = string.IsNullOrWhiteSpace(vision.DetectedText) ? local.DetectedText : vision.DetectedText,
+            Reason = string.IsNullOrWhiteSpace(vision.Reason) ? local.Reason : vision.Reason,
+            NeedsManualReview = vision.NeedsManualReview || status == TextureTextStatus.NeedsManualReview,
+            UpdatedUtc = DateTimeOffset.UtcNow,
+            LastError = null
+        };
+    }
+
+    private static bool CanGenerate(TextureTextStatus status)
+    {
+        return status is TextureTextStatus.ConfirmedText or TextureTextStatus.NeedsManualReview or TextureTextStatus.Candidate or TextureTextStatus.Generated;
+    }
+
+    private string BuildTextureImagePrompt(TextureCatalogItem item, TextureTextAnalysis analysis, string targetLanguage)
+    {
+        var detectedText = string.IsNullOrWhiteSpace(analysis.DetectedText)
+            ? "unknown or stylized source text"
+            : analysis.DetectedText;
+        var gameTitle = _gameTitleProvider();
+        return "Translate every visible text element in this game texture to " + targetLanguage + ". " +
+            "Keep the same image dimensions, composition, icons, background, colors, borders, lighting, texture style, and poster/art lettering placement. " +
+            "Do not add new objects, watermarks, captions, logos, or explanatory text. " +
+            "Only replace the original visible text with a natural localized translation. " +
+            $"Detected source text: {detectedText}. Texture name: {item.TextureName}. Game: {gameTitle ?? "unknown"}.";
     }
 
     private Task<T> EnqueueOnMainThread<T>(Func<T> action)

@@ -25,7 +25,6 @@ public sealed class CfgControlPanelSettingsStoreTests
         cfg.Should().NotContain("[翻译服务]");
         cfg.Should().NotContain("ApiKey =");
         cfg.Should().NotContain("EncryptedApiKey =");
-        cfg.Should().NotContain("BaseUrl =");
         cfg.Should().NotContain("Model = gpt-5.5");
     }
 

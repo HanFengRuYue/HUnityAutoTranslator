@@ -334,6 +334,37 @@ public sealed class WorkerPoolTests
     }
 
     [Fact]
+    public async Task WorkerPool_batches_sixteen_short_imgui_texts_in_one_request()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var provider = new CapturingProvider(Enumerable.Range(0, 16).Select(index => "\u8bd1" + index).ToArray());
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            MaxConcurrentRequests = 1,
+            MaxBatchCharacters = 1800
+        };
+        var pool = new TranslationWorkerPool(queue, dispatcher, provider, new ProviderRateLimiter(600), config, cache);
+
+        for (var i = 0; i < 16; i++)
+        {
+            queue.Enqueue(TranslationJob.Create(
+                $"imgui-{i}",
+                $"Command {i}",
+                TranslationPriority.VisibleUi,
+                new TranslationCacheContext("title_01", null, "IMGUI"),
+                publishResult: false));
+        }
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        provider.Requests.Should().ContainSingle();
+        provider.Requests[0].ProtectedTexts.Should().HaveCount(16);
+        dispatcher.PendingCount.Should().Be(0);
+    }
+
+    [Fact]
     public async Task WorkerPool_emits_debug_snapshot_for_quality_context()
     {
         var queue = new TranslationJobQueue();

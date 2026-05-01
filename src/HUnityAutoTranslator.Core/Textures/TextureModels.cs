@@ -18,12 +18,16 @@ public sealed record TextureCatalogItem(
     int ReferenceCount,
     IReadOnlyList<TextureReferenceInfo> References,
     bool HasOverride,
-    DateTimeOffset? OverrideUpdatedUtc);
+    DateTimeOffset? OverrideUpdatedUtc)
+{
+    public TextureTextAnalysis? TextAnalysis { get; init; }
+}
 
 public sealed record TextureCatalogQuery(
     string? SceneName,
     int Offset,
-    int Limit);
+    int Limit,
+    string? TextStatus = null);
 
 public sealed record TextureCatalogQueryResult(
     int TotalCount,
@@ -88,6 +92,73 @@ public sealed record TextureOverrideClearResult(
     int DeletedCount,
     int RestoredCount,
     IReadOnlyList<string> Errors);
+
+public sealed record TextureTextDetectionResult(
+    int RequestedCount,
+    int UpdatedCount,
+    IReadOnlyList<TextureTextAnalysis> Items,
+    IReadOnlyList<string> Errors);
+
+public sealed record TextureTextDetectionRequest(
+    IReadOnlyList<string>? SourceHashes = null);
+
+public sealed record TextureTextStatusUpdateRequest(
+    IReadOnlyList<string> SourceHashes,
+    string Status);
+
+public sealed record TextureTextStatusUpdateResult(
+    int UpdatedCount,
+    IReadOnlyList<TextureTextAnalysis> Items,
+    IReadOnlyList<string> Errors);
+
+public sealed record TextureImageTranslateRequest(
+    IReadOnlyList<string> SourceHashes,
+    bool Force = false);
+
+public sealed record TextureImageTranslateResult(
+    int RequestedCount,
+    int GeneratedCount,
+    int AppliedCount,
+    IReadOnlyList<TextureTextAnalysis> Items,
+    IReadOnlyList<string> Errors);
+
+public enum TextureTextStatus
+{
+    Unknown = 0,
+    LikelyNoText = 1,
+    Candidate = 2,
+    ConfirmedText = 3,
+    NeedsManualReview = 4,
+    NoText = 5,
+    Generated = 6,
+    Failed = 7
+}
+
+public sealed record TextureTextAnalysis(
+    string SourceHash,
+    TextureTextStatus Status,
+    double Confidence,
+    string? DetectedText,
+    string? Reason,
+    bool NeedsManualReview,
+    bool UserReviewed,
+    DateTimeOffset UpdatedUtc,
+    string? LastError)
+{
+    public static TextureTextAnalysis Unknown(string sourceHash)
+    {
+        return new TextureTextAnalysis(
+            sourceHash,
+            TextureTextStatus.Unknown,
+            0,
+            null,
+            null,
+            false,
+            false,
+            DateTimeOffset.UtcNow,
+            null);
+    }
+}
 
 public sealed record TextureOverrideIndex(IReadOnlyList<TextureOverrideRecord> Records)
 {

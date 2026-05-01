@@ -131,6 +131,28 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_ai_settings_exposes_texture_image_translation_settings()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var storeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "state", "controlPanelStore.ts"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+
+        apiTypesSource.Should().Contain("export interface TextureImageTranslationConfig");
+        apiTypesSource.Should().Contain("TextureImageTranslation: TextureImageTranslationConfig;");
+        apiTypesSource.Should().Contain("TextureImageApiKeyConfigured: boolean;");
+        storeSource.Should().Contain("/api/texture-image/key");
+        aiPageSource.Should().Contain("defaultTextureImageConfig");
+        aiPageSource.Should().Contain("TextureImageTranslation: buildTextureImageConfig()");
+        aiPageSource.Should().Contain("id=\"textureImageEnabled\"");
+        aiPageSource.Should().Contain("id=\"textureImageBaseUrl\"");
+        aiPageSource.Should().Contain("id=\"textureImageEditEndpoint\"");
+        aiPageSource.Should().Contain("id=\"textureImageImageModel\"");
+        aiPageSource.Should().Contain("id=\"textureImageVisionEndpoint\"");
+        aiPageSource.Should().Contain("id=\"textureImageApiKey\"");
+        aiPageSource.Should().Contain("/api/texture-image/test");
+    }
+
+    [Fact]
     public void Vue_translation_context_controls_belong_to_ai_settings()
     {
         var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
@@ -1281,6 +1303,33 @@ public sealed class ControlPanelVueSourceTests
         cssSource.Should().Contain(".texture-list");
         cssSource.Should().Contain(".texture-gallery");
         cssSource.Should().Contain(".texture-pager");
+    }
+
+    [Fact]
+    public void Vue_texture_page_exposes_text_detection_confirmation_and_generation_flow()
+    {
+        var texturePageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TexturePage.vue"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        apiTypesSource.Should().Contain("export interface TextureTextAnalysis");
+        apiTypesSource.Should().Contain("export interface TextureTextDetectionResult");
+        apiTypesSource.Should().Contain("export interface TextureImageTranslateResult");
+        texturePageSource.Should().Contain("const textStatusOptions");
+        texturePageSource.Should().Contain("const textStatusFilter");
+        texturePageSource.Should().Contain("textStatus: textStatusFilter.value");
+        texturePageSource.Should().Contain("/api/textures/analyze-text");
+        texturePageSource.Should().Contain("/api/textures/text-status");
+        texturePageSource.Should().Contain("/api/textures/translate-text");
+        texturePageSource.Should().Contain("id=\"textureTextStatusFilter\"");
+        texturePageSource.Should().Contain("id=\"detectTextureText\"");
+        texturePageSource.Should().Contain("id=\"confirmTextureText\"");
+        texturePageSource.Should().Contain("id=\"markTextureNoText\"");
+        texturePageSource.Should().Contain("id=\"translateTextureText\"");
+        texturePageSource.Should().Contain("textureTextStatusLabel(item)");
+        texturePageSource.Should().Contain("toggleTextureSelectionFromEvent");
+        cssSource.Should().Contain(".texture-text-badge");
+        cssSource.Should().Contain(".texture-selection-tools");
     }
 
     [Fact]

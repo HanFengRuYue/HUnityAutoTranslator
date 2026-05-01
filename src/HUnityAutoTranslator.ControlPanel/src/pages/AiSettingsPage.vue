@@ -12,6 +12,7 @@ import {
   FolderOpen,
   Gauge,
   Gamepad2,
+  Images,
   KeyRound,
   Layers,
   ListChecks,
@@ -35,6 +36,7 @@ import {
   controlPanelStore,
   refreshState,
   saveConfig,
+  saveTextureImageApiKey,
   setDirtyForm,
   showToast
 } from "../state/controlPanelStore";
@@ -56,6 +58,7 @@ import type {
   ProviderProfileState,
   ProviderProfileUpdateRequest,
   ProviderTestResult,
+  TextureImageTranslationConfig,
   UpdateConfigRequest
 } from "../types/api";
 import { targetLanguageOptions } from "../utils/languages";
@@ -136,6 +139,21 @@ function createPromptTemplates(): PromptTemplateConfig {
   };
 }
 
+function defaultTextureImageConfig(): TextureImageTranslationConfig {
+  return {
+    Enabled: false,
+    BaseUrl: "http://192.168.2.10:8317",
+    EditEndpoint: "/v1/images/edits",
+    VisionEndpoint: "/v1/responses",
+    ImageModel: "gpt-image-2",
+    VisionModel: "gpt-5.4-mini",
+    Quality: "medium",
+    TimeoutSeconds: 180,
+    MaxConcurrentRequests: 1,
+    EnableVisionConfirmation: true
+  };
+}
+
 const form = reactive({
   TargetLanguage: "zh-Hans",
   GameTitle: "",
@@ -147,6 +165,17 @@ const form = reactive({
   TranslationContextMaxCharacters: 1200,
   CustomPrompt: "",
   PromptTemplates: createPromptTemplates(),
+  TextureImageEnabled: false,
+  TextureImageBaseUrl: "http://192.168.2.10:8317",
+  TextureImageEditEndpoint: "/v1/images/edits",
+  TextureImageVisionEndpoint: "/v1/responses",
+  TextureImageImageModel: "gpt-image-2",
+  TextureImageVisionModel: "gpt-5.4-mini",
+  TextureImageQuality: "medium",
+  TextureImageTimeoutSeconds: 180,
+  TextureImageMaxConcurrentRequests: 1,
+  TextureImageEnableVisionConfirmation: true,
+  TextureImageApiKey: "",
   LlamaCppModelPath: "",
   LlamaCppContextSize: 4096,
   LlamaCppGpuLayers: 999,
@@ -192,6 +221,7 @@ const profileDirty = ref(false);
 const profileBusy = ref(false);
 const utilityBusy = ref(false);
 const importInput = ref<HTMLInputElement | null>(null);
+const textureImageBusy = ref(false);
 const llamaCppBusy = ref(false);
 const llamaCppModelPicking = ref(false);
 const llamaCppBenchmarkBusy = ref(false);
@@ -218,6 +248,7 @@ const profileTemperatureValue = computed(() => {
   return Number.isFinite(parsed) ? Math.max(0, Math.min(2, parsed)) : 0.2;
 });
 const activeStyleHint = computed(() => styleHints[numberValue(form.Style)] ?? "");
+const textureImageKeyText = computed(() => controlPanelStore.state?.TextureImageApiKeyConfigured ? "已保存 Key" : "未保存 Key");
 const automaticGameTitle = computed(() => controlPanelStore.state?.AutomaticGameTitle ?? "");
 const defaultPromptTemplates = computed(() => controlPanelStore.state?.DefaultPromptTemplates ?? createPromptTemplates());
 const activePromptTemplate = computed(() =>
@@ -518,6 +549,17 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.EnableTranslationContext = Boolean(state.EnableTranslationContext);
   form.TranslationContextMaxExamples = state.TranslationContextMaxExamples ?? 4;
   form.TranslationContextMaxCharacters = state.TranslationContextMaxCharacters ?? 1200;
+  const textureImage = state.TextureImageTranslation ?? defaultTextureImageConfig();
+  form.TextureImageEnabled = Boolean(textureImage.Enabled);
+  form.TextureImageBaseUrl = textureImage.BaseUrl ?? "http://192.168.2.10:8317";
+  form.TextureImageEditEndpoint = textureImage.EditEndpoint ?? "/v1/images/edits";
+  form.TextureImageVisionEndpoint = textureImage.VisionEndpoint ?? "/v1/responses";
+  form.TextureImageImageModel = textureImage.ImageModel ?? "gpt-image-2";
+  form.TextureImageVisionModel = textureImage.VisionModel ?? "gpt-5.4-mini";
+  form.TextureImageQuality = textureImage.Quality ?? "medium";
+  form.TextureImageTimeoutSeconds = textureImage.TimeoutSeconds ?? 180;
+  form.TextureImageMaxConcurrentRequests = textureImage.MaxConcurrentRequests ?? 1;
+  form.TextureImageEnableVisionConfirmation = textureImage.EnableVisionConfirmation ?? true;
   form.LlamaCppModelPath = state.LlamaCpp?.ModelPath ?? "";
   form.LlamaCppContextSize = state.LlamaCpp?.ContextSize ?? 4096;
   form.LlamaCppGpuLayers = state.LlamaCpp?.GpuLayers ?? 999;
@@ -578,7 +620,23 @@ function buildConfigRequest(providerKind = form.ProviderKind): UpdateConfigReque
     TranslationContextMaxExamples: numberValue(form.TranslationContextMaxExamples),
     TranslationContextMaxCharacters: numberValue(form.TranslationContextMaxCharacters),
     PromptTemplates: buildPromptTemplateOverrides(),
+    TextureImageTranslation: buildTextureImageConfig(),
     LlamaCpp: buildLlamaCppConfig()
+  };
+}
+
+function buildTextureImageConfig(): TextureImageTranslationConfig {
+  return {
+    Enabled: form.TextureImageEnabled,
+    BaseUrl: form.TextureImageBaseUrl.trim(),
+    EditEndpoint: form.TextureImageEditEndpoint.trim(),
+    VisionEndpoint: form.TextureImageVisionEndpoint.trim(),
+    ImageModel: form.TextureImageImageModel.trim(),
+    VisionModel: form.TextureImageVisionModel.trim(),
+    Quality: form.TextureImageQuality,
+    TimeoutSeconds: numberValue(form.TextureImageTimeoutSeconds),
+    MaxConcurrentRequests: numberValue(form.TextureImageMaxConcurrentRequests),
+    EnableVisionConfirmation: form.TextureImageEnableVisionConfirmation
   };
 }
 
@@ -661,6 +719,35 @@ async function saveGlobalConfig(options: SaveBehavior = {}): Promise<void> {
   const state = await saveConfig(buildConfigRequest(), formKey, options);
   if (state) {
     applyState(state, true);
+  }
+}
+
+async function saveTextureImageKey(): Promise<void> {
+  textureImageBusy.value = true;
+  try {
+    const state = await saveTextureImageApiKey(form.TextureImageApiKey);
+    if (state) {
+      form.TextureImageApiKey = "";
+      applyState(state, true);
+    }
+  } finally {
+    textureImageBusy.value = false;
+  }
+}
+
+async function testTextureImageConnection(): Promise<void> {
+  textureImageBusy.value = true;
+  try {
+    if (formDirty.value) {
+      await saveGlobalConfig({ quiet: true });
+    }
+
+    const result = await api<ProviderTestResult>("/api/texture-image/test", { method: "POST" });
+    showToast(result.Message, result.Succeeded ? "ok" : "error", 5200);
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "贴图图片生成连接测试失败。", "error");
+  } finally {
+    textureImageBusy.value = false;
   }
 }
 
@@ -1204,6 +1291,80 @@ watch(selectedProfileId, () => applySelectedProfile(true));
             <span class="field-label"><MessageSquareText class="field-label-icon" />上下文字符数</span>
             <input id="translationContextMaxCharacters" v-model.number="form.TranslationContextMaxCharacters" type="number" min="0" @input="markDirty">
           </label>
+        </div>
+      </SectionPanel>
+
+      <SectionPanel title="贴图文字翻译" :icon="Images">
+        <div class="checks">
+          <label class="check help-target" data-help="启用后，贴图页可以把确认含文字的 PNG 发给图片生成模型翻译。">
+            <input id="textureImageEnabled" v-model="form.TextureImageEnabled" type="checkbox" @change="markDirty">
+            启用贴图文字翻译
+          </label>
+          <label class="check help-target" data-help="对本地疑似项再调用视觉确认；不确定时进入人工确认，不直接跳过。">
+            <input id="textureImageVisionConfirmation" v-model="form.TextureImageEnableVisionConfirmation" type="checkbox" @change="markDirty">
+            启用视觉确认
+          </label>
+        </div>
+
+        <div class="form-grid four">
+          <label class="field help-target" data-help="CLI Proxy API 的根地址。">
+            <span class="field-label"><Server class="field-label-icon" />Base URL</span>
+            <input id="textureImageBaseUrl" v-model="form.TextureImageBaseUrl" autocomplete="off" @input="markDirty">
+          </label>
+          <label class="field help-target" data-help="图片编辑接口路径，默认使用 /v1/images/edits。">
+            <span class="field-label"><Settings2 class="field-label-icon" />编辑端点</span>
+            <input id="textureImageEditEndpoint" v-model="form.TextureImageEditEndpoint" autocomplete="off" @input="markDirty">
+          </label>
+          <label class="field help-target" data-help="负责生成翻译贴图的图片模型。">
+            <span class="field-label"><Images class="field-label-icon" />图片模型</span>
+            <input id="textureImageImageModel" v-model="form.TextureImageImageModel" autocomplete="off" @input="markDirty">
+          </label>
+          <label class="field help-target" data-help="生成质量会随请求发给图片编辑接口。">
+            <span class="field-label"><Gauge class="field-label-icon" />质量</span>
+            <select id="textureImageQuality" v-model="form.TextureImageQuality" @change="markDirty">
+              <option value="low">低</option>
+              <option value="medium">中</option>
+              <option value="high">高</option>
+              <option value="auto">自动</option>
+            </select>
+          </label>
+          <label class="field help-target" data-help="单次图片生成或视觉确认的超时时间。">
+            <span class="field-label"><Clock3 class="field-label-icon" />超时秒数</span>
+            <input id="textureImageTimeoutSeconds" v-model.number="form.TextureImageTimeoutSeconds" type="number" min="30" max="300" @input="markDirty">
+          </label>
+          <label class="field help-target" data-help="贴图图片生成独立排队，不占用文本翻译并发。">
+            <span class="field-label"><Zap class="field-label-icon" />并发</span>
+            <input id="textureImageMaxConcurrentRequests" v-model.number="form.TextureImageMaxConcurrentRequests" type="number" min="1" max="4" @input="markDirty">
+          </label>
+          <label class="field help-target" data-help="视觉确认接口路径，用于判断艺术字、海报和招牌是否含文字。">
+            <span class="field-label"><Settings2 class="field-label-icon" />视觉端点</span>
+            <input id="textureImageVisionEndpoint" v-model="form.TextureImageVisionEndpoint" autocomplete="off" @input="markDirty">
+          </label>
+          <label class="field help-target" data-help="负责确认贴图中是否有文字的视觉模型。">
+            <span class="field-label"><Brain class="field-label-icon" />视觉模型</span>
+            <input id="textureImageVisionModel" v-model="form.TextureImageVisionModel" autocomplete="off" @input="markDirty">
+          </label>
+        </div>
+
+        <div class="form-grid two">
+          <label class="field help-target" data-help="密钥会加密保存；留空保存会清除贴图图片生成密钥。">
+            <span class="field-label"><KeyRound class="field-label-icon" />API Key</span>
+            <input id="textureImageApiKey" v-model="form.TextureImageApiKey" type="password" autocomplete="off" :placeholder="textureImageKeyText">
+          </label>
+          <div class="field">
+            <span class="field-label"><KeyRound class="field-label-icon" />连接</span>
+            <div class="actions inline-actions">
+              <button class="secondary" type="button" :disabled="textureImageBusy" @click="saveTextureImageKey">
+                <Save class="button-icon" />
+                保存 Key
+              </button>
+              <button class="secondary" type="button" :disabled="textureImageBusy || !controlPanelStore.state?.TextureImageApiKeyConfigured" @click="testTextureImageConnection">
+                <Play class="button-icon" />
+                连接测试
+              </button>
+              <span class="hint">{{ textureImageKeyText }}</span>
+            </div>
+          </div>
         </div>
       </SectionPanel>
 

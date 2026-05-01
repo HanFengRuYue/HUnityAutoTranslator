@@ -210,6 +210,47 @@ public sealed class TextureOverrideStore
         }
     }
 
+    public TextureImportResult SaveOverride(TextureCatalogItem item, byte[] pngBytes)
+    {
+        if (string.IsNullOrWhiteSpace(item.SourceHash))
+        {
+            return new TextureImportResult(0, 0, new[] { "贴图来源哈希为空。" });
+        }
+
+        if (pngBytes.Length > MaxTextureEntryBytes)
+        {
+            return new TextureImportResult(0, 0, new[] { $"贴图文件过大：{item.TextureName}" });
+        }
+
+        if (!PngTextureInfo.TryReadDimensions(pngBytes, out var width, out var height))
+        {
+            return new TextureImportResult(0, 0, new[] { $"贴图文件不是有效 PNG：{item.TextureName}" });
+        }
+
+        if (width != item.Width || height != item.Height)
+        {
+            return new TextureImportResult(0, 0, new[] { $"贴图 {item.TextureName} 尺寸不匹配：生成 {width}x{height}，原始 {item.Width}x{item.Height}。" });
+        }
+
+        var records = LoadIndex().Records
+            .ToDictionary(record => record.SourceHash, StringComparer.OrdinalIgnoreCase);
+        var fileName = TextureArchiveNaming.BuildOverrideFileName(item.SourceHash);
+        var filePath = Path.Combine(_directory, fileName);
+        Directory.CreateDirectory(_directory);
+        File.WriteAllBytes(filePath, pngBytes);
+        records[item.SourceHash] = new TextureOverrideRecord(
+            item.SourceHash,
+            fileName,
+            width,
+            height,
+            DateTimeOffset.UtcNow)
+        {
+            FilePath = filePath
+        };
+        SaveIndex(records.Values);
+        return new TextureImportResult(1, 0, Array.Empty<string>());
+    }
+
     public TextureOverrideClearResult ClearOverrides()
     {
         var deleted = 0;

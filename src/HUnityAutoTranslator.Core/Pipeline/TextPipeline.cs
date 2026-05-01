@@ -89,7 +89,8 @@ public sealed class TextPipeline
             capturedText.TargetId,
             capturedText.SourceText,
             capturedText.IsVisible ? TranslationPriority.VisibleUi : TranslationPriority.Normal,
-            capturedText.Context));
+            capturedText.Context,
+            publishResult: capturedText.PublishResult));
         if (enqueued)
         {
             _metrics?.RecordQueued();

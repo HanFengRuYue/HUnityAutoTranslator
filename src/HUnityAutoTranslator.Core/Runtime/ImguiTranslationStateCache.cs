@@ -121,7 +121,8 @@ internal sealed class ImguiTranslationStateCache
 
     private bool TrySpendNewItemBudget(double nowSeconds)
     {
-        if (_newItemsThisFrame >= _maxNewItemsPerFrame || nowSeconds < _nextNewItemSeconds)
+        if (_newItemsThisFrame >= _maxNewItemsPerFrame ||
+            (_newItemsThisFrame == 0 && nowSeconds < _nextNewItemSeconds))
         {
             return false;
         }
@@ -133,7 +134,8 @@ internal sealed class ImguiTranslationStateCache
 
     private bool TrySpendRefreshBudget(double nowSeconds)
     {
-        if (_refreshesThisFrame >= _maxRefreshesPerFrame || nowSeconds < _nextRefreshSeconds)
+        if (_refreshesThisFrame >= _maxRefreshesPerFrame ||
+            (_refreshesThisFrame == 0 && nowSeconds < _nextRefreshSeconds))
         {
             return false;
         }

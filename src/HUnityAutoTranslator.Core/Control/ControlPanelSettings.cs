@@ -9,4 +9,7 @@ public sealed class ControlPanelSettings
 
     [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
     public string? EncryptedApiKey { get; set; }
+
+    [Newtonsoft.Json.JsonProperty(NullValueHandling = Newtonsoft.Json.NullValueHandling.Ignore)]
+    public string? TextureImageEncryptedSecret { get; set; }
 }

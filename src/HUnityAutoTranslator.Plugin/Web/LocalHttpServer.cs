@@ -148,6 +148,18 @@ internal sealed class LocalHttpServer : IDisposable
                 _logger.LogInfo(string.IsNullOrWhiteSpace(apiKey) ? "已清除 API Key。" : "已保存 API Key。");
                 await WriteStateAsync(context.Response).ConfigureAwait(false);
             }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/texture-image/key")
+            {
+                var body = await ReadBodyAsync(context.Request).ConfigureAwait(false);
+                var apiKey = JObject.Parse(string.IsNullOrWhiteSpace(body) ? "{}" : body).Value<string>("ApiKey");
+                _controlPanel.SetTextureImageApiKey(apiKey ?? string.Empty);
+                _logger.LogInfo(string.IsNullOrWhiteSpace(apiKey) ? "已清除贴图图片生成 API Key。" : "已保存贴图图片生成 API Key。");
+                await WriteStateAsync(context.Response).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/texture-image/test")
+            {
+                await WriteJsonAsync(context.Response, await TestTextureImageConnectionAsync().ConfigureAwait(false)).ConfigureAwait(false);
+            }
             else if (context.Request.HttpMethod == "POST" && path == "/api/fonts/pick")
             {
                 await WriteJsonAsync(context.Response, WindowsFontFilePicker.PickFontFile()).ConfigureAwait(false);
@@ -410,6 +422,35 @@ internal sealed class LocalHttpServer : IDisposable
             else if (context.Request.HttpMethod == "POST" && path == "/api/textures/scan")
             {
                 await WriteJsonAsync(context.Response, await _textureReplacement.RequestScanAsync().ConfigureAwait(false)).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/textures/analyze-text")
+            {
+                var request = await ReadJsonAsync<TextureTextDetectionRequest>(context.Request).ConfigureAwait(false);
+                await WriteJsonAsync(
+                    context.Response,
+                    await _textureReplacement.AnalyzeTextTexturesAsync(
+                        request,
+                        _controlPanel.GetConfig().TextureImageTranslation,
+                        _controlPanel.GetTextureImageApiKey(),
+                        _httpClient,
+                        CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/textures/text-status")
+            {
+                var request = await ReadJsonAsync<TextureTextStatusUpdateRequest>(context.Request).ConfigureAwait(false);
+                await WriteJsonAsync(context.Response, _textureReplacement.MarkTextStatus(request)).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/textures/translate-text")
+            {
+                var request = await ReadJsonAsync<TextureImageTranslateRequest>(context.Request).ConfigureAwait(false);
+                await WriteJsonAsync(
+                    context.Response,
+                    await _textureReplacement.TranslateTextTexturesAsync(
+                        request,
+                        _controlPanel.GetConfig(),
+                        _controlPanel.GetTextureImageApiKey(),
+                        _httpClient,
+                        CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "GET" && path == "/api/textures")
             {
@@ -769,6 +810,34 @@ internal sealed class LocalHttpServer : IDisposable
         return new ProviderUtilityClient(_httpClient, () => profile.ApiKey);
     }
 
+    private async Task<ProviderTestResult> TestTextureImageConnectionAsync()
+    {
+        var config = _controlPanel.GetConfig().TextureImageTranslation;
+        var apiKey = _controlPanel.GetTextureImageApiKey();
+        if (string.IsNullOrWhiteSpace(apiKey))
+        {
+            return new ProviderTestResult(false, "请先保存贴图图片生成 API Key。");
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, TextureImageEditClient.BuildUri(config.BaseUrl, "/v1/models"));
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+            using var response = await _httpClient.SendAsync(request).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+            if (!response.IsSuccessStatusCode)
+            {
+                return new ProviderTestResult(false, $"贴图图片服务连接失败：HTTP {(int)response.StatusCode}。{body}");
+            }
+
+            return new ProviderTestResult(true, "贴图图片服务连接可用。");
+        }
+        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        {
+            return new ProviderTestResult(false, $"贴图图片服务连接失败：{ex.Message}");
+        }
+    }
+
     private static TranslationCacheQuery ParseTranslationQuery(HttpListenerRequest request)
     {
         var parameters = request.QueryString;
@@ -799,7 +868,8 @@ internal sealed class LocalHttpServer : IDisposable
         return new TextureCatalogQuery(
             SceneName: parameters["scene"],
             Offset: int.TryParse(parameters["offset"], out var offset) ? Math.Max(0, offset) : 0,
-            Limit: int.TryParse(parameters["limit"], out var limit) ? limit : 20);
+            Limit: int.TryParse(parameters["limit"], out var limit) ? limit : 20,
+            TextStatus: parameters["textStatus"]);
     }
 
     private static string? ExtractTextureImageHash(string path)

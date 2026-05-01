@@ -61,4 +61,5 @@ public sealed record UpdateConfigRequest(
     int? FontSamplingPointSize = null,
     FontSizeAdjustmentMode? FontSizeAdjustmentMode = null,
     double? FontSizeAdjustmentValue = null,
+    TextureImageTranslationConfig? TextureImageTranslation = null,
     LlamaCppConfig? LlamaCpp = null);
