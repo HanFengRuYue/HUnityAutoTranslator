@@ -1405,6 +1405,24 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_texture_page_exposes_deferred_large_texture_scan()
+    {
+        var texturePageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TexturePage.vue"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+
+        apiTypesSource.Should().Contain("DeferredTargetCount: number;");
+        apiTypesSource.Should().Contain("DeferredTextureCount: number;");
+        apiTypesSource.Should().Contain("export interface TextureScanRequest");
+        apiTypesSource.Should().Contain("IncludeDeferredLargeTextures");
+        texturePageSource.Should().Contain("scanLargeTextures");
+        texturePageSource.Should().Contain("IncludeDeferredLargeTextures: true");
+        texturePageSource.Should().Contain("id=\"scanLargeTextures\"");
+        texturePageSource.Should().Contain("延迟超大贴图");
+        texturePageSource.Should().Contain("DeferredTargetCount");
+        texturePageSource.Should().Contain("DeferredTextureCount");
+    }
+
+    [Fact]
     public void Vue_texture_page_uses_override_thumbnails_and_comparison_dialog()
     {
         var texturePageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TexturePage.vue"));

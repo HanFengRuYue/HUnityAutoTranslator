@@ -587,6 +587,8 @@ export interface TextureCatalogScanStatus {
   ProcessedTargets: number;
   DiscoveredTextureCount: number;
   DiscoveredReferenceCount: number;
+  DeferredTargetCount: number;
+  DeferredTextureCount: number;
 }
 
 export interface TextureCatalogPage {
@@ -610,8 +612,14 @@ export interface TextureScanResult {
   ReferenceCount: number;
   OverrideCount: number;
   Errors: string[];
+  DeferredTargetCount: number;
+  DeferredTextureCount: number;
   IsScanning: boolean;
   Message: string;
+}
+
+export interface TextureScanRequest {
+  IncludeDeferredLargeTextures?: boolean;
 }
 
 export interface TextureImportResult {

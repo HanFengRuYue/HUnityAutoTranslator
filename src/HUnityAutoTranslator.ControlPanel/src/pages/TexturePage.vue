@@ -27,6 +27,7 @@ import type {
   TextureImageTranslateResult,
   TextureImportResult,
   TextureOverrideClearResult,
+  TextureScanRequest,
   TextureScanResult,
   TextureTextDetectionResult,
   TextureTextStatus,
@@ -73,16 +74,24 @@ const filteredCount = computed(() => catalog.value?.FilteredCount ?? 0);
 const totalPages = computed(() => Math.max(1, Math.ceil(filteredCount.value / pageSize.value)));
 const selectedCount = computed(() => selectedHashes.value.size);
 const scannedText = computed(() => catalog.value?.ScannedUtc ? formatDateTime(catalog.value.ScannedUtc) : "尚未扫描");
+const deferredTargetCount = computed(() => scanStatus.value?.DeferredTargetCount ?? 0);
+const deferredTextureCount = computed(() => scanStatus.value?.DeferredTextureCount ?? 0);
+const deferredSummaryText = computed(() => deferredTargetCount.value > 0
+  ? `${formatNumber(deferredTextureCount.value)} 张 / ${formatNumber(deferredTargetCount.value)} 个引用`
+  : "0");
 const scanStatusText = computed(() => {
   if (!scanStatus.value) {
     return "等待扫描";
   }
 
+  const deferredText = scanStatus.value.DeferredTargetCount > 0
+    ? `，延迟超大贴图 ${formatNumber(scanStatus.value.DeferredTextureCount)} 张`
+    : "";
   if (scanStatus.value.IsScanning) {
-    return `${scanStatus.value.Message} 已处理 ${formatNumber(scanStatus.value.ProcessedTargets)} 个目标`;
+    return `${scanStatus.value.Message} 已处理 ${formatNumber(scanStatus.value.ProcessedTargets)} 个目标${deferredText}`;
   }
 
-  return "空闲";
+  return `空闲${deferredText}`;
 });
 
 function clearScanPoll(): void {
@@ -123,18 +132,29 @@ async function loadCatalog(): Promise<void> {
   }
 }
 
-async function scanTextures(): Promise<void> {
+async function runTextureScan(body: TextureScanRequest): Promise<void> {
   scanStarting.value = true;
   operationErrors.value = [];
   try {
-    const result = await api<TextureScanResult>("/api/textures/scan", { method: "POST" });
+    const result = await api<TextureScanResult>("/api/textures/scan", { method: "POST", body });
     await loadCatalog();
-    showToast(result.Message || "贴图扫描已开始。", result.IsScanning ? "info" : result.Errors.length ? "warn" : "ok");
+    const deferredText = result.DeferredTargetCount > 0
+      ? ` 已延迟 ${formatNumber(result.DeferredTextureCount)} 张超大贴图。`
+      : "";
+    showToast((result.Message || "贴图扫描已开始。") + deferredText, result.IsScanning ? "info" : result.Errors.length ? "warn" : "ok");
   } catch (error) {
     showToast(error instanceof Error ? error.message : "贴图扫描失败。", "error");
   } finally {
     scanStarting.value = false;
   }
+}
+
+async function scanTextures(): Promise<void> {
+  await runTextureScan({ IncludeDeferredLargeTextures: false });
+}
+
+async function scanLargeTextures(): Promise<void> {
+  await runTextureScan({ IncludeDeferredLargeTextures: true });
 }
 
 function safeFileNamePart(value: string | null | undefined): string {
@@ -459,6 +479,10 @@ onUnmounted(clearScanPoll);
           <ScanLine class="button-icon" />
           {{ isScanning ? "扫描中..." : "扫描贴图" }}
         </button>
+        <button id="scanLargeTextures" class="secondary" type="button" :disabled="isScanning || deferredTargetCount === 0" @click="scanLargeTextures">
+          <ScanLine class="button-icon" />
+          扫描超大贴图
+        </button>
         <button id="exportTextures" class="primary" type="button" :disabled="exporting" @click="exportTextures">
           <Download class="button-icon" />
           {{ exporting ? "导出中..." : "导出贴图包" }}
@@ -470,6 +494,7 @@ onUnmounted(clearScanPoll);
       <MetricCard label="贴图" :value="formatNumber(catalog?.TextureCount)" help="已记录到贴图目录的去重 PNG 数量。" />
       <MetricCard label="引用" :value="formatNumber(catalog?.ReferenceCount)" help="已记录到贴图目录的组件引用数量。" />
       <MetricCard label="覆盖" :value="formatNumber(catalog?.OverrideCount)" help="已持久化的覆盖贴图数量。" />
+      <MetricCard label="延迟超大贴图" :value="deferredSummaryText" help="默认扫描为避免卡顿而延迟处理的超大贴图数量。" />
       <MetricCard label="最近扫描" :value="scannedText" help="最近一次完成贴图扫描的时间。" />
     </div>
 

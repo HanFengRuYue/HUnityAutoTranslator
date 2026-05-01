@@ -323,6 +323,31 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Unity_texture_scan_defers_large_textures_and_supports_sprite_subregions()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextureReplacementService.cs"));
+        var modelsSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Core", "Textures", "TextureModels.cs"));
+        var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+
+        modelsSource.Should().Contain("TextureScanRequest");
+        modelsSource.Should().Contain("IncludeDeferredLargeTextures");
+        modelsSource.Should().Contain("DeferredTargetCount");
+        modelsSource.Should().Contain("DeferredTextureCount");
+        serverSource.Should().Contain("ReadJsonAsync<TextureScanRequest>");
+        serviceSource.Should().Contain("MaxAutomaticTextureCapturePixels = 4096 * 4096");
+        serviceSource.Should().Contain("MaxTextureScanTargetsPerTick = 1");
+        serviceSource.Should().Contain("DeferredTargetCount");
+        serviceSource.Should().Contain("DeferredTextureCount");
+        serviceSource.Should().Contain("延迟扫描超大贴图");
+        serviceSource.Should().Contain("TryGetSpriteTextureRect");
+        serviceSource.Should().Contain("CropSpriteTextureRegion");
+        serviceSource.Should().Contain("SpriteSubregionTextureTarget");
+        serviceSource.Should().Contain("紧密打包图集暂不支持直接裁剪");
+        serviceSource.Should().NotContain("跳过图集子区域贴图");
+        serviceSource.Should().NotContain("跳过 SpriteRenderer 图集子区域贴图");
+    }
+
+    [Fact]
     public void Translation_editor_save_publishes_manual_writeback_for_known_targets()
     {
         var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));

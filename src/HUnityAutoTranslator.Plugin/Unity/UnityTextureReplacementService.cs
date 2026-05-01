@@ -19,8 +19,9 @@ internal sealed class UnityTextureReplacementService : IDisposable
     private const string ImageTypeName = "UnityEngine.UI.Image, UnityEngine.UI";
     private const string ImageSpriteLabel = "Image.sprite";
     private const int MaxLoggedErrors = 40;
-    private const int MaxTextureScanTargetsPerTick = 8;
+    private const int MaxTextureScanTargetsPerTick = 1;
     private const int MaxTextureScanSliceMilliseconds = 8;
+    private const int MaxAutomaticTextureCapturePixels = 4096 * 4096;
 
     private readonly TextureOverrideStore _store;
     private readonly TextureCatalogStore _catalogStore;
@@ -35,6 +36,8 @@ internal sealed class UnityTextureReplacementService : IDisposable
     private readonly Dictionary<string, OverrideApplicationKey> _appliedOverrides = new(StringComparer.Ordinal);
     private DateTimeOffset? _scannedUtc;
     private IReadOnlyList<string> _lastErrors = Array.Empty<string>();
+    private int _lastDeferredTargetCount;
+    private int _lastDeferredTextureCount;
     private TextureScanSession? _scanSession;
     private string _scanStatusMessage = "空闲";
     private bool _startupScanAttempted;
@@ -87,9 +90,16 @@ internal sealed class UnityTextureReplacementService : IDisposable
         }
     }
 
-    public Task<TextureScanResult> RequestScanAsync()
+    public Task<TextureScanResult> RequestScanAsync(TextureScanRequest? request = null)
     {
-        return EnqueueOnMainThread(() => StartScanOnMainThread(applyOverrides: true, "正在扫描贴图。"));
+        var includeDeferredLargeTextures = request?.IncludeDeferredLargeTextures == true;
+        var message = includeDeferredLargeTextures
+            ? "正在扫描贴图（包含超大贴图）。"
+            : "正在扫描贴图。";
+        return EnqueueOnMainThread(() => StartScanOnMainThread(
+            applyOverrides: true,
+            message,
+            includeDeferredLargeTextures: includeDeferredLargeTextures));
     }
 
     public Task<byte[]> ExportArchiveAsync(string? sceneName = null)
@@ -578,7 +588,11 @@ internal sealed class UnityTextureReplacementService : IDisposable
         return StartScanOnMainThread(applyOverrides: true, message, applyOnly: true);
     }
 
-    private TextureScanResult StartScanOnMainThread(bool applyOverrides, string message, bool applyOnly = false)
+    private TextureScanResult StartScanOnMainThread(
+        bool applyOverrides,
+        string message,
+        bool applyOnly = false,
+        bool includeDeferredLargeTextures = false)
     {
         if (_scanSession != null)
         {
@@ -599,11 +613,14 @@ internal sealed class UnityTextureReplacementService : IDisposable
             EnumerateTargets(errors).GetEnumerator(),
             applyOverrides,
             applyOnly,
+            includeDeferredLargeTextures,
             overrideDimensions,
             DateTimeOffset.UtcNow,
             errors);
         _scanStatusMessage = message;
         _lastErrors = Array.Empty<string>();
+        _lastDeferredTargetCount = 0;
+        _lastDeferredTextureCount = 0;
         return BuildScanResult("贴图扫描已开始。");
     }
 
@@ -651,7 +668,14 @@ internal sealed class UnityTextureReplacementService : IDisposable
             return;
         }
 
-        if (!TryEncodeTexture(target.SourceTexture, out var pngBytes, out var error))
+        if (!session.IncludeDeferredLargeTextures && ShouldDeferAutomaticCapture(target))
+        {
+            session.Defer(target);
+            AddError(session.Errors, BuildDeferredLargeTextureMessage(target));
+            return;
+        }
+
+        if (!target.TryCapturePng(out var pngBytes, out var error))
         {
             AddError(session.Errors, $"跳过贴图 {target.TextureName}：{error}");
             return;
@@ -738,6 +762,8 @@ internal sealed class UnityTextureReplacementService : IDisposable
         }
 
         _scannedUtc = DateTimeOffset.UtcNow;
+        _lastDeferredTargetCount = session.DeferredTargetCount;
+        _lastDeferredTextureCount = session.DeferredTextureCount;
         _lastErrors = session.Errors.ToArray();
         _scanStatusMessage = "空闲";
         _scanSession = null;
@@ -752,7 +778,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
         var session = _scanSession;
         if (session == null)
         {
-            return TextureCatalogScanStatus.Idle(_scannedUtc);
+            return TextureCatalogScanStatus.Idle(_scannedUtc, _lastDeferredTargetCount, _lastDeferredTextureCount);
         }
 
         return new TextureCatalogScanStatus(
@@ -762,7 +788,9 @@ internal sealed class UnityTextureReplacementService : IDisposable
             null,
             session.ProcessedTargets,
             session.DiscoveredHashes.Count,
-            session.DiscoveredReferenceCount);
+            session.DiscoveredReferenceCount,
+            session.DeferredTargetCount,
+            session.DeferredTextureCount);
     }
 
     private TextureScanResult BuildScanResult(string message)
@@ -775,6 +803,8 @@ internal sealed class UnityTextureReplacementService : IDisposable
             catalog.ReferenceCount,
             _store.OverrideCount,
             _lastErrors,
+            status.DeferredTargetCount,
+            status.DeferredTextureCount,
             status.IsScanning,
             message);
     }
@@ -1020,23 +1050,33 @@ internal sealed class UnityTextureReplacementService : IDisposable
                 continue;
             }
 
-            if (sprite == null || sprite.texture == null || !HasValidSize(sprite.texture))
+            if (sprite == null)
             {
-                continue;
-            }
-
-            if (!IsFullTextureSprite(sprite))
-            {
-                AddError(errors, $"跳过图集子区域贴图：{BuildHierarchyPath(component.transform)}。");
                 continue;
             }
 
             var targetId = TargetId("image", component);
             var original = RememberOriginalAsset(targetId, sprite);
-            if (original is Sprite originalSprite && originalSprite.texture != null)
+            if (original is not Sprite originalSprite ||
+                originalSprite.texture == null ||
+                !HasValidSize(originalSprite.texture))
+            {
+                continue;
+            }
+
+            if (!TryGetSpriteTextureRect(originalSprite, out var textureRect, out var rectError))
+            {
+                AddError(errors, $"{rectError}：{BuildHierarchyPath(component.transform)}。");
+                continue;
+            }
+
+            if (IsFullTextureSprite(originalSprite, textureRect))
             {
                 yield return new ImageSpriteTarget(targetId, component, spriteProperty, originalSprite);
+                continue;
             }
+
+            yield return new SpriteSubregionTextureTarget(targetId, component, spriteProperty, null, originalSprite, textureRect);
         }
     }
 
@@ -1045,23 +1085,33 @@ internal sealed class UnityTextureReplacementService : IDisposable
         foreach (var renderer in UnityObjectFinder.FindObjects(typeof(SpriteRenderer)).OfType<SpriteRenderer>())
         {
             var sprite = renderer.sprite;
-            if (sprite == null || sprite.texture == null || !HasValidSize(sprite.texture))
+            if (sprite == null)
             {
-                continue;
-            }
-
-            if (!IsFullTextureSprite(sprite))
-            {
-                AddError(errors, $"跳过 SpriteRenderer 图集子区域贴图：{BuildHierarchyPath(renderer.transform)}。");
                 continue;
             }
 
             var targetId = TargetId("sprite-renderer", renderer);
             var original = RememberOriginalAsset(targetId, sprite);
-            if (original is Sprite originalSprite && originalSprite.texture != null)
+            if (original is not Sprite originalSprite ||
+                originalSprite.texture == null ||
+                !HasValidSize(originalSprite.texture))
+            {
+                continue;
+            }
+
+            if (!TryGetSpriteTextureRect(originalSprite, out var textureRect, out var rectError))
+            {
+                AddError(errors, $"{rectError}：{BuildHierarchyPath(renderer.transform)}。");
+                continue;
+            }
+
+            if (IsFullTextureSprite(originalSprite, textureRect))
             {
                 yield return new SpriteRendererTextureTarget(targetId, renderer, originalSprite);
+                continue;
             }
+
+            yield return new SpriteSubregionTextureTarget(targetId, renderer, null, renderer, originalSprite, textureRect);
         }
     }
 
@@ -1181,19 +1231,104 @@ internal sealed class UnityTextureReplacementService : IDisposable
         return texture.width > 0 && texture.height > 0;
     }
 
+    private static bool ShouldDeferAutomaticCapture(ITextureTarget target)
+    {
+        return (long)target.Width * target.Height > MaxAutomaticTextureCapturePixels;
+    }
+
+    private static string BuildDeferredLargeTextureMessage(ITextureTarget target)
+    {
+        return $"延迟扫描超大贴图：{target.TextureName}（{target.Width}x{target.Height}，{target.ComponentType}，{target.HierarchyPath}）。默认扫描会跳过超过 4096x4096 像素的贴图；需要处理时请单独点击“扫描超大贴图”。";
+    }
+
+    private static string DeferredTextureKey(ITextureTarget target)
+    {
+        return target.TextureName + "|" +
+            target.Width.ToString(System.Globalization.CultureInfo.InvariantCulture) + "x" +
+            target.Height.ToString(System.Globalization.CultureInfo.InvariantCulture) + "|" +
+            target.Format;
+    }
+
     private static string DimensionKey(int width, int height)
     {
         return width.ToString(System.Globalization.CultureInfo.InvariantCulture) + "x" +
             height.ToString(System.Globalization.CultureInfo.InvariantCulture);
     }
 
-    private static bool IsFullTextureSprite(Sprite sprite)
+    private static bool TryGetSpriteTextureRect(Sprite sprite, out Rect textureRect, out string error)
     {
-        var rect = sprite.textureRect;
-        return Math.Abs(rect.x) < 0.01f &&
-            Math.Abs(rect.y) < 0.01f &&
-            Math.Abs(rect.width - sprite.texture.width) < 0.01f &&
-            Math.Abs(rect.height - sprite.texture.height) < 0.01f;
+        textureRect = default;
+        error = string.Empty;
+        try
+        {
+            textureRect = sprite.textureRect;
+            if (textureRect.width <= 0 || textureRect.height <= 0)
+            {
+                error = "Sprite 子区域尺寸无效";
+                return false;
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            error = $"紧密打包图集暂不支持直接裁剪，已跳过该 Sprite：{ex.Message}";
+            return false;
+        }
+    }
+
+    private static bool IsFullTextureSprite(Sprite sprite, Rect textureRect)
+    {
+        return Math.Abs(textureRect.x) < 0.01f &&
+            Math.Abs(textureRect.y) < 0.01f &&
+            Math.Abs(textureRect.width - sprite.texture.width) < 0.01f &&
+            Math.Abs(textureRect.height - sprite.texture.height) < 0.01f;
+    }
+
+    private static bool CropSpriteTextureRegion(
+        Texture texture,
+        Rect textureRect,
+        out byte[] pngBytes,
+        out string error)
+    {
+        pngBytes = Array.Empty<byte>();
+        error = string.Empty;
+        RenderTexture? renderTexture = null;
+        Texture2D? readable = null;
+        var previous = RenderTexture.active;
+        try
+        {
+            var width = Math.Max(1, (int)Math.Round(textureRect.width));
+            var height = Math.Max(1, (int)Math.Round(textureRect.height));
+            renderTexture = RenderTexture.GetTemporary(width, height, 0, RenderTextureFormat.ARGB32);
+            var scale = new Vector2(textureRect.width / texture.width, textureRect.height / texture.height);
+            var offset = new Vector2(textureRect.x / texture.width, textureRect.y / texture.height);
+            Graphics.Blit(texture, renderTexture, scale, offset);
+            RenderTexture.active = renderTexture;
+            readable = new Texture2D(width, height, UnityEngine.TextureFormat.RGBA32, false);
+            readable.ReadPixels(new Rect(0, 0, width, height), 0, 0, false);
+            readable.Apply(updateMipmaps: false);
+            pngBytes = ImageConversion.EncodeToPNG(readable);
+            return pngBytes.Length > 0;
+        }
+        catch (Exception ex)
+        {
+            error = ex.Message;
+            return false;
+        }
+        finally
+        {
+            RenderTexture.active = previous;
+            if (renderTexture != null)
+            {
+                RenderTexture.ReleaseTemporary(renderTexture);
+            }
+
+            if (readable != null)
+            {
+                UnityEngine.Object.Destroy(readable);
+            }
+        }
     }
 
     private static string TargetId(string kind, Component component)
@@ -1262,6 +1397,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
             IEnumerator<ITextureTarget> targets,
             bool applyOverrides,
             bool applyOnly,
+            bool includeDeferredLargeTextures,
             HashSet<string> overrideDimensions,
             DateTimeOffset startedUtc,
             List<string> errors)
@@ -1269,6 +1405,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
             Targets = targets;
             ApplyOverrides = applyOverrides;
             ApplyOnly = applyOnly;
+            IncludeDeferredLargeTextures = includeDeferredLargeTextures;
             OverrideDimensions = overrideDimensions;
             StartedUtc = startedUtc;
             Errors = errors;
@@ -1279,6 +1416,8 @@ internal sealed class UnityTextureReplacementService : IDisposable
         public bool ApplyOverrides { get; }
 
         public bool ApplyOnly { get; }
+
+        public bool IncludeDeferredLargeTextures { get; }
 
         public HashSet<string> OverrideDimensions { get; }
 
@@ -1293,6 +1432,18 @@ internal sealed class UnityTextureReplacementService : IDisposable
         public int DiscoveredReferenceCount { get; set; }
 
         public int AppliedOverrideCount { get; set; }
+
+        public int DeferredTargetCount { get; private set; }
+
+        public int DeferredTextureCount => DeferredTextureKeys.Count;
+
+        private HashSet<string> DeferredTextureKeys { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        public void Defer(ITextureTarget target)
+        {
+            DeferredTargetCount++;
+            DeferredTextureKeys.Add(DeferredTextureKey(target));
+        }
     }
 
     private sealed class RuntimeTextureRecord
@@ -1380,6 +1531,8 @@ internal sealed class UnityTextureReplacementService : IDisposable
 
         bool IsAlive { get; }
 
+        bool TryCapturePng(out byte[] pngBytes, out string error);
+
         bool ApplyOverride(Texture2D replacement, out string error);
 
         bool RestoreOriginal(out string error);
@@ -1400,13 +1553,13 @@ internal sealed class UnityTextureReplacementService : IDisposable
 
         public Texture SourceTexture { get; }
 
-        public string TextureName => UnityTextureReplacementService.TextureName(SourceTexture);
+        public virtual string TextureName => UnityTextureReplacementService.TextureName(SourceTexture);
 
-        public int Width => SourceTexture.width;
+        public virtual int Width => SourceTexture.width;
 
-        public int Height => SourceTexture.height;
+        public virtual int Height => SourceTexture.height;
 
-        public string Format => UnityTextureReplacementService.TextureFormat(SourceTexture);
+        public virtual string Format => UnityTextureReplacementService.TextureFormat(SourceTexture);
 
         public string SceneName => UnityTextureReplacementService.SceneName(Component);
 
@@ -1415,6 +1568,11 @@ internal sealed class UnityTextureReplacementService : IDisposable
         public string ComponentType => Component.GetType().FullName ?? Component.GetType().Name;
 
         public bool IsAlive => Component != null;
+
+        public virtual bool TryCapturePng(out byte[] pngBytes, out string error)
+        {
+            return TryEncodeTexture(SourceTexture, out pngBytes, out error);
+        }
 
         public abstract bool ApplyOverride(Texture2D replacement, out string error);
 
@@ -1580,6 +1738,105 @@ internal sealed class UnityTextureReplacementService : IDisposable
             {
                 _renderer.sprite = _originalSprite;
                 DestroyReplacementSprite();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        private void DestroyReplacementSprite()
+        {
+            if (_replacementSprite != null)
+            {
+                UnityEngine.Object.Destroy(_replacementSprite);
+                _replacementSprite = null;
+            }
+        }
+    }
+
+    private sealed class SpriteSubregionTextureTarget : TextureTargetBase
+    {
+        private readonly PropertyInfo? _spriteProperty;
+        private readonly SpriteRenderer? _renderer;
+        private readonly Sprite _originalSprite;
+        private readonly Rect _textureRect;
+        private Sprite? _replacementSprite;
+
+        public SpriteSubregionTextureTarget(
+            string targetId,
+            Component component,
+            PropertyInfo? spriteProperty,
+            SpriteRenderer? renderer,
+            Sprite originalSprite,
+            Rect textureRect)
+            : base(targetId, component, originalSprite.texture)
+        {
+            _spriteProperty = spriteProperty;
+            _renderer = renderer;
+            _originalSprite = originalSprite;
+            _textureRect = textureRect;
+        }
+
+        public override string TextureName => string.IsNullOrWhiteSpace(_originalSprite.name)
+            ? base.TextureName
+            : _originalSprite.name;
+
+        public override int Width => Math.Max(1, (int)Math.Round(_textureRect.width));
+
+        public override int Height => Math.Max(1, (int)Math.Round(_textureRect.height));
+
+        public override bool TryCapturePng(out byte[] pngBytes, out string error)
+        {
+            return CropSpriteTextureRegion(SourceTexture, _textureRect, out pngBytes, out error);
+        }
+
+        public override bool ApplyOverride(Texture2D replacement, out string error)
+        {
+            var sprite = CreateSpriteFromOriginal(replacement, _originalSprite);
+            if (SetSprite(sprite, out error))
+            {
+                DestroyReplacementSprite();
+                _replacementSprite = sprite;
+                return true;
+            }
+
+            UnityEngine.Object.Destroy(sprite);
+            return false;
+        }
+
+        public override bool RestoreOriginal(out string error)
+        {
+            if (!SetSprite(_originalSprite, out error))
+            {
+                return false;
+            }
+
+            DestroyReplacementSprite();
+            return true;
+        }
+
+        private bool SetSprite(Sprite sprite, out string error)
+        {
+            error = string.Empty;
+            try
+            {
+                if (_renderer != null)
+                {
+                    _renderer.sprite = sprite;
+                    return true;
+                }
+
+                if (_spriteProperty == null)
+                {
+                    error = "Sprite property is null.";
+                    return false;
+                }
+
+                _spriteProperty.SetValue(Component, sprite, null);
+                MarkDirty(Component);
                 return true;
             }
             catch (Exception ex)

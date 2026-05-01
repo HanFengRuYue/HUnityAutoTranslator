@@ -45,9 +45,14 @@ public sealed record TextureCatalogScanStatus(
     DateTimeOffset? CompletedUtc,
     int ProcessedTargets,
     int DiscoveredTextureCount,
-    int DiscoveredReferenceCount)
+    int DiscoveredReferenceCount,
+    int DeferredTargetCount,
+    int DeferredTextureCount)
 {
-    public static TextureCatalogScanStatus Idle(DateTimeOffset? completedUtc)
+    public static TextureCatalogScanStatus Idle(
+        DateTimeOffset? completedUtc,
+        int deferredTargetCount = 0,
+        int deferredTextureCount = 0)
     {
         return new TextureCatalogScanStatus(
             false,
@@ -56,7 +61,9 @@ public sealed record TextureCatalogScanStatus(
             completedUtc,
             0,
             0,
-            0);
+            0,
+            deferredTargetCount,
+            deferredTextureCount);
     }
 }
 
@@ -80,8 +87,13 @@ public sealed record TextureScanResult(
     int ReferenceCount,
     int OverrideCount,
     IReadOnlyList<string> Errors,
+    int DeferredTargetCount,
+    int DeferredTextureCount,
     bool IsScanning,
     string Message);
+
+public sealed record TextureScanRequest(
+    bool IncludeDeferredLargeTextures = false);
 
 public sealed record TextureImportResult(
     int ImportedCount,

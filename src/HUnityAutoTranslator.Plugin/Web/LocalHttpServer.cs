@@ -428,7 +428,8 @@ internal sealed class LocalHttpServer : IDisposable
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/textures/scan")
             {
-                await WriteJsonAsync(context.Response, await _textureReplacement.RequestScanAsync().ConfigureAwait(false)).ConfigureAwait(false);
+                var request = await ReadJsonAsync<TextureScanRequest>(context.Request).ConfigureAwait(false);
+                await WriteJsonAsync(context.Response, await _textureReplacement.RequestScanAsync(request).ConfigureAwait(false)).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/textures/analyze-text")
             {
