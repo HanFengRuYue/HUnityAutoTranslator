@@ -19,6 +19,24 @@ public sealed class TextSafetyTests
     }
 
     [Fact]
+    public void ShouldTranslate_allows_sentence_with_slash_pronoun()
+    {
+        const string value = "Please email support mentioning the author and his/her work used in this game.";
+
+        TextFilter.ShouldTranslate(value).Should().BeTrue();
+    }
+
+    [Theory]
+    [InlineData("C:\\Games\\The Glitched Attraction\\BepInEx\\config\\settings.cfg")]
+    [InlineData("Assets/Textures/disclaimer.png")]
+    [InlineData("https://example.com/path/file.png")]
+    [InlineData("support@example.com")]
+    public void ShouldTranslate_rejects_preservable_technical_text(string value)
+    {
+        TextFilter.ShouldTranslate(value).Should().BeFalse();
+    }
+
+    [Fact]
     public void PlaceholderProtector_preserves_format_tokens()
     {
         var protectedText = PlaceholderProtector.Protect("Hello {playerName}, you have {0} coins and %s gems.");

@@ -32,6 +32,14 @@ public static class PreservableTextClassifier
         @"^[^\s\\/]+(?:\.[A-Za-z0-9_-]{1,12}){1,3}$",
         RegexOptions.Compiled);
 
+    private static readonly Regex RootedPathPattern = new(
+        @"^(?:[A-Za-z]:[\\/]|\\\\|/).+$",
+        RegexOptions.Compiled);
+
+    private static readonly Regex RelativePathPattern = new(
+        @"^(?:[A-Za-z0-9_.-]+[\\/])+[A-Za-z0-9_.-]+$",
+        RegexOptions.Compiled);
+
     public static bool ShouldSkipTranslation(string? value)
     {
         var normalized = Normalize(value);
@@ -101,9 +109,24 @@ public static class PreservableTextClassifier
 
     private static bool IsPath(string value)
     {
-        return value.Contains('\\', StringComparison.Ordinal) ||
-            value.Contains('/', StringComparison.Ordinal) ||
-            Regex.IsMatch(value, @"^[A-Za-z]:", RegexOptions.CultureInvariant);
+        if (!value.Contains('\\', StringComparison.Ordinal) &&
+            !value.Contains('/', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        if (RootedPathPattern.IsMatch(value))
+        {
+            return true;
+        }
+
+        if (value.Any(char.IsWhiteSpace) || !RelativePathPattern.IsMatch(value))
+        {
+            return false;
+        }
+
+        var separatorCount = value.Count(character => character is '\\' or '/');
+        return separatorCount >= 2 || IsFileName(Path.GetFileName(value));
     }
 
     private static bool IsFileName(string value)
