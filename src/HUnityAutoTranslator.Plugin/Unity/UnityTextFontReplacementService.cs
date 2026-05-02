@@ -140,7 +140,8 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
-        if (OriginalUguiFontCanRenderText(component, translatedText))
+        var hasComponentFontOverride = HasComponentFontOverride(key, context);
+        if (!hasComponentFontOverride && OriginalUguiFontCanRenderText(component, translatedText))
         {
             RestoreUgui(component);
             return;
@@ -182,17 +183,31 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
-        if (OriginalTmpFontCanRenderText(component, translatedText))
+        var hasComponentFontOverride = HasComponentFontOverride(key, context);
+        if (!hasComponentFontOverride && OriginalTmpFontCanRenderText(component, translatedText))
         {
             RestoreTmp(component);
             return;
         }
 
         var samplingPointSize = ResolveComponentFontSamplingPointSize(component, config);
-        var fontAsset = ResolveTmpFontAsset(config, key, context, samplingPointSize, out _);
+        var fontAsset = ResolveTmpFontAsset(config, key, context, samplingPointSize, out var resolved);
         if (fontAsset == null)
         {
             return;
+        }
+
+        if (resolved?.Source == "row")
+        {
+            RememberFontTarget(component, _tmpFontTargets, _tmpOriginalFonts);
+            _tmpReplacementFonts[component.GetInstanceID()] = fontAsset;
+            if (SetTmpFont(component, fontAsset, populateCharacters: true))
+            {
+                LogTmpDirectAssignment(fontAsset);
+                return;
+            }
+
+            WarnTmpDirectAssignmentFailed(component, fontAsset);
         }
 
         PopulateTmpFontAsset(fontAsset, translatedText);
@@ -211,7 +226,7 @@ internal sealed class UnityTextFontReplacementService
         {
             RememberFontTarget(component, _tmpFontTargets, _tmpOriginalFonts);
             _tmpReplacementFonts[component.GetInstanceID()] = fontAsset;
-            if (SetTmpFont(component, fontAsset))
+            if (SetTmpFont(component, fontAsset, populateCharacters: true))
             {
                 LogTmpDirectAssignment(fontAsset);
             }
@@ -339,7 +354,7 @@ internal sealed class UnityTextFontReplacementService
     {
         if (_tmpOriginalFonts.TryGetValue(component.GetInstanceID(), out var originalFont))
         {
-            SetTmpFont(component, originalFont);
+            SetTmpFont(component, originalFont, populateCharacters: false);
         }
     }
 
@@ -410,7 +425,8 @@ internal sealed class UnityTextFontReplacementService
                 continue;
             }
 
-            if (originalFonts.TryGetValue(item.Key, out var originalFont) && SetTmpFont(item.Value, originalFont))
+            if (originalFonts.TryGetValue(item.Key, out var originalFont) &&
+                SetTmpFont(item.Value, originalFont, populateCharacters: false))
             {
                 changed++;
             }
@@ -435,7 +451,8 @@ internal sealed class UnityTextFontReplacementService
                 continue;
             }
 
-            if (replacementFonts.TryGetValue(item.Key, out var replacementFont) && SetTmpFont(item.Value, replacementFont))
+            if (replacementFonts.TryGetValue(item.Key, out var replacementFont) &&
+                SetTmpFont(item.Value, replacementFont, populateCharacters: true))
             {
                 changed++;
             }
@@ -888,7 +905,7 @@ internal sealed class UnityTextFontReplacementService
             return false;
         }
 
-        if (TryTmpFontAssetHasCharacter(fontAsset, character, includeFallbacks, out var hasCharacter) && hasCharacter)
+        if (TryTmpFontAssetContainsCharacterReadOnly(fontAsset, character, out var hasCharacter) && hasCharacter)
         {
             return true;
         }
@@ -909,31 +926,84 @@ internal sealed class UnityTextFontReplacementService
         return false;
     }
 
-    private static bool TryTmpFontAssetHasCharacter(
+    private static bool TryTmpFontAssetContainsCharacterReadOnly(
         object fontAsset,
         char character,
-        bool includeFallbacks,
         out bool hasCharacter)
     {
         hasCharacter = false;
-        var methods = fontAsset
+        var unicode = (uint)character;
+        foreach (var lookupTable in EnumerateTmpCharacterLookupTables(fontAsset))
+        {
+            if (CollectionContainsUnicodeKey(lookupTable, unicode))
+            {
+                hasCharacter = true;
+                return true;
+            }
+        }
+
+        foreach (var characterTable in EnumerateTmpCharacterTables(fontAsset))
+        {
+            foreach (var item in EnumerateCollectionItems(characterTable))
+            {
+                if (TryGetUnicode(item, out var itemUnicode) && itemUnicode == unicode)
+                {
+                    hasCharacter = true;
+                    return true;
+                }
+            }
+        }
+
+        return true;
+    }
+
+    private static IEnumerable<object?> EnumerateTmpCharacterLookupTables(object fontAsset)
+    {
+        yield return GetProperty(fontAsset, "characterLookupTable");
+        yield return GetField(fontAsset, "m_CharacterLookupDictionary");
+    }
+
+    private static IEnumerable<object?> EnumerateTmpCharacterTables(object fontAsset)
+    {
+        yield return GetProperty(fontAsset, "characterTable");
+        yield return GetField(fontAsset, "m_CharacterTable");
+    }
+
+    private static bool CollectionContainsUnicodeKey(object? collection, uint unicode)
+    {
+        if (collection == null)
+        {
+            return false;
+        }
+
+        if (collection is IDictionary dictionary)
+        {
+            foreach (var key in dictionary.Keys)
+            {
+                if (KeyMatchesUnicode(key, unicode))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        foreach (var method in collection
             .GetType()
             .GetMethods(BindingFlags.Public | BindingFlags.Instance)
-            .Where(method => method.Name == "HasCharacter" && method.ReturnType == typeof(bool))
-            .OrderByDescending(method => method.GetParameters().Length);
-        foreach (var method in methods)
+            .Where(method => method.Name == "ContainsKey" && method.GetParameters().Length == 1))
         {
-            var arguments = BuildTmpHasCharacterArguments(method, character, includeFallbacks);
-            if (arguments == null)
+            var argument = ConvertUnicodeKey(unicode, method.GetParameters()[0].ParameterType);
+            if (argument == null)
             {
                 continue;
             }
 
             try
             {
-                if (method.Invoke(fontAsset, arguments) is bool result)
+                if (method.Invoke(collection, new[] { argument }) is true)
                 {
-                    hasCharacter = result;
                     return true;
                 }
             }
@@ -945,62 +1015,63 @@ internal sealed class UnityTextFontReplacementService
         return false;
     }
 
-    private static object?[]? BuildTmpHasCharacterArguments(MethodInfo method, char character, bool includeFallbacks)
+    private static object? ConvertUnicodeKey(uint unicode, Type targetType)
     {
-        var parameters = method.GetParameters();
-        if (parameters.Length == 0)
+        if (targetType == typeof(uint))
         {
-            return null;
+            return unicode;
         }
 
-        var arguments = new object?[parameters.Length];
-        for (var i = 0; i < parameters.Length; i++)
+        if (targetType == typeof(int) && unicode <= int.MaxValue)
         {
-            var parameter = parameters[i];
-            if (i == 0)
-            {
-                if (parameter.ParameterType == typeof(char))
-                {
-                    arguments[i] = character;
-                }
-                else if (parameter.ParameterType == typeof(int))
-                {
-                    arguments[i] = (int)character;
-                }
-                else if (parameter.ParameterType == typeof(uint))
-                {
-                    arguments[i] = (uint)character;
-                }
-                else if (parameter.ParameterType == typeof(string))
-                {
-                    arguments[i] = character.ToString();
-                }
-                else
-                {
-                    return null;
-                }
-
-                continue;
-            }
-
-            if (parameter.ParameterType == typeof(bool))
-            {
-                arguments[i] = includeFallbacks;
-                continue;
-            }
-
-            if (parameter.HasDefaultValue)
-            {
-                arguments[i] = parameter.DefaultValue;
-                continue;
-            }
-
-            arguments[i] = parameter.ParameterType.IsValueType
-                ? Activator.CreateInstance(parameter.ParameterType)
-                : null;
+            return (int)unicode;
         }
 
-        return arguments;
+        if (targetType == typeof(char) && unicode <= char.MaxValue)
+        {
+            return (char)unicode;
+        }
+
+        return null;
+    }
+
+    private static bool KeyMatchesUnicode(object? key, uint unicode)
+    {
+        return key switch
+        {
+            uint uintValue => uintValue == unicode,
+            int intValue => intValue >= 0 && (uint)intValue == unicode,
+            char charValue => charValue == unicode,
+            _ => false
+        };
+    }
+
+    private static bool TryGetUnicode(object? character, out uint unicode)
+    {
+        unicode = 0;
+        if (character == null)
+        {
+            return false;
+        }
+
+        foreach (var memberName in new[] { "unicode", "m_Unicode" })
+        {
+            var value = GetProperty(character, memberName) ?? GetField(character, memberName);
+            switch (value)
+            {
+                case uint uintValue:
+                    unicode = uintValue;
+                    return true;
+                case int intValue when intValue >= 0:
+                    unicode = (uint)intValue;
+                    return true;
+                case char charValue:
+                    unicode = charValue;
+                    return true;
+            }
+        }
+
+        return false;
     }
 
     private static IEnumerable<object?> EnumerateTmpFallbacks(object fontAsset)
@@ -1029,6 +1100,11 @@ internal sealed class UnityTextFontReplacementService
         {
             yield return item;
         }
+    }
+
+    private bool HasComponentFontOverride(TranslationCacheKey key, TranslationCacheContext context)
+    {
+        return _cache.TryGetReplacementFont(key, context, out _);
     }
 
     private object? ResolveTmpFontAsset(
@@ -1212,7 +1288,7 @@ internal sealed class UnityTextFontReplacementService
         var cacheKey = $"{candidate.Source}:{candidate.Value}:{candidate.RegularFaceNamesKey}:{size}";
         if (_unityFonts.TryGetValue(cacheKey, out var cached))
         {
-            return new ResolvedFont(cacheKey, candidate.DisplayName, cached);
+            return new ResolvedFont(cacheKey, candidate.Source, candidate.DisplayName, cached);
         }
 
         var font = CreateUnityFont(candidate, size);
@@ -1227,7 +1303,7 @@ internal sealed class UnityTextFontReplacementService
         }
 
         _unityFonts[cacheKey] = font;
-        return new ResolvedFont(cacheKey, candidate.DisplayName, font);
+        return new ResolvedFont(cacheKey, candidate.Source, candidate.DisplayName, font);
     }
 
     private static Font? CreateUnityFont(FontCandidate candidate, int size)
@@ -1717,9 +1793,9 @@ internal sealed class UnityTextFontReplacementService
         return TrySetFieldValue(instance, field, value);
     }
 
-    private static bool SetTmpFont(object component, object? fontAsset)
+    private static bool SetTmpFont(object component, object? fontAsset, bool populateCharacters)
     {
-        if (fontAsset != null)
+        if (fontAsset != null && populateCharacters)
         {
             PopulateTmpFontAsset(fontAsset, component);
         }
@@ -2236,14 +2312,17 @@ internal sealed class UnityTextFontReplacementService
 
     private sealed class ResolvedFont
     {
-        public ResolvedFont(string cacheKey, string displayName, Font font)
+        public ResolvedFont(string cacheKey, string source, string displayName, Font font)
         {
             CacheKey = cacheKey;
+            Source = source;
             DisplayName = displayName;
             Font = font;
         }
 
         public string CacheKey { get; }
+
+        public string Source { get; }
 
         public string DisplayName { get; }
 

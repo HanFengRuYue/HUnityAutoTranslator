@@ -16,11 +16,13 @@ public sealed class TranslationResultTests
             "显示帮助",
             priority: 110,
             previousTranslatedText: "旧帮助",
+            targetLanguage: "zh-Hans",
             sceneName: "Main Menu",
             componentHierarchy: "Menu/Camera/Canvas/Settings Menu/Gameplay Panel/Show Helps/Name",
             componentType: "TMPro.TextMeshProUGUI",
             updatedUtc: updatedUtc);
 
+        result.TargetLanguage.Should().Be("zh-Hans");
         result.SceneName.Should().Be("Main Menu");
         result.ComponentHierarchy.Should().Be("Menu/Camera/Canvas/Settings Menu/Gameplay Panel/Show Helps/Name");
         result.ComponentType.Should().Be("TMPro.TextMeshProUGUI");

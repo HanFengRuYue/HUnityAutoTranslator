@@ -628,6 +628,7 @@ public sealed class TranslationWorkerPool
                     jobs[i].SourceText,
                     translatedTexts[i],
                     (int)jobs[i].Priority,
+                    targetLanguage: ResolveTargetLanguage(jobs[i]),
                     sceneName: jobs[i].Context.SceneName,
                     componentHierarchy: jobs[i].Context.ComponentHierarchy,
                     componentType: jobs[i].Context.ComponentType,

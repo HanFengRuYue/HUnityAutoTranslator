@@ -95,6 +95,7 @@ internal sealed class PluginRuntime : IDisposable
             _llamaCppServer = new LlamaCppServerManager(pluginDirectory, _logger);
             _llamaCppModelDownloads = new LlamaCppModelDownloadManager(Path.Combine(pluginDirectory, "models"));
             _fontReplacement = new UnityTextFontReplacementService(_cache, _logger, _controlPanel.GetConfig, _controlPanel.SetAutomaticFontFallbacks);
+            _resultApplier.SetFontReplacementService(_fontReplacement);
             _fontReplacement.InstallStartupFallbacks();
             var pipeline = new TextPipeline(_cache, _queue, _controlPanel.GetConfig, _metrics, _glossary);
             var textStabilityGate = new UnityTextStabilityGate();

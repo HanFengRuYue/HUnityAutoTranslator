@@ -4,6 +4,8 @@ internal interface IUnityTextTarget
 {
     string Id { get; }
 
+    UnityEngine.Object Component { get; }
+
     bool IsAlive { get; }
 
     bool IsVisible { get; }

@@ -18,6 +18,8 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
 
     public string Id { get; }
 
+    public UnityEngine.Object Component => _component;
+
     public bool IsAlive => _component != null;
 
     public bool IsVisible
