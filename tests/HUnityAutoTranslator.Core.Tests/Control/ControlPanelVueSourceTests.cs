@@ -1133,6 +1133,7 @@ public sealed class ControlPanelVueSourceTests
     {
         var editorPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "TextEditorPage.vue"));
         var tableSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "utils", "table.ts"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
 
         editorPageSource.Should().Contain("Filter");
         editorPageSource.Should().Contain("aria-label=\"筛选\"");
@@ -1163,7 +1164,10 @@ public sealed class ControlPanelVueSourceTests
         editorPageSource.Should().Contain("@click.stop=\"openColumnFilterMenu(column, $event)\"");
         editorPageSource.Should().Contain("closest(\"#columnFilterMenu\")");
         editorPageSource.Should().Contain("closest(\".header-filter\")");
+        editorPageSource.Should().Contain("result.PreservedCount");
+        editorPageSource.Should().Contain("\u5df2\u4fdd\u7559\u539f\u6587");
         tableSource.Should().Contain("hunity.editor.columnFilters");
+        apiTypesSource.Should().Contain("PreservedCount: number;");
     }
 
     [Fact]

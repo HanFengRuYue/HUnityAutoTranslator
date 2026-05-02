@@ -858,6 +858,41 @@ public sealed class WorkerPoolTests
     }
 
     [Fact]
+    public async Task WorkerPool_does_not_cache_overtranslated_preservable_identifier()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var failures = new List<string>();
+        var provider = new SequencedProvider(new[]
+        {
+            new[] { "\u5bf9\u5e94 v81 \u7248\u672c\u53f7" }
+        });
+        var config = RuntimeConfig.CreateDefault() with { MaxConcurrentRequests = 1 };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            provider,
+            new ProviderRateLimiter(120),
+            config,
+            cache,
+            failureReporter: failures.Add);
+
+        var context = new TranslationCacheContext("MainMenu", "Canvas/MenuContainer/VersionNum", "TMPro.TextMeshProUGUI");
+        queue.Enqueue(TranslationJob.Create("ui-1", "v81", TranslationPriority.VisibleUi, context));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        provider.Requests.Should().ContainSingle();
+        var key = TranslationCacheKey.Create("v81", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, context, out _).Should().BeFalse();
+        dispatcher.PendingCount.Should().Be(0);
+        failures.Should().ContainSingle(message =>
+            message.Contains("v81", StringComparison.Ordinal) &&
+            message.Contains("\u5bf9\u5e94 v81 \u7248\u672c\u53f7", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task WorkerPool_repairs_same_parent_option_collision()
     {
         var queue = new TranslationJobQueue();

@@ -9,6 +9,9 @@ public sealed class TranslationQualityValidatorTests
 {
     [Theory]
     [InlineData("v1.3.0")]
+    [InlineData("v81")]
+    [InlineData("V2")]
+    [InlineData("version 81")]
     [InlineData("1.3.0")]
     [InlineData("2026.04.07")]
     [InlineData("by esreverreverse69")]
@@ -25,6 +28,7 @@ public sealed class TranslationQualityValidatorTests
 
     [Theory]
     [InlineData("v1.3.0")]
+    [InlineData("v81")]
     [InlineData("esreverreverse69 <3")]
     [InlineData("by esreverreverse69")]
     [InlineData("https://example.com/mod")]

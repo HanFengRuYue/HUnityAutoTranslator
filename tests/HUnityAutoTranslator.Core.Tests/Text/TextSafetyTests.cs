@@ -13,6 +13,9 @@ public sealed class TextSafetyTests
     [InlineData("1280 x 720")]
     [InlineData("1920\u00d71080")]
     [InlineData("60 FPS")]
+    [InlineData("v81")]
+    [InlineData("V2")]
+    [InlineData("version 81")]
     public void ShouldTranslate_rejects_nonsemantic_text(string value)
     {
         TextFilter.ShouldTranslate(value).Should().BeFalse();
@@ -31,9 +34,20 @@ public sealed class TextSafetyTests
     [InlineData("Assets/Textures/disclaimer.png")]
     [InlineData("https://example.com/path/file.png")]
     [InlineData("support@example.com")]
+    [InlineData("HUnityAutoTranslator.Plugin.dll")]
+    [InlineData("esreverreverse69_MI.Cheats v1.3.0")]
     public void ShouldTranslate_rejects_preservable_technical_text(string value)
     {
         TextFilter.ShouldTranslate(value).Should().BeFalse();
+    }
+
+    [Theory]
+    [InlineData("Level2")]
+    [InlineData("SFX Volume")]
+    [InlineData("God Mode v2")]
+    public void ShouldTranslate_allows_translatable_mixed_ui_text(string value)
+    {
+        TextFilter.ShouldTranslate(value).Should().BeTrue();
     }
 
     [Fact]

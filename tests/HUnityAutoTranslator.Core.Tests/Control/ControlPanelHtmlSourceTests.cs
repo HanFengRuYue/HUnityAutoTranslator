@@ -102,6 +102,9 @@ public sealed class ControlPanelHtmlSourceTests
         serverSource.Should().Contain("path == \"/api/glossary/filter-options\"");
         serverSource.Should().Contain("path == \"/api/translations/filter-options\"");
         serverSource.Should().Contain("path == \"/api/translations/retranslate\"");
+        serverSource.Should().Contain("PreservedCount");
+        serverSource.Should().Contain("TextFilter.ShouldTranslate(entry.SourceText)");
+        serverSource.Should().Contain("PublishManualWriteback(preservedEntry");
         serverSource.Should().Contain("path == \"/api/translations/highlight\"");
         serverSource.Should().Contain("ParseGlossaryFilterOptionsQuery");
         serverSource.Should().Contain("ParseGlossaryColumnFilters");

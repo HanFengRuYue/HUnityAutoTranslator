@@ -11,6 +11,7 @@ using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Prompts;
 using HUnityAutoTranslator.Core.Providers;
 using HUnityAutoTranslator.Core.Queueing;
+using HUnityAutoTranslator.Core.Text;
 using HUnityAutoTranslator.Core.Textures;
 using HUnityAutoTranslator.Plugin.Unity;
 using Newtonsoft.Json;
@@ -347,8 +348,13 @@ internal sealed class LocalHttpServer : IDisposable
                     return;
                 }
 
-                var queued = QueueRetranslations(entries);
-                await WriteJsonAsync(context.Response, new { RequestedCount = entries.Count, QueuedCount = queued }).ConfigureAwait(false);
+                var result = QueueRetranslations(entries);
+                await WriteJsonAsync(context.Response, new
+                {
+                    RequestedCount = entries.Count,
+                    result.QueuedCount,
+                    result.PreservedCount
+                }).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/translations/highlight")
             {
@@ -1243,9 +1249,10 @@ internal sealed class LocalHttpServer : IDisposable
         }
     }
 
-    private int QueueRetranslations(IReadOnlyList<TranslationCacheEntry> entries)
+    private RetranslateQueueResult QueueRetranslations(IReadOnlyList<TranslationCacheEntry> entries)
     {
         var queued = 0;
+        var preserved = 0;
         var config = _controlPanel.GetConfig();
         foreach (var entry in entries)
         {
@@ -1255,6 +1262,32 @@ internal sealed class LocalHttpServer : IDisposable
             }
 
             var context = new TranslationCacheContext(entry.SceneName, entry.ComponentHierarchy, entry.ComponentType);
+            var targetLanguage = string.IsNullOrWhiteSpace(entry.TargetLanguage)
+                ? config.TargetLanguage
+                : entry.TargetLanguage;
+            if (!TextFilter.ShouldTranslate(entry.SourceText) ||
+                TextFilter.IsAlreadyTargetLanguageSource(entry.SourceText, targetLanguage))
+            {
+                var preservedEntry = entry with
+                {
+                    TargetLanguage = targetLanguage,
+                    ProviderKind = string.Empty,
+                    ProviderBaseUrl = string.Empty,
+                    ProviderEndpoint = string.Empty,
+                    ProviderModel = string.Empty,
+                    PromptPolicyVersion = TextPipeline.GetPromptPolicyVersion(config),
+                    TranslatedText = entry.SourceText,
+                    UpdatedUtc = DateTimeOffset.UtcNow
+                };
+                var previousTranslatedText = TryGetExistingTranslation(entry, out var existingTranslatedText)
+                    ? existingTranslatedText
+                    : entry.TranslatedText;
+                _cache.Update(preservedEntry);
+                PublishManualWriteback(preservedEntry, previousTranslatedText);
+                preserved++;
+                continue;
+            }
+
             if (CachedEntryFailsCurrentQualityRules(entry, config))
             {
                 _cache.Update(entry with
@@ -1281,7 +1314,7 @@ internal sealed class LocalHttpServer : IDisposable
             }
         }
 
-        return queued;
+        return new RetranslateQueueResult(queued, preserved);
     }
 
     private static bool CachedEntryFailsCurrentQualityRules(TranslationCacheEntry entry, RuntimeConfig config)
@@ -1313,6 +1346,8 @@ internal sealed class LocalHttpServer : IDisposable
             config.GameTitle,
             config.TranslationQuality).IsValid;
     }
+
+    private sealed record RetranslateQueueResult(int QueuedCount, int PreservedCount);
 
     private bool TryGetExistingTranslation(TranslationCacheEntry entry, out string translatedText)
     {

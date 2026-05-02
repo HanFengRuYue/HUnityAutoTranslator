@@ -27,7 +27,7 @@ public static class TextFilter
             return false;
         }
 
-        if (PreservableTextClassifier.ShouldSkipTranslation(normalized))
+        if (PreservableTextClassifier.CanRemainUntranslated(normalized))
         {
             return false;
         }
