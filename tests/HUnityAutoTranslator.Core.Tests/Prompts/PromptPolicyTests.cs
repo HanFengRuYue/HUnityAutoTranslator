@@ -41,6 +41,7 @@ public sealed class PromptPolicyTests
         prompt.Should().Contain("If the source text is or contains the game title, preserve the exact game title");
         prompt.Should().Contain("Accessibility and technical settings must stay distinct");
         prompt.Should().Contain("For Simplified Chinese, do not leave ordinary English UI text untranslated");
+        prompt.Should().Contain("Preserve UI marker symbols");
     }
 
     [Fact]
@@ -415,6 +416,40 @@ public sealed class PromptPolicyTests
             new[]
             {
                 new PromptItemContext(0, "Disclaimer", "Canvas/Text (Legacy)", "UnityEngine.UI.Text")
+            },
+            "zh-Hans",
+            "The Glitched Attraction");
+
+        failures.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Quality_validator_rejects_missing_ui_marker_symbols()
+    {
+        var failures = TranslationQualityValidator.FindFailures(
+            new[] { "> Join a crew" },
+            new[] { "\u52a0\u5165\u961f\u4f0d" },
+            new[]
+            {
+                new PromptItemContext(0, "Lobby", "Canvas/Menu/JoinCrew", "UnityEngine.UI.Text")
+            },
+            "zh-Hans",
+            "The Glitched Attraction");
+
+        failures.Should().ContainSingle();
+        failures[0].TextIndex.Should().Be(0);
+        failures[0].Reason.Should().Contain("UI marker symbols");
+    }
+
+    [Fact]
+    public void Quality_validator_allows_preserved_ui_marker_symbols()
+    {
+        var failures = TranslationQualityValidator.FindFailures(
+            new[] { "> Join a crew" },
+            new[] { "> \u52a0\u5165\u961f\u4f0d" },
+            new[]
+            {
+                new PromptItemContext(0, "Lobby", "Canvas/Menu/JoinCrew", "UnityEngine.UI.Text")
             },
             "zh-Hans",
             "The Glitched Attraction");

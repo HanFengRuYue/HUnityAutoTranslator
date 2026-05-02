@@ -181,7 +181,8 @@ public sealed class TranslationWorkerPool
     {
         var restored = protectedText.Restore(translatedText);
         restored = richTextPreparation.RebuildTranslation(restored);
-        return NormalizeEscapedControlCharacters(job.SourceText, restored);
+        restored = NormalizeEscapedControlCharacters(job.SourceText, restored);
+        return UiMarkerSymbolGuard.PreserveSourceMarkers(job.SourceText, restored);
     }
 
     private static string NormalizeEscapedControlCharacters(string sourceText, string translatedText)
@@ -498,6 +499,7 @@ public sealed class TranslationWorkerPool
         {
             "game title must be preserved exactly when it appears in the source text" => "游戏标题未按原文保留",
             "translation added outer symbols that are not present in the source text" => "译文添加了原文没有的外层符号",
+            "translation changed UI marker symbols that must be preserved" => "译文改变了原文必须保留的 UI 结构符号",
             "ordinary English UI text was left untranslated" => "普通英文 UI 文本未翻译",
             "settings value translation is too short or incomplete" => "设置值译文过短或不完整",
             "state text is too literal for a game UI setting" => "状态文本直译不适合游戏 UI",

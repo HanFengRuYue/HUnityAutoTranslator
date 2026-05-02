@@ -164,6 +164,28 @@ public sealed class TextPipelineTests
     }
 
     [Fact]
+    public void Process_skips_cached_translation_when_ui_marker_symbol_is_missing()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var key = TranslationCacheKey.Create("> Join a crew", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        var context = new TranslationCacheContext("Lobby", "Canvas/Menu/JoinCrew", "UnityEngine.UI.Text");
+        cache.Set(key, "\u52a0\u5165\u961f\u4f0d", context);
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.Process(new CapturedText("ui-1", "> Join a crew", isVisible: true, context));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.Queued);
+        queue.PendingCount.Should().Be(1);
+        cache.TryGet(key, context, out _).Should().BeFalse();
+        var pending = cache.GetPendingTranslations(config.TargetLanguage, TextPipeline.PromptPolicyVersion, limit: 10);
+        pending.Should().ContainSingle();
+        pending[0].TranslatedText.Should().BeNull();
+        pending[0].ProviderKind.Should().BeEmpty();
+    }
+
+    [Fact]
     public void Process_uses_cached_translation_when_quality_rules_are_disabled()
     {
         var cache = new MemoryTranslationCache();
