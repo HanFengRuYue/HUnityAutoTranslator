@@ -95,13 +95,13 @@ internal readonly struct RuntimeHotkey
         return true;
     }
 
-    public bool IsPressed()
+    public bool IsPressed(RuntimeHotkeyInput input)
     {
         return !_disabled &&
-            Input.GetKeyDown(_key) &&
-            IsCtrlDown() == _ctrl &&
-            IsShiftDown() == _shift &&
-            IsAltDown() == _alt;
+            input.GetKeyDown(_key) &&
+            IsCtrlDown(input) == _ctrl &&
+            IsShiftDown(input) == _shift &&
+            IsAltDown(input) == _alt;
     }
 
     private static bool IsModifier(string value, params string[] aliases)
@@ -141,18 +141,18 @@ internal readonly struct RuntimeHotkey
                 KeyCode.LeftArrow or KeyCode.RightArrow;
     }
 
-    private static bool IsCtrlDown()
+    private static bool IsCtrlDown(RuntimeHotkeyInput input)
     {
-        return Input.GetKey(KeyCode.LeftControl) || Input.GetKey(KeyCode.RightControl);
+        return input.GetKey(KeyCode.LeftControl) || input.GetKey(KeyCode.RightControl);
     }
 
-    private static bool IsShiftDown()
+    private static bool IsShiftDown(RuntimeHotkeyInput input)
     {
-        return Input.GetKey(KeyCode.LeftShift) || Input.GetKey(KeyCode.RightShift);
+        return input.GetKey(KeyCode.LeftShift) || input.GetKey(KeyCode.RightShift);
     }
 
-    private static bool IsAltDown()
+    private static bool IsAltDown(RuntimeHotkeyInput input)
     {
-        return Input.GetKey(KeyCode.LeftAlt) || Input.GetKey(KeyCode.RightAlt);
+        return input.GetKey(KeyCode.LeftAlt) || input.GetKey(KeyCode.RightAlt);
     }
 }

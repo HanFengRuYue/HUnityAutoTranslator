@@ -97,6 +97,47 @@ public sealed class BoundedRuntimeLoopSourceTests
     }
 
     [Fact]
+    public void Runtime_hotkeys_use_compatible_input_reader_before_legacy_input_manager()
+    {
+        var hotkeySource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Hotkeys", "RuntimeHotkey.cs"));
+        var inputSourcePath = FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Hotkeys", "RuntimeHotkeyInput.cs");
+
+        File.Exists(inputSourcePath).Should().BeTrue("runtime hotkeys must support games that disable UnityEngine.Input");
+        var inputSource = File.ReadAllText(inputSourcePath);
+        hotkeySource.Should().Contain("RuntimeHotkeyInput");
+        hotkeySource.Should().NotContain("Input.GetKeyDown");
+        hotkeySource.Should().NotContain("Input.GetKey(");
+        inputSource.Should().Contain("UnityEngine.InputSystem.Keyboard");
+        inputSource.Should().Contain("wasPressedThisFrame");
+        inputSource.Should().Contain("isPressed");
+        inputSource.Should().Contain("InvalidOperationException");
+        inputSource.Should().Contain("_legacyInputDisabled");
+        inputSource.Should().Contain("LogLegacyInputDisabled");
+    }
+
+    [Fact]
+    public void Plugin_tick_runs_self_check_even_when_hotkey_polling_fails()
+    {
+        var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+        var tickBlock = pluginSource[
+            pluginSource.IndexOf("public void Tick()", StringComparison.Ordinal)..
+            pluginSource.IndexOf("private void MaybeRefreshHighlighterSnapshot", StringComparison.Ordinal)];
+
+        tickBlock.Should().Contain("_selfCheck?.Tick();");
+        tickBlock.Should().Contain("TryTickHotkeys(config);");
+        tickBlock.IndexOf("_selfCheck?.Tick();", StringComparison.Ordinal)
+            .Should().BeLessThan(tickBlock.IndexOf("TryTickHotkeys(config);", StringComparison.Ordinal));
+
+        var hotkeyGuardBlock = pluginSource[
+            pluginSource.IndexOf("private void TryTickHotkeys(RuntimeConfig config)", StringComparison.Ordinal)..
+            pluginSource.IndexOf("private void MaybeRefreshHighlighterSnapshot", StringComparison.Ordinal)];
+        hotkeyGuardBlock.Should().Contain("try");
+        hotkeyGuardBlock.Should().Contain("_hotkeys?.Tick(config);");
+        hotkeyGuardBlock.Should().Contain("catch (Exception ex)");
+        hotkeyGuardBlock.Should().Contain("_logger.LogWarning");
+    }
+
+    [Fact]
     public void Force_scan_hotkey_uses_full_capture_windows()
     {
         var moduleSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ITextCaptureModule.cs"));

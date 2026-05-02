@@ -13,6 +13,7 @@ internal sealed class RuntimeHotkeyController
     private readonly UnityTextFontReplacementService _fontReplacement;
     private readonly ManualLogSource _logger;
     private readonly Action<Action> _textWriteScope;
+    private readonly RuntimeHotkeyInput _input;
     private bool _useTranslatedText = true;
     private bool _useReplacementFonts = true;
 
@@ -22,7 +23,8 @@ internal sealed class RuntimeHotkeyController
         UnityMainThreadResultApplier resultApplier,
         UnityTextFontReplacementService fontReplacement,
         ManualLogSource logger,
-        Action<Action>? textWriteScope = null)
+        Action<Action>? textWriteScope = null,
+        RuntimeHotkeyInput? input = null)
     {
         _httpServer = httpServer;
         _captureCoordinator = captureCoordinator;
@@ -30,6 +32,7 @@ internal sealed class RuntimeHotkeyController
         _fontReplacement = fontReplacement;
         _logger = logger;
         _textWriteScope = textWriteScope ?? RunUnsuppressed;
+        _input = input ?? new RuntimeHotkeyInput(logger);
     }
 
     public void Tick(RuntimeConfig config)
@@ -84,9 +87,9 @@ internal sealed class RuntimeHotkeyController
             : $"热键已恢复原始字体模式（不会清理已挂载的 TMP 中文后备字体，已更新 {changed} 个目标）。");
     }
 
-    private static bool IsPressed(string binding)
+    private bool IsPressed(string binding)
     {
-        return RuntimeHotkey.TryParse(binding, out var hotkey) && hotkey.IsPressed();
+        return RuntimeHotkey.TryParse(binding, out var hotkey) && hotkey.IsPressed(_input);
     }
 
     private static void RunUnsuppressed(Action action)
