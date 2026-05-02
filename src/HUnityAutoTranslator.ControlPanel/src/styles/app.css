@@ -651,6 +651,77 @@ button:disabled {
 .recent-item strong {
   overflow-wrap: anywhere;
 }
+.self-check-panel {
+  display: grid;
+}
+.self-check-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+  gap: 10px;
+}
+.self-check-summary > div {
+  display: grid;
+  gap: 5px;
+  min-height: 72px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.self-check-summary span,
+.self-check-item span,
+.self-check-item small {
+  color: var(--muted);
+  font-size: 12px;
+}
+.self-check-list {
+  display: grid;
+  gap: 10px;
+}
+.self-check-group {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.self-check-group summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 42px;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-weight: 750;
+}
+.self-check-item {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr);
+  gap: 10px;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+}
+.self-check-item-icon {
+  width: 18px;
+  height: 18px;
+  margin-top: 2px;
+}
+.self-check-item-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.self-check-item p {
+  margin: 6px 0 4px;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.self-check-ok .self-check-item-icon { color: var(--ok); }
+.self-check-warn .self-check-item-icon { color: var(--warn); }
+.self-check-danger .self-check-item-icon { color: var(--danger); }
+.self-check-info .self-check-item-icon { color: var(--accent); }
 .recent-list {
   display: grid;
   gap: 8px;

@@ -17,8 +17,6 @@ namespace HUnityAutoTranslator.Plugin;
 
 internal sealed class PluginRuntime : IDisposable
 {
-    private const float HighlighterSnapshotIntervalSeconds = 0.15f;
-
     private readonly ManualLogSource _logger;
     private readonly string? _pluginDirectory;
     private ControlPanelService? _controlPanel;
@@ -39,9 +37,8 @@ internal sealed class PluginRuntime : IDisposable
     private RuntimeHotkeyController? _hotkeys;
     private LlamaCppServerManager? _llamaCppServer;
     private LlamaCppModelDownloadManager? _llamaCppModelDownloads;
-    private UnityTextChangeHookInstaller? _textChangeHook;
+    private SelfCheckService? _selfCheck;
     private float _nextScanTime;
-    private float _nextHighlighterSnapshotTime;
     private float _nextSkippedWritebackLogTime;
     private bool _openedControlPanel;
 
@@ -93,17 +90,28 @@ internal sealed class PluginRuntime : IDisposable
             _fontReplacement = new UnityTextFontReplacementService(_cache, _logger, _controlPanel.GetConfig, _controlPanel.SetAutomaticFontFallbacks);
             _fontReplacement.InstallStartupFallbacks();
             var pipeline = new TextPipeline(_cache, _queue, _controlPanel.GetConfig, _metrics, _glossary);
-            _textChangeHook = new UnityTextChangeHookInstaller(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement);
             _captureCoordinator = new TextCaptureCoordinator(new ITextCaptureModule[]
             {
                 new UguiTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement),
                 new TmpTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement),
                 new ImguiHookInstaller(pipeline, _cache, _logger, _controlPanel.GetConfig, _fontReplacement)
             });
-            _textChangeHook?.Start();
             _captureCoordinator.Start();
             _workerHost = new TranslationWorkerHost(_controlPanel, _queue, _dispatcher, _cache, _glossary, _metrics, _logger, _llamaCppServer);
             _workerHost.Start();
+            _selfCheck = new SelfCheckService(
+                _controlPanel,
+                _cache,
+                _glossary,
+                _queue,
+                _dispatcher,
+                _resultApplier,
+                _textureReplacement,
+                _llamaCppServer,
+                pluginDirectory,
+                dataDirectory,
+                () => _httpServer?.Url ?? string.Empty,
+                _logger);
             _httpServer = new LocalHttpServer(
                 _controlPanel,
                 _cache,
@@ -114,16 +122,12 @@ internal sealed class PluginRuntime : IDisposable
                 _textureReplacement,
                 _llamaCppServer,
                 _llamaCppModelDownloads,
+                _selfCheck,
                 dataDirectory,
                 _logger);
             _httpServer.Start(config.HttpHost, config.HttpPort);
-            _hotkeys = new RuntimeHotkeyController(
-                _httpServer,
-                _captureCoordinator,
-                _resultApplier,
-                _fontReplacement,
-                _logger,
-                _textChangeHook == null ? null : _textChangeHook.RunSuppressed);
+            _selfCheck.StartAutomaticAsync();
+            _hotkeys = new RuntimeHotkeyController(_httpServer, _captureCoordinator, _resultApplier, _fontReplacement, _logger);
             StartLlamaCppIfConfigured();
             _logger.LogInfo($"{MyPluginInfo.PLUGIN_NAME} 已加载。控制面板：{_httpServer.Url}");
             OpenControlPanelIfConfigured();
@@ -197,7 +201,6 @@ internal sealed class PluginRuntime : IDisposable
 
     public void Dispose()
     {
-        _textChangeHook?.Dispose();
         _captureCoordinator?.Dispose();
         _workerHost?.Dispose();
         _llamaCppServer?.Dispose();
@@ -217,38 +220,20 @@ internal sealed class PluginRuntime : IDisposable
 
         var config = _controlPanel.GetConfig();
         _hotkeys?.Tick(config);
-        var scanned = false;
+        _selfCheck?.Tick();
         if (_captureCoordinator != null && Time.unscaledTime >= _nextScanTime)
         {
             _captureCoordinator.Tick();
             _nextScanTime = Time.unscaledTime + (float)config.ScanInterval.TotalSeconds;
-            scanned = true;
         }
 
-        MaybeRefreshHighlighterSnapshot(scanned);
-        if (_highlighter != null)
+        if (_highlighter != null && _resultApplier != null)
         {
+            _highlighter.RefreshTargetSnapshot(_resultApplier.SnapshotTargets());
             _highlighter.Tick();
         }
 
         _textureReplacement?.Tick();
-    }
-
-    private void MaybeRefreshHighlighterSnapshot(bool force)
-    {
-        if (_highlighter == null || _resultApplier == null)
-        {
-            return;
-        }
-
-        if (!force && Time.unscaledTime < _nextHighlighterSnapshotTime)
-        {
-            return;
-        }
-
-        var targets = _resultApplier.SnapshotTargets();
-        _highlighter.RefreshTargetSnapshot(targets);
-        _nextHighlighterSnapshotTime = Time.unscaledTime + HighlighterSnapshotIntervalSeconds;
     }
 
     public void LateTick()
@@ -262,11 +247,10 @@ internal sealed class PluginRuntime : IDisposable
         if (_dispatcher != null && _resultApplier != null)
         {
             var results = _dispatcher.Drain(config.MaxWritebacksPerFrame);
-            var applied = 0;
-            RunTextChangeSuppressed(() => applied = _resultApplier.Apply(results));
+            var applied = _resultApplier.Apply(results);
             if (config.ReapplyRememberedTranslations)
             {
-                RunTextChangeSuppressed(() => _resultApplier.ReapplyRemembered(config.MaxWritebacksPerFrame));
+                _resultApplier.ReapplyRemembered(int.MaxValue);
             }
 
             if (applied > 0)
@@ -284,16 +268,5 @@ internal sealed class PluginRuntime : IDisposable
     public void RenderGui()
     {
         _highlighter?.OnGUI();
-    }
-
-    private void RunTextChangeSuppressed(Action action)
-    {
-        if (_textChangeHook == null)
-        {
-            action();
-            return;
-        }
-
-        _textChangeHook.RunSuppressed(action);
     }
 }
