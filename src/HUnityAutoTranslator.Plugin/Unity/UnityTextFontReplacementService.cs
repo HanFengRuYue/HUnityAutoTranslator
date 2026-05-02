@@ -10,9 +10,12 @@ namespace HUnityAutoTranslator.Plugin.Unity;
 
 internal sealed class UnityTextFontReplacementService
 {
+    private const string PreferredAutomaticFontName = "Noto Sans SC";
+    private const string PreferredAutomaticFontFile = @"C:\Windows\Fonts\NotoSansSC-VF.ttf";
+
     private static readonly string[] CandidateFontNames =
     {
-        "Noto Sans SC",
+        PreferredAutomaticFontName,
         "Microsoft YaHei UI",
         "Microsoft YaHei",
         "SimSun",
@@ -24,12 +27,12 @@ internal sealed class UnityTextFontReplacementService
 
     private static readonly string[] CandidateFontFiles =
     {
+        PreferredAutomaticFontFile,
         @"C:\Windows\Fonts\simhei.ttf",
         @"C:\Windows\Fonts\Deng.ttf",
         @"C:\Windows\Fonts\simfang.ttf",
         @"C:\Windows\Fonts\simkai.ttf",
         @"C:\Windows\Fonts\simsunb.ttf",
-        @"C:\Windows\Fonts\NotoSansSC-VF.ttf",
         @"C:\Windows\Fonts\NotoSerifSC-VF.ttf"
     };
 
@@ -533,11 +536,25 @@ internal sealed class UnityTextFontReplacementService
         if (!string.Equals(cacheKey, _automaticFontFallbackConfigKey, StringComparison.Ordinal))
         {
             _automaticFontFallbackConfigKey = cacheKey;
-            _automaticFontFallbackName = ResolveFirstUsableAutomaticFontName(config.FontSamplingPointSize);
-            _automaticFontFallbackFile = ResolveFirstUsableAutomaticFontFile(config.FontSamplingPointSize);
+            var preferred = ResolvePreferredAutomaticFontPair(config.FontSamplingPointSize);
+            _automaticFontFallbackName = preferred?.Name ?? ResolveFirstUsableAutomaticFontName(config.FontSamplingPointSize);
+            _automaticFontFallbackFile = preferred?.File ?? ResolveFirstUsableAutomaticFontFile(config.FontSamplingPointSize);
         }
 
         _automaticFontFallbackReporter(_automaticFontFallbackName, _automaticFontFallbackFile);
+    }
+
+    private (string Name, string File)? ResolvePreferredAutomaticFontPair(int size)
+    {
+        if (!File.Exists(PreferredAutomaticFontFile))
+        {
+            return null;
+        }
+
+        var candidate = FontCandidate.Create("auto-file", PreferredAutomaticFontFile, warnOnUnityFailure: false);
+        return candidate != null && ResolveExplicitFont(candidate, size) != null
+            ? (PreferredAutomaticFontName, PreferredAutomaticFontFile)
+            : null;
     }
 
     private string? ResolveFirstUsableAutomaticFontName(int size)

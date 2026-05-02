@@ -630,23 +630,30 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
-    public void Font_replacement_automatic_candidates_preserve_priority_and_use_regular_face_for_variable_fonts()
+    public void Font_replacement_automatic_candidates_prefer_noto_sans_sc_name_and_file()
     {
         var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
 
+        var candidateNameBlock = serviceSource[
+            serviceSource.IndexOf("private static readonly string[] CandidateFontNames", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private static readonly string[] CandidateFontFiles", StringComparison.Ordinal)];
         var candidateFileBlock = serviceSource[
             serviceSource.IndexOf("private static readonly string[] CandidateFontFiles", StringComparison.Ordinal)..
             serviceSource.IndexOf("private static readonly string[] TmpFontAssetTypeNames", StringComparison.Ordinal)];
 
+        candidateNameBlock.IndexOf("Noto Sans SC", StringComparison.Ordinal)
+            .Should().BeLessThan(candidateNameBlock.IndexOf("Microsoft YaHei UI", StringComparison.Ordinal));
         candidateFileBlock.Should().Contain(@"C:\Windows\Fonts\NotoSansSC-VF.ttf");
         candidateFileBlock.Should().Contain(@"C:\Windows\Fonts\Deng.ttf");
-        candidateFileBlock.IndexOf(@"C:\Windows\Fonts\simhei.ttf", StringComparison.Ordinal)
-            .Should().BeLessThan(candidateFileBlock.IndexOf(@"C:\Windows\Fonts\Deng.ttf", StringComparison.Ordinal));
-        candidateFileBlock.IndexOf(@"C:\Windows\Fonts\Deng.ttf", StringComparison.Ordinal)
-            .Should().BeLessThan(candidateFileBlock.IndexOf(@"C:\Windows\Fonts\NotoSansSC-VF.ttf", StringComparison.Ordinal));
+        candidateFileBlock.IndexOf("PreferredAutomaticFontFile", StringComparison.Ordinal)
+            .Should().BeLessThan(candidateFileBlock.IndexOf(@"C:\Windows\Fonts\simhei.ttf", StringComparison.Ordinal));
+        serviceSource.Should().Contain("PreferredAutomaticFontName");
+        serviceSource.Should().Contain("PreferredAutomaticFontFile");
+        serviceSource.Should().Contain("ResolvePreferredAutomaticFontPair");
+        serviceSource.Should().Contain("_automaticFontFallbackName = preferred?.Name ?? ResolveFirstUsableAutomaticFontName");
+        serviceSource.Should().Contain("_automaticFontFallbackFile = preferred?.File ?? ResolveFirstUsableAutomaticFontFile");
         candidateFileBlock.Should().Contain(".ttf");
         candidateFileBlock.Should().NotContain(".ttc");
-        serviceSource.Should().Contain("private static readonly string[] CandidateFontNames");
         serviceSource.Should().Contain("FontCandidate.Create(\"auto-name\"");
         serviceSource.Should().Contain("Noto Sans SC Regular");
         serviceSource.Should().Contain("Noto Serif SC Regular");

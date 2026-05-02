@@ -2,6 +2,7 @@ using System.Net;
 using System.Text;
 using FluentAssertions;
 using HUnityAutoTranslator.Core.Configuration;
+using HUnityAutoTranslator.Core.Providers;
 using HUnityAutoTranslator.Core.Textures;
 
 namespace HUnityAutoTranslator.Core.Tests.Textures;
@@ -30,7 +31,7 @@ public sealed class TextureImageEditClientTests
             CancellationToken.None);
 
         result.PngBytes.Should().Equal(PngBytes());
-        handler.Request!.RequestUri!.ToString().Should().Be("http://192.168.2.10:8317/v1/images/edits");
+        handler.Request!.RequestUri!.ToString().Should().Be("https://api.openai.com/v1/images/edits");
         handler.Request.Headers.Authorization!.Scheme.Should().Be("Bearer");
         handler.Request.Headers.Authorization.Parameter.Should().Be("sk-texture");
         handler.Request.Content!.Headers.ContentType!.MediaType.Should().Be("multipart/form-data");
@@ -39,6 +40,32 @@ public sealed class TextureImageEditClientTests
         body.Should().Contain("Translate visible texture text");
         body.Should().Contain("1024x1024");
         body.Should().Contain("medium");
+    }
+
+    [Fact]
+    public async Task TestConnectionAsync_posts_real_image_edit_request_instead_of_fetching_models()
+    {
+        using var handler = new CaptureHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent(
+                $$"""{"data":[{"b64_json":"{{Convert.ToBase64String(PngBytes())}}"}]}""",
+                Encoding.UTF8,
+                "application/json")
+        });
+        using var http = new HttpClient(handler);
+        var config = TextureImageTranslationConfig.Default() with { Enabled = true };
+        var client = new TextureImageEditClient(http, () => "sk-texture");
+
+        ProviderTestResult result = await client.TestConnectionAsync(config, CancellationToken.None);
+
+        result.Succeeded.Should().BeTrue();
+        result.Message.Should().Contain("图片编辑接口");
+        handler.Request!.Method.Should().Be(HttpMethod.Post);
+        handler.Request.RequestUri!.ToString().Should().Be("https://api.openai.com/v1/images/edits");
+        handler.Request.RequestUri.AbsolutePath.Should().NotContain("/models");
+        var body = await handler.Request.Content!.ReadAsStringAsync();
+        body.Should().Contain("HUnityAutoTranslator 贴图翻译连接测试");
+        body.Should().Contain("gpt-image-2");
     }
 
     [Fact]

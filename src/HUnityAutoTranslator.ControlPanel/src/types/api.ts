@@ -516,7 +516,7 @@ export interface GlossaryTerm {
   NormalizedSourceTerm: string;
   Note: string | null;
   Enabled: boolean;
-  Source: string;
+  Source: string | number;
   UsageCount: number;
   CreatedUtc: string;
   UpdatedUtc: string;
@@ -539,7 +539,7 @@ export interface GlossaryTermRequest {
 }
 
 export interface GlossaryFilterOption {
-  Value: string | null;
+  Value: string | number | null;
   Count: number;
 }
 

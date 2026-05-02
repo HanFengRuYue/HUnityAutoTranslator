@@ -654,6 +654,31 @@ button:disabled {
 .self-check-panel {
   display: grid;
 }
+.self-check-panel-collapsible {
+  padding: 0;
+  gap: 0;
+}
+.self-check-panel-toggle {
+  margin: 0;
+  padding: 16px;
+  border-bottom: 0;
+  cursor: pointer;
+  list-style: none;
+}
+.self-check-panel-toggle::-webkit-details-marker {
+  display: none;
+}
+.self-check-panel-collapsible[open] > .self-check-panel-toggle {
+  border-bottom: 1px solid var(--line);
+}
+.self-check-panel-collapsible > .self-check-summary,
+.self-check-panel-collapsible > .self-check-list,
+.self-check-panel-collapsible > .empty-state {
+  margin-inline: 16px;
+}
+.self-check-panel-collapsible > .empty-state {
+  margin-bottom: 16px;
+}
 .self-check-summary {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));

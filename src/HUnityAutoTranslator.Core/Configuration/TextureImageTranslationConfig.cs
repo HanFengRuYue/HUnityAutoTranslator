@@ -16,7 +16,7 @@ public sealed record TextureImageTranslationConfig(
     {
         return new TextureImageTranslationConfig(
             Enabled: false,
-            BaseUrl: "http://192.168.2.10:8317",
+            BaseUrl: "https://api.openai.com",
             EditEndpoint: "/v1/images/edits",
             VisionEndpoint: "/v1/responses",
             ImageModel: "gpt-image-2",

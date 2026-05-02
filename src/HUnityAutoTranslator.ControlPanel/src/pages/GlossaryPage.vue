@@ -241,7 +241,7 @@ function resetInlineTerm(): void {
 
 function inlineTermReadonlyValue(column: GlossaryTableColumn): string {
   if (column.key === "Source") {
-    return "手动";
+    return sourceLabel("Manual");
   }
 
   if (column.key === "UsageCount") {
@@ -632,16 +632,18 @@ function firstSelectedCell(): CellAddress | null {
   return selectedCellAddresses()[0] ?? null;
 }
 
-function sourceLabel(value: string | null | undefined): string {
-  if (value === "Automatic") {
-    return "自动";
+function sourceLabel(value: string | number | null | undefined): string {
+  const normalized = String(value ?? "").trim();
+  switch (normalized.toLowerCase()) {
+    case "manual":
+    case "0":
+      return "手动录入";
+    case "automatic":
+    case "1":
+      return "AI 自动提取";
+    default:
+      return normalized;
   }
-
-  if (value === "Manual") {
-    return "手动";
-  }
-
-  return value || "";
 }
 
 function displayCellValue(row: GlossaryTerm, column: GlossaryTableColumn): string {
@@ -840,17 +842,18 @@ function clearAllColumnFilters(): void {
   void loadGlossaryTerms();
 }
 
-function filterValueKey(value: string | null): string {
-  return value ?? "";
+function filterValueKey(value: string | number | null): string {
+  return value == null ? "" : String(value);
 }
 
-function filterValueLabel(value: string | null): string {
-  if (!value) {
+function filterValueLabel(value: string | number | null): string {
+  const key = filterValueKey(value);
+  if (!key) {
     return "(空)";
   }
 
   if (filterMenu.column === "enabled") {
-    return value === "true" ? "启用" : "停用";
+    return key === "true" ? "启用" : "停用";
   }
 
   if (filterMenu.column === "source") {
@@ -858,15 +861,15 @@ function filterValueLabel(value: string | null): string {
   }
 
   if (filterMenu.column === "target_language") {
-    const label = languageLabel(value);
-    return label === value ? value : `${label} (${value})`;
+    const label = languageLabel(key);
+    return label === key ? key : `${label} (${key})`;
   }
 
   if (filterMenu.column === "created_utc" || filterMenu.column === "updated_utc") {
-    return formatDateTime(value);
+    return formatDateTime(key);
   }
 
-  return value;
+  return key;
 }
 
 function showContextMenu(event: MouseEvent): void {

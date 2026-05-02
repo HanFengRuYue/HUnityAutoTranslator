@@ -14,7 +14,7 @@ public sealed class TextureImageTranslationSettingsTests
         var state = service.GetState();
 
         state.TextureImageTranslation.Enabled.Should().BeFalse();
-        state.TextureImageTranslation.BaseUrl.Should().Be("http://192.168.2.10:8317");
+        state.TextureImageTranslation.BaseUrl.Should().Be("https://api.openai.com");
         state.TextureImageTranslation.EditEndpoint.Should().Be("/v1/images/edits");
         state.TextureImageTranslation.VisionEndpoint.Should().Be("/v1/responses");
         state.TextureImageTranslation.ImageModel.Should().Be("gpt-image-2");
@@ -35,7 +35,7 @@ public sealed class TextureImageTranslationSettingsTests
         service.UpdateConfig(new UpdateConfigRequest(
             TextureImageTranslation: new TextureImageTranslationConfig(
                 Enabled: true,
-                BaseUrl: "  http://192.168.2.10:8317/  ",
+                BaseUrl: "  https://api.openai.com/  ",
                 EditEndpoint: "images/edits",
                 VisionEndpoint: "responses",
                 ImageModel: "  gpt-image-2  ",
@@ -48,7 +48,7 @@ public sealed class TextureImageTranslationSettingsTests
         var state = service.GetState();
 
         state.TextureImageTranslation.Enabled.Should().BeTrue();
-        state.TextureImageTranslation.BaseUrl.Should().Be("http://192.168.2.10:8317");
+        state.TextureImageTranslation.BaseUrl.Should().Be("https://api.openai.com");
         state.TextureImageTranslation.EditEndpoint.Should().Be("/images/edits");
         state.TextureImageTranslation.VisionEndpoint.Should().Be("/responses");
         state.TextureImageTranslation.ImageModel.Should().Be("gpt-image-2");
@@ -85,5 +85,28 @@ public sealed class TextureImageTranslationSettingsTests
             textureImageProviderProfileStore: new EncryptedTextureImageProviderProfileStore(profileDirectory));
         second.GetReadyTextureImageProviderProfiles().Should().ContainSingle().Which.ApiKey.Should().Be("texture-secret");
         second.GetState().TextureImageProviderProfiles.Should().ContainSingle().Which.ApiKeyConfigured.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Texture_image_test_endpoints_use_real_image_edit_client_instead_of_model_listing()
+    {
+        var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+
+        serverSource.Should().Contain("new TextureImageEditClient(_httpClient");
+        serverSource.Should().Contain(".TestConnectionAsync(normalized.ToConfig()");
+        serverSource.Should().NotContain("var models = await utilityClient.FetchModelsAsync(utilityProfile, CancellationToken.None)");
+        serverSource.Should().NotContain(".FetchModelsAsync(profile, CancellationToken.None)\r\n                .ConfigureAwait(false);\r\n            return new ProviderTestResult(models.Succeeded, models.Message);");
+    }
+
+    private static string FindRepositoryFile(params string[] relativeSegments)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null && !File.Exists(Path.Combine(directory.FullName, "HUnityAutoTranslator.sln")))
+        {
+            directory = directory.Parent;
+        }
+
+        directory.Should().NotBeNull("tests should run from inside the repository checkout");
+        return Path.Combine(new[] { directory!.FullName }.Concat(relativeSegments).ToArray());
     }
 }

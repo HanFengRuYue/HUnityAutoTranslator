@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, ref, watch } from "vue";
 import {
   Activity,
   AlertTriangle,
@@ -158,6 +158,21 @@ const selfCheckGroups = computed(() => {
 });
 
 const isSelfCheckRunning = computed(() => runStateName(selfCheckReport.value?.State) === "Running");
+const selfCheckPanelOpen = ref(false);
+const selfCheckHasProblem = computed(() => {
+  const report = selfCheckReport.value;
+  if (!report) {
+    return false;
+  }
+
+  const stateName = runStateName(report.State);
+  const severity = severityName(report.Severity);
+  return stateName === "Failed" || severity === "Error" || severity === "Warning";
+});
+
+watch(selfCheckHasProblem, (hasProblem) => {
+  selfCheckPanelOpen.value = hasProblem;
+}, { immediate: true });
 
 function formatInFlightCapacity(inFlight: number, max: number): string {
   return `${formatNumber(inFlight)}/${formatNumber(max)}`;
@@ -254,6 +269,10 @@ function selfCheckSeverityIcon(value: SelfCheckSeverity) {
 
   return CheckCircle2;
 }
+
+function syncSelfCheckPanelOpen(event: Event): void {
+  selfCheckPanelOpen.value = (event.currentTarget as HTMLDetailsElement).open;
+}
 </script>
 
 <template>
@@ -312,13 +331,21 @@ function selfCheckSeverityIcon(value: SelfCheckSeverity) {
         />
       </div>
 
-      <SectionPanel class="self-check-panel" title="本地自检" :icon="ShieldCheck">
-        <template #actions>
-          <button class="secondary" type="button" :disabled="isSelfCheckRunning" @click="runSelfCheck()">
-            <RefreshCw class="button-icon" />
-            {{ isSelfCheckRunning ? "自检中..." : "重新自检" }}
-          </button>
-        </template>
+      <details class="section-panel self-check-panel self-check-panel-collapsible" aria-labelledby="section-本地自检" :open="selfCheckPanelOpen" @toggle="syncSelfCheckPanelOpen">
+        <summary class="section-head self-check-panel-toggle">
+          <div>
+            <div class="section-title-row">
+              <ShieldCheck class="section-icon" aria-hidden="true" />
+              <h2 id="section-本地自检">本地自检</h2>
+            </div>
+          </div>
+          <div class="section-actions">
+            <button class="secondary" type="button" :disabled="isSelfCheckRunning" @click.stop.prevent="runSelfCheck()">
+              <RefreshCw class="button-icon" />
+              {{ isSelfCheckRunning ? "自检中..." : "重新自检" }}
+            </button>
+          </div>
+        </summary>
         <div class="self-check-summary">
           <div>
             <span>总状态</span>
@@ -362,7 +389,7 @@ function selfCheckSeverityIcon(value: SelfCheckSeverity) {
           </details>
         </div>
         <div v-else class="empty-state compact">暂无自检结果</div>
-      </SectionPanel>
+      </details>
 
       <SectionPanel title="AI 服务" :icon="Bot">
         <div class="provider-summary provider-summary-compact">

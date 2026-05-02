@@ -199,7 +199,7 @@ const form = reactive({
   PromptTemplates: createPromptTemplates(),
   TranslationQuality: createTranslationQualityConfig(),
   TextureImageEnabled: false,
-  TextureImageBaseUrl: "http://192.168.2.10:8317",
+  TextureImageBaseUrl: "https://api.openai.com",
   TextureImageEditEndpoint: "/v1/images/edits",
   TextureImageVisionEndpoint: "/v1/responses",
   TextureImageImageModel: "gpt-image-2",
@@ -252,7 +252,7 @@ const textureImageProfileForm = reactive({
   Id: "",
   Name: "",
   Enabled: true,
-  BaseUrl: "http://192.168.2.10:8317",
+  BaseUrl: "https://api.openai.com",
   EditEndpoint: "/v1/images/edits",
   VisionEndpoint: "/v1/responses",
   ImageModel: "gpt-image-2",
@@ -841,7 +841,7 @@ function resetTextureImageProfileForm(profile?: TextureImageProviderProfileState
   textureImageProfileForm.Id = profile?.Id ?? "";
   textureImageProfileForm.Name = profile?.Name ?? "贴图图片服务";
   textureImageProfileForm.Enabled = profile?.Enabled ?? true;
-  textureImageProfileForm.BaseUrl = profile?.BaseUrl ?? "http://192.168.2.10:8317";
+  textureImageProfileForm.BaseUrl = profile?.BaseUrl ?? "https://api.openai.com";
   textureImageProfileForm.EditEndpoint = profile?.EditEndpoint ?? "/v1/images/edits";
   textureImageProfileForm.VisionEndpoint = profile?.VisionEndpoint ?? "/v1/responses";
   textureImageProfileForm.ImageModel = profile?.ImageModel ?? "gpt-image-2";
@@ -966,22 +966,6 @@ async function testTextureImageProfile(profile: TextureImageProviderProfileState
     "连接测试",
     () => api<ProviderTestResult>(`/api/texture-image-profiles/${encodeURIComponent(profile.Id)}/test`, { method: "POST" }),
     (result) => result.Message);
-}
-
-async function fetchTextureImageModels(profile: TextureImageProviderProfileState): Promise<void> {
-  await runTextureImageProfileUtility(
-    profile,
-    "模型列表",
-    () => api<ProviderModelsResult>(`/api/texture-image-profiles/${encodeURIComponent(profile.Id)}/models`),
-    (result) => result.Models.length ? `${result.Message}：${result.Models.slice(0, 6).map((model) => model.Id).join("、")}` : result.Message);
-}
-
-async function fetchTextureImageBalance(profile: TextureImageProviderProfileState): Promise<void> {
-  await runTextureImageProfileUtility(
-    profile,
-    "余额",
-    () => api<ProviderBalanceResult>(`/api/texture-image-profiles/${encodeURIComponent(profile.Id)}/balance`),
-    formatBalanceToast);
 }
 
 function createProfileDefaults(kind = 0): boolean {
@@ -1228,6 +1212,13 @@ async function testProfile(): Promise<void> {
   await runProfileUtility(
     "连接测试",
     () => api<ProviderTestResult>(buildProviderProfileUtilityPath("test"), { method: "POST", body: buildProviderProfileRequest() }),
+    (result) => result.Message);
+}
+
+async function testProviderProfile(profile: ProviderProfileState): Promise<void> {
+  await runProfileUtility(
+    "连接测试",
+    () => api<ProviderTestResult>(`/api/provider-profiles/${encodeURIComponent(profile.Id)}/test`, { method: "POST" }),
     (result) => result.Message);
 }
 
@@ -1613,6 +1604,7 @@ watch(selectedProfileId, () => {
                 <button class="secondary icon-button" type="button" title="编辑" @click.stop="openProviderProfileEditor(profile)"><Settings2 /></button>
                 <button class="secondary icon-button" type="button" :disabled="profile.Priority <= 0" title="上移" @click.stop="moveProviderProfile(profile, -1)"><ArrowUp /></button>
                 <button class="secondary icon-button" type="button" :disabled="profile.Priority >= providerProfiles.length - 1" title="下移" @click.stop="moveProviderProfile(profile, 1)"><ArrowDown /></button>
+                <button class="secondary icon-button" type="button" title="测试" :disabled="utilityBusy" @click.stop="testProviderProfile(profile)"><Zap /></button>
                 <button class="secondary icon-button" type="button" title="导出" @click.stop="exportProviderProfile(profile)"><FileOutput /></button>
                 <button class="danger icon-button" type="button" title="删除" @click.stop="deleteProviderProfile(profile)"><Trash2 /></button>
               </div>
@@ -1655,8 +1647,6 @@ watch(selectedProfileId, () => {
                 <button class="secondary icon-button" type="button" :disabled="profile.Priority <= 0" title="上移" @click.stop="moveTextureImageProfile(profile, -1)"><ArrowUp /></button>
                 <button class="secondary icon-button" type="button" :disabled="profile.Priority >= textureImageProfiles.length - 1" title="下移" @click.stop="moveTextureImageProfile(profile, 1)"><ArrowDown /></button>
                 <button class="secondary icon-button" type="button" title="测试" :disabled="textureImageBusy" @click.stop="testTextureImageProfile(profile)"><Zap /></button>
-                <button class="secondary icon-button" type="button" title="模型" :disabled="textureImageBusy" @click.stop="fetchTextureImageModels(profile)"><Download /></button>
-                <button class="secondary icon-button" type="button" title="余额" :disabled="textureImageBusy" @click.stop="fetchTextureImageBalance(profile)"><WalletCards /></button>
                 <button class="secondary icon-button" type="button" title="导出" @click.stop="exportTextureImageProfile(profile)"><FileOutput /></button>
                 <button class="danger icon-button" type="button" title="删除" @click.stop="deleteTextureImageProfile(profile)"><Trash2 /></button>
               </div>

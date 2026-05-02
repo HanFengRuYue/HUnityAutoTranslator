@@ -318,7 +318,7 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
     <div class="page-head">
       <div>
         <h1>插件设置</h1>
-        <p>控制采集、写回、热键、缓存策略和字体辅助。</p>
+        <p>控制采集、写回、热键、缓存策略和字体替换功能。</p>
       </div>
       <div class="actions">
         <button class="secondary" type="button" :disabled="!formDirty" @click="reset"><RotateCcw class="button-icon" />还原</button>
@@ -359,16 +359,16 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
           <label class="field help-target" data-help="点击后直接监听组合键，按 Backspace 或 Delete 可清空为 None。"><span class="field-label"><Keyboard class="field-label-icon" />打开控制面板</span><input id="openControlPanelHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'OpenControlPanelHotkey' }" :value="hotkeyValue('OpenControlPanelHotkey')" readonly autocomplete="off" placeholder="Alt+H" @focus="beginHotkeyCapture('OpenControlPanelHotkey')" @click="beginHotkeyCapture('OpenControlPanelHotkey')" @blur="cancelHotkeyCapture('OpenControlPanelHotkey')" @keydown="handleHotkeyKeydown($event, 'OpenControlPanelHotkey')"></label>
           <label class="field help-target" data-help="在游戏中临时切换显示原文或译文，不会改写缓存内容。"><span class="field-label"><Wand2 class="field-label-icon" />原文/译文切换</span><input id="toggleTranslationHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'ToggleTranslationHotkey' }" :value="hotkeyValue('ToggleTranslationHotkey')" readonly autocomplete="off" placeholder="Alt+F" @focus="beginHotkeyCapture('ToggleTranslationHotkey')" @click="beginHotkeyCapture('ToggleTranslationHotkey')" @blur="cancelHotkeyCapture('ToggleTranslationHotkey')" @keydown="handleHotkeyKeydown($event, 'ToggleTranslationHotkey')"></label>
           <label class="field help-target" data-help="立即重新扫描当前场景文本，适合界面变化后手动刷新目标。"><span class="field-label"><ScanLine class="field-label-icon" />全局扫描更新</span><input id="forceScanHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'ForceScanHotkey' }" :value="hotkeyValue('ForceScanHotkey')" readonly autocomplete="off" placeholder="Alt+G" @focus="beginHotkeyCapture('ForceScanHotkey')" @click="beginHotkeyCapture('ForceScanHotkey')" @blur="cancelHotkeyCapture('ForceScanHotkey')" @keydown="handleHotkeyKeydown($event, 'ForceScanHotkey')"></label>
-          <label class="field help-target" data-help="在游戏中临时启用或恢复字体辅助；TMP 会优先保留原字体材质和效果。"><span class="field-label"><Type class="field-label-icon" />字体状态切换</span><input id="toggleFontHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'ToggleFontHotkey' }" :value="hotkeyValue('ToggleFontHotkey')" readonly autocomplete="off" placeholder="Alt+D" @focus="beginHotkeyCapture('ToggleFontHotkey')" @click="beginHotkeyCapture('ToggleFontHotkey')" @blur="cancelHotkeyCapture('ToggleFontHotkey')" @keydown="handleHotkeyKeydown($event, 'ToggleFontHotkey')"></label>
+          <label class="field help-target" data-help="在游戏中临时启用或恢复字体替换功能；TMP 会优先保留原字体材质和效果。"><span class="field-label"><Type class="field-label-icon" />字体状态切换</span><input id="toggleFontHotkey" class="hotkey-input" :class="{ listening: listeningHotkeyField === 'ToggleFontHotkey' }" :value="hotkeyValue('ToggleFontHotkey')" readonly autocomplete="off" placeholder="Alt+D" @focus="beginHotkeyCapture('ToggleFontHotkey')" @click="beginHotkeyCapture('ToggleFontHotkey')" @blur="cancelHotkeyCapture('ToggleFontHotkey')" @keydown="handleHotkeyKeydown($event, 'ToggleFontHotkey')"></label>
         </div>
       </SectionPanel>
 
-      <SectionPanel title="按需字体辅助" :icon="Type">
+      <SectionPanel title="字体替换功能" :icon="Type">
         <div class="checks font-replacement-checks">
-          <label class="check font-primary-toggle help-target" data-help="优先保留原字体，只有缺字时才启用替换或 fallback。"><input id="enableFontReplacement" v-model="form.EnableFontReplacement" type="checkbox">启用按需字体辅助</label>
-          <label class="check help-target" data-help="UGUI Text 原字体缺字时才切换到中文字体，减少方块字和发虚风险。"><input id="replaceUguiFonts" v-model="form.ReplaceUguiFonts" type="checkbox">UGUI 按需辅助</label>
-          <label class="check help-target" data-help="为 TextMeshPro 按需安装 fallback 字体，优先保留原 TMP 字体资产和材质。"><input id="replaceTmpFonts" v-model="form.ReplaceTmpFonts" type="checkbox">TextMeshPro 按需 fallback</label>
-          <label class="check help-target" data-help="IMGUI 绘制文本缺字时使用中文字体，主要影响旧式界面。"><input id="replaceImguiFonts" v-model="form.ReplaceImguiFonts" type="checkbox">IMGUI 按需辅助</label>
+          <label class="check font-primary-toggle help-target" data-help="只在缺字或需要补字时处理字体，不会主动乱改已有字体效果。"><input id="enableFontReplacement" v-model="form.EnableFontReplacement" type="checkbox">启用字体替换功能</label>
+          <label class="check help-target" data-help="UGUI Text 缺字时才切换到中文字体，减少方块字和发虚风险。"><input id="replaceUguiFonts" v-model="form.ReplaceUguiFonts" type="checkbox">UGUI 字体替换</label>
+          <label class="check help-target" data-help="为 TextMeshPro 缺字文本安装 fallback 字体，优先保留原 TMP 字体资产和材质。"><input id="replaceTmpFonts" v-model="form.ReplaceTmpFonts" type="checkbox">TextMeshPro fallback</label>
+          <label class="check help-target" data-help="IMGUI 绘制文本缺字时使用中文字体，主要影响旧式界面。"><input id="replaceImguiFonts" v-model="form.ReplaceImguiFonts" type="checkbox">IMGUI 字体替换</label>
           <label class="check help-target" data-help="未手动指定字体时自动选择系统 CJK 字体，适合作为默认兜底。"><input id="autoUseCjkFallbackFonts" v-model="form.AutoUseCjkFallbackFonts" type="checkbox">自动使用 CJK 字体</label>
         </div>
         <div id="automaticReplacementFontSummary" class="automatic-font-summary">

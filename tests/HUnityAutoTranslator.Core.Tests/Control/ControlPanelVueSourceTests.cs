@@ -580,8 +580,8 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("/api/provider-profiles");
         aiPageSource.Should().Contain("/api/provider-profiles/draft/");
         aiPageSource.Should().Contain("/test");
-        aiPageSource.Should().Contain("/models");
-        aiPageSource.Should().Contain("/balance");
+        aiPageSource.Should().Contain("buildProviderProfileUtilityPath(\"models\")");
+        aiPageSource.Should().Contain("buildProviderProfileUtilityPath(\"balance\")");
         aiPageSource.Should().NotContain("saveUseOnlineProfiles");
         aiPageSource.Should().NotContain("createLlamaCppProfile");
         aiPageSource.Should().NotContain("openNewProviderProfile(0)");
@@ -1453,17 +1453,81 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
-    public void Vue_and_cfg_describe_font_controls_as_on_demand_assistance()
+    public void Vue_status_page_collapses_self_check_until_a_problem_is_detected()
+    {
+        var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        statusPageSource.Should().Contain("const selfCheckPanelOpen = ref(false);");
+        statusPageSource.Should().Contain("const selfCheckHasProblem = computed");
+        statusPageSource.Should().Contain("stateName === \"Failed\"");
+        statusPageSource.Should().Contain("severity === \"Error\" || severity === \"Warning\"");
+        statusPageSource.Should().Contain("watch(selfCheckHasProblem");
+        statusPageSource.Should().Contain(":open=\"selfCheckPanelOpen\"");
+        statusPageSource.Should().Contain("@toggle=\"syncSelfCheckPanelOpen\"");
+        statusPageSource.Should().Contain("@click.stop.prevent=\"runSelfCheck()\"");
+        statusPageSource.Should().NotContain("<SectionPanel class=\"self-check-panel\"");
+        CssBlock(cssSource, @"\.self-check-panel-collapsible").Should().Contain("padding: 0;");
+        CssBlock(cssSource, @"\.self-check-panel-toggle").Should().Contain("cursor: pointer;");
+    }
+
+    [Fact]
+    public void Vue_and_cfg_describe_font_controls_as_font_replacement_without_overstatement()
     {
         var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
         var cfgSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Core", "Control", "CfgControlPanelSettingsStore.cs"));
 
-        pluginPageSource.Should().Contain("按需字体辅助");
-        pluginPageSource.Should().Contain("优先保留原字体，只有缺字时才启用替换或 fallback。");
+        pluginPageSource.Should().Contain("字体替换功能");
+        pluginPageSource.Should().Contain("只在缺字或需要补字时处理字体，不会主动乱改已有字体效果。");
         pluginPageSource.Should().NotContain("开启后插件会尝试把文本组件换成能显示中文的字体。");
-        pluginPageSource.Should().NotContain(">启用字体替换</label>");
-        cfgSource.Should().Contain("是否启用按需字体辅助。");
-        cfgSource.Should().Contain("优先保留原字体，只有缺字时才使用替换字体或 TMP fallback。");
+        pluginPageSource.Should().NotContain("按需字体辅助");
+        cfgSource.Should().Contain("是否启用字体替换功能。");
+        cfgSource.Should().Contain("只在缺字或需要补字时使用替换字体或 TMP fallback，不会主动乱改已有字体效果。");
+        cfgSource.Should().NotContain("按需字体辅助");
+    }
+
+    [Fact]
+    public void Vue_ai_settings_exposes_saved_profile_test_buttons_and_removes_texture_model_balance_shortcuts()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+
+        var providerListBlock = Regex.Match(
+            aiPageSource,
+            @"aria-label=""服务商配置列表""[\s\S]*?<div v-if=""!providerProfiles\.length""");
+        providerListBlock.Success.Should().BeTrue("the AI provider list should remain easy to inspect");
+        providerListBlock.Value.Should().Contain("title=\"测试\"");
+        providerListBlock.Value.Should().Contain("testProviderProfile(profile)");
+        aiPageSource.Should().Contain("/api/provider-profiles/${encodeURIComponent(profile.Id)}/test");
+
+        var textureProfileListBlock = Regex.Match(
+            aiPageSource,
+            @"aria-label=""贴图图片服务配置列表""[\s\S]*?<div v-if=""!textureImageProfiles\.length""");
+        textureProfileListBlock.Success.Should().BeTrue("the texture image provider list should remain easy to inspect");
+        textureProfileListBlock.Value.Should().Contain("testTextureImageProfile(profile)");
+        textureProfileListBlock.Value.Should().NotContain("fetchTextureImageModels");
+        textureProfileListBlock.Value.Should().NotContain("fetchTextureImageBalance");
+        textureProfileListBlock.Value.Should().NotContain("title=\"模型\"");
+        textureProfileListBlock.Value.Should().NotContain("title=\"余额\"");
+
+        aiPageSource.Should().Contain("BaseUrl: \"https://api.openai.com\"");
+        aiPageSource.Should().NotContain("BaseUrl: \"http://192.168.2.10:8317\"");
+    }
+
+    [Fact]
+    public void Vue_glossary_source_column_uses_human_source_names_for_cells_and_filters()
+    {
+        var glossaryPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "GlossaryPage.vue"));
+
+        glossaryPageSource.Should().Contain("function sourceLabel(value: string | number | null | undefined): string");
+        glossaryPageSource.Should().Contain("case \"manual\":");
+        glossaryPageSource.Should().Contain("case \"0\":");
+        glossaryPageSource.Should().Contain("return \"手动录入\";");
+        glossaryPageSource.Should().Contain("case \"automatic\":");
+        glossaryPageSource.Should().Contain("case \"1\":");
+        glossaryPageSource.Should().Contain("return \"AI 自动提取\";");
+        glossaryPageSource.Should().Contain("return sourceLabel(row.Source);");
+        glossaryPageSource.Should().Contain("return sourceLabel(value);");
+        glossaryPageSource.Should().Contain("return sourceLabel(\"Manual\");");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)

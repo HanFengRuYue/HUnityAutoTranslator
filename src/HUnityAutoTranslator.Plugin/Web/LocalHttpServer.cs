@@ -678,8 +678,6 @@ internal sealed class LocalHttpServer : IDisposable
             return;
         }
 
-        var utilityClient = CreateTextureImageProviderUtilityClient(profile);
-        var utilityProfile = CreateTextureImageProviderProfile(profile);
         if (request.HttpMethod == "POST" && action == "test")
         {
             if (string.IsNullOrWhiteSpace(profile.ApiKey))
@@ -688,11 +686,14 @@ internal sealed class LocalHttpServer : IDisposable
                 return;
             }
 
-            var models = await utilityClient.FetchModelsAsync(utilityProfile, CancellationToken.None).ConfigureAwait(false);
-            await WriteJsonAsync(response, new ProviderTestResult(models.Succeeded, models.Message)).ConfigureAwait(false);
+            var normalized = profile.Normalize();
+            var client = new TextureImageEditClient(_httpClient, () => normalized.ApiKey);
+            await WriteJsonAsync(response, await client.TestConnectionAsync(normalized.ToConfig(), CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
             return;
         }
 
+        var utilityClient = CreateTextureImageProviderUtilityClient(profile);
+        var utilityProfile = CreateTextureImageProviderProfile(profile);
         if (request.HttpMethod == "GET" && action == "models")
         {
             await WriteJsonAsync(response, await utilityClient.FetchModelsAsync(utilityProfile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
@@ -1065,11 +1066,12 @@ internal sealed class LocalHttpServer : IDisposable
 
         try
         {
-            var profile = CreateTextureImageProviderProfile(TextureImageProviderProfileDefinition.FromLegacy(active.Config, active.ApiKey, priority: 0));
-            var models = await new ProviderUtilityClient(_httpClient, () => active.ApiKey)
-                .FetchModelsAsync(profile, CancellationToken.None)
+            var normalized = TextureImageProviderProfileDefinition
+                .FromLegacy(active.Config, active.ApiKey, priority: 0)
+                .Normalize();
+            return await new TextureImageEditClient(_httpClient, () => normalized.ApiKey)
+                .TestConnectionAsync(normalized.ToConfig(), CancellationToken.None)
                 .ConfigureAwait(false);
-            return new ProviderTestResult(models.Succeeded, models.Message);
         }
         catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
         {
