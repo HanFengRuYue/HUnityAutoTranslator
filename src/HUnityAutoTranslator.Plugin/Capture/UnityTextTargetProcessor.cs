@@ -67,7 +67,7 @@ internal sealed class UnityTextTargetProcessor
                     config.TargetLanguage,
                     config.Provider,
                     TextPipeline.GetPromptPolicyVersion(config));
-                ApplyFont(component, targetKind, rememberedKey, context);
+                ApplyFont(component, targetKind, rememberedKey, context, text);
             }
             else
             {
@@ -84,7 +84,7 @@ internal sealed class UnityTextTargetProcessor
             RunSuppressed(() => applied = _applier.RememberAndApply(target, text, decision.TranslatedText));
             if (applied)
             {
-                ApplyFont(component, targetKind, key, context);
+                ApplyFont(component, targetKind, key, context, decision.TranslatedText);
             }
             else
             {
@@ -111,15 +111,16 @@ internal sealed class UnityTextTargetProcessor
         UnityEngine.Object component,
         UnityTextTargetKind targetKind,
         TranslationCacheKey key,
-        TranslationCacheContext context)
+        TranslationCacheContext context,
+        string translatedText)
     {
         switch (targetKind)
         {
             case UnityTextTargetKind.Ugui:
-                _fontReplacement?.ApplyToUgui(component, key, context);
+                _fontReplacement?.ApplyToUgui(component, key, context, translatedText);
                 break;
             case UnityTextTargetKind.Tmp:
-                _fontReplacement?.ApplyToTmp(component, key, context);
+                _fontReplacement?.ApplyToTmp(component, key, context, translatedText);
                 break;
         }
     }

@@ -87,6 +87,21 @@ public sealed class ComponentRefreshSourceTests
     }
 
     [Fact]
+    public void Text_change_processor_passes_translated_text_to_component_font_replacement()
+    {
+        var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs"));
+        var applyBlock = source[
+            source.IndexOf("private void ApplyFont(", StringComparison.Ordinal)..
+            source.IndexOf("private void RestoreFont", StringComparison.Ordinal)];
+
+        source.Should().Contain("ApplyFont(component, targetKind, rememberedKey, context, text);");
+        source.Should().Contain("ApplyFont(component, targetKind, key, context, decision.TranslatedText);");
+        applyBlock.Should().Contain("string translatedText");
+        applyBlock.Should().Contain("_fontReplacement?.ApplyToUgui(component, key, context, translatedText);");
+        applyBlock.Should().Contain("_fontReplacement?.ApplyToTmp(component, key, context, translatedText);");
+    }
+
+    [Fact]
     public void Unity_applier_can_resolve_refresh_results_by_component_context()
     {
         var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));
