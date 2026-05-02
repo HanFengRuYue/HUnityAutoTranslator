@@ -1,28 +1,43 @@
 namespace HUnityAutoTranslator.Core.Runtime;
 
+internal enum StableTextDecisionKind
+{
+    Wait,
+    Process,
+    RefreshCachedTranslation
+}
+
 internal sealed class UnityTextStabilityGate
 {
     private readonly Dictionary<StableTextKey, StableTextEntry> _entries = new();
     private readonly double _stableSeconds;
     private readonly double _typewriterStableSeconds;
+    private readonly double _releasedTextRefreshSeconds;
     private readonly double _entryTtlSeconds;
     private double _nextPruneSeconds;
 
     public UnityTextStabilityGate(
         double stableSeconds = 0.25,
         double typewriterStableSeconds = 1.0,
+        double releasedTextRefreshSeconds = 1.0,
         double entryTtlSeconds = 300)
     {
         _stableSeconds = Math.Max(0.05, stableSeconds);
         _typewriterStableSeconds = Math.Max(_stableSeconds, typewriterStableSeconds);
+        _releasedTextRefreshSeconds = Math.Max(_stableSeconds, releasedTextRefreshSeconds);
         _entryTtlSeconds = Math.Max(_typewriterStableSeconds, entryTtlSeconds);
     }
 
     public bool ShouldProcess(StableTextContext context, string? sourceText, double nowSeconds)
     {
+        return Evaluate(context, sourceText, nowSeconds) == StableTextDecisionKind.Process;
+    }
+
+    public StableTextDecisionKind Evaluate(StableTextContext context, string? sourceText, double nowSeconds)
+    {
         if (string.IsNullOrWhiteSpace(sourceText))
         {
-            return false;
+            return StableTextDecisionKind.Wait;
         }
 
         var key = StableTextKey.Create(context);
@@ -30,7 +45,7 @@ internal sealed class UnityTextStabilityGate
         {
             _entries[key] = new StableTextEntry(sourceText, nowSeconds);
             TrimIfNeeded(nowSeconds);
-            return false;
+            return StableTextDecisionKind.Wait;
         }
 
         entry.LastSeenSeconds = nowSeconds;
@@ -43,22 +58,30 @@ internal sealed class UnityTextStabilityGate
             entry.CurrentTextReleased = false;
             entry.IsTypewriterText = isPrefixGrowth;
             entry.LastChangedSeconds = nowSeconds;
-            return false;
+            entry.LastRefreshSeconds = nowSeconds;
+            return StableTextDecisionKind.Wait;
         }
 
         if (entry.CurrentTextReleased)
         {
-            return false;
+            if (nowSeconds - entry.LastRefreshSeconds < _releasedTextRefreshSeconds)
+            {
+                return StableTextDecisionKind.Wait;
+            }
+
+            entry.LastRefreshSeconds = nowSeconds;
+            return StableTextDecisionKind.RefreshCachedTranslation;
         }
 
         var requiredStableSeconds = entry.IsTypewriterText ? _typewriterStableSeconds : _stableSeconds;
         if (nowSeconds - entry.LastChangedSeconds < requiredStableSeconds)
         {
-            return false;
+            return StableTextDecisionKind.Wait;
         }
 
         entry.CurrentTextReleased = true;
-        return true;
+        entry.LastRefreshSeconds = nowSeconds;
+        return StableTextDecisionKind.Process;
     }
 
     private void TrimIfNeeded(double nowSeconds)
@@ -180,6 +203,8 @@ internal sealed class UnityTextStabilityGate
         public double LastChangedSeconds { get; set; }
 
         public double LastSeenSeconds { get; set; }
+
+        public double LastRefreshSeconds { get; set; }
     }
 }
 

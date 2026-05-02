@@ -144,13 +144,17 @@ internal sealed class TmpTextScanner : ITextCaptureModule
             return;
         }
 
-        if (!ShouldProcessStableText(target, text, context, config))
+        var stableDecision = EvaluateStableText(target, text, context, config);
+        if (stableDecision == StableTextDecisionKind.Wait)
         {
             _fontReplacement?.RestoreTmp(component);
             return;
         }
 
-        var decision = _pipeline.Process(new CapturedText(target.Id, text, target.IsVisible, context));
+        var capturedText = new CapturedText(target.Id, text, target.IsVisible, context);
+        var decision = stableDecision == StableTextDecisionKind.RefreshCachedTranslation
+            ? _pipeline.ResolveCachedTranslationOnly(capturedText)
+            : _pipeline.Process(capturedText);
         if (decision.Kind == PipelineDecisionKind.UseCachedTranslation && decision.TranslatedText != null)
         {
             if (_applier.RememberAndApply(target, text, decision.TranslatedText))
@@ -168,13 +172,13 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         }
     }
 
-    private bool ShouldProcessStableText(
+    private StableTextDecisionKind EvaluateStableText(
         ReflectionTextTarget target,
         string text,
         TranslationCacheContext context,
         RuntimeConfig config)
     {
-        return _stabilityGate.ShouldProcess(
+        return _stabilityGate.Evaluate(
             new StableTextContext(
                 target.Id,
                 config.TargetLanguage,

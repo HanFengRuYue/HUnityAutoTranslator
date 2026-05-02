@@ -235,11 +235,11 @@ public sealed class BoundedRuntimeLoopSourceTests
     private static void AssertUsesStabilityGateBeforePipeline(string source)
     {
         source.Should().Contain("UnityTextStabilityGate");
-        source.Should().Contain("ShouldProcessStableText(target, text, context, config)");
-        source.Should().Contain("_stabilityGate.ShouldProcess(");
+        source.Should().Contain("EvaluateStableText(target, text, context, config)");
+        source.Should().Contain("_stabilityGate.Evaluate(");
 
-        var gateIndex = source.IndexOf("ShouldProcessStableText(target, text, context, config)", StringComparison.Ordinal);
-        var pipelineIndex = source.IndexOf("_pipeline.Process(new CapturedText", StringComparison.Ordinal);
+        var gateIndex = source.IndexOf("EvaluateStableText(target, text, context, config)", StringComparison.Ordinal);
+        var pipelineIndex = source.IndexOf("_pipeline.Process(capturedText)", StringComparison.Ordinal);
         gateIndex.Should().BeGreaterThanOrEqualTo(0);
         pipelineIndex.Should().BeGreaterThan(gateIndex);
     }
