@@ -7,6 +7,7 @@ using HUnityAutoTranslator.Core.Dispatching;
 using HUnityAutoTranslator.Core.Glossary;
 using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Queueing;
+using HUnityAutoTranslator.Core.Runtime;
 using HUnityAutoTranslator.Core.Textures;
 using HUnityAutoTranslator.Plugin.Capture;
 using HUnityAutoTranslator.Plugin.Hotkeys;
@@ -94,11 +95,12 @@ internal sealed class PluginRuntime : IDisposable
             _fontReplacement = new UnityTextFontReplacementService(_cache, _logger, _controlPanel.GetConfig, _controlPanel.SetAutomaticFontFallbacks);
             _fontReplacement.InstallStartupFallbacks();
             var pipeline = new TextPipeline(_cache, _queue, _controlPanel.GetConfig, _metrics, _glossary);
-            _textChangeHook = new UnityTextChangeHookInstaller(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement);
+            var textStabilityGate = new UnityTextStabilityGate();
+            _textChangeHook = new UnityTextChangeHookInstaller(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate);
             _captureCoordinator = new TextCaptureCoordinator(new ITextCaptureModule[]
             {
-                new UguiTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement),
-                new TmpTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement),
+                new UguiTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate),
+                new TmpTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate),
                 new ImguiHookInstaller(pipeline, _cache, _logger, _controlPanel.GetConfig, _fontReplacement)
             });
             _textChangeHook?.Start();

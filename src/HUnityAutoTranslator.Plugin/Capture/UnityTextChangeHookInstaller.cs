@@ -3,6 +3,7 @@ using BepInEx.Logging;
 using HarmonyLib;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Pipeline;
+using HUnityAutoTranslator.Core.Runtime;
 using HUnityAutoTranslator.Plugin.Unity;
 using UnityEngine;
 
@@ -37,11 +38,12 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
         UnityMainThreadResultApplier applier,
         ManualLogSource logger,
         Func<RuntimeConfig> configProvider,
-        UnityTextFontReplacementService? fontReplacement = null)
+        UnityTextFontReplacementService? fontReplacement = null,
+        UnityTextStabilityGate? stabilityGate = null)
     {
         _logger = logger;
         _configProvider = configProvider;
-        _processor = new UnityTextTargetProcessor(pipeline, applier, configProvider, fontReplacement, RunSuppressed);
+        _processor = new UnityTextTargetProcessor(pipeline, applier, configProvider, fontReplacement, RunSuppressed, stabilityGate);
     }
 
     public void Start()

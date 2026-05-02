@@ -2,7 +2,9 @@ using System.Reflection;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Pipeline;
+using HUnityAutoTranslator.Core.Runtime;
 using HUnityAutoTranslator.Plugin.Unity;
+using UnityEngine;
 
 namespace HUnityAutoTranslator.Plugin.Capture;
 
@@ -19,19 +21,22 @@ internal sealed class UnityTextTargetProcessor
     private readonly Func<RuntimeConfig> _configProvider;
     private readonly UnityTextFontReplacementService? _fontReplacement;
     private readonly Action<Action> _applyScope;
+    private readonly UnityTextStabilityGate _stabilityGate;
 
     public UnityTextTargetProcessor(
         TextPipeline pipeline,
         UnityMainThreadResultApplier applier,
         Func<RuntimeConfig> configProvider,
         UnityTextFontReplacementService? fontReplacement = null,
-        Action<Action>? applyScope = null)
+        Action<Action>? applyScope = null,
+        UnityTextStabilityGate? stabilityGate = null)
     {
         _pipeline = pipeline;
         _applier = applier;
         _configProvider = configProvider;
         _fontReplacement = fontReplacement;
         _applyScope = applyScope ?? RunUnsuppressed;
+        _stabilityGate = stabilityGate ?? new UnityTextStabilityGate();
     }
 
     public void Process(UnityEngine.Object component, PropertyInfo textProperty, UnityTextTargetKind targetKind)
@@ -77,6 +82,12 @@ internal sealed class UnityTextTargetProcessor
             return;
         }
 
+        if (!ShouldProcessStableText(target, text, context, config))
+        {
+            RestoreFont(component, targetKind);
+            return;
+        }
+
         var decision = _pipeline.Process(new CapturedText(target.Id, text, target.IsVisible, context));
         if (decision.Kind == PipelineDecisionKind.UseCachedTranslation && decision.TranslatedText != null)
         {
@@ -105,6 +116,24 @@ internal sealed class UnityTextTargetProcessor
     private static void RunUnsuppressed(Action action)
     {
         action();
+    }
+
+    private bool ShouldProcessStableText(
+        ReflectionTextTarget target,
+        string text,
+        TranslationCacheContext context,
+        RuntimeConfig config)
+    {
+        return _stabilityGate.ShouldProcess(
+            new StableTextContext(
+                target.Id,
+                config.TargetLanguage,
+                TextPipeline.GetPromptPolicyVersion(config),
+                context.SceneName,
+                context.ComponentHierarchy,
+                context.ComponentType),
+            text,
+            Time.unscaledTime);
     }
 
     private void ApplyFont(

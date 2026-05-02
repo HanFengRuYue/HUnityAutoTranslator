@@ -23,6 +23,7 @@ internal sealed class TmpTextScanner : ITextCaptureModule
     private readonly ManualLogSource _logger;
     private readonly Func<RuntimeConfig> _configProvider;
     private readonly UnityTextFontReplacementService? _fontReplacement;
+    private readonly UnityTextStabilityGate _stabilityGate;
     private readonly RoundRobinCursor _scanCursor = new();
     private Type? _textType;
     private PropertyInfo? _textProperty;
@@ -30,7 +31,7 @@ internal sealed class TmpTextScanner : ITextCaptureModule
     private bool _warned;
 
     public TmpTextScanner(TextPipeline pipeline, UnityMainThreadResultApplier applier, ManualLogSource logger, RuntimeConfig config)
-        : this(pipeline, applier, logger, () => config, fontReplacement: null)
+        : this(pipeline, applier, logger, () => config, fontReplacement: null, stabilityGate: null)
     {
     }
 
@@ -39,13 +40,15 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         UnityMainThreadResultApplier applier,
         ManualLogSource logger,
         Func<RuntimeConfig> configProvider,
-        UnityTextFontReplacementService? fontReplacement = null)
+        UnityTextFontReplacementService? fontReplacement = null,
+        UnityTextStabilityGate? stabilityGate = null)
     {
         _pipeline = pipeline;
         _applier = applier;
         _logger = logger;
         _configProvider = configProvider;
         _fontReplacement = fontReplacement;
+        _stabilityGate = stabilityGate ?? new UnityTextStabilityGate();
     }
 
     public string Name => "TextMeshPro";
@@ -141,6 +144,12 @@ internal sealed class TmpTextScanner : ITextCaptureModule
             return;
         }
 
+        if (!ShouldProcessStableText(target, text, context, config))
+        {
+            _fontReplacement?.RestoreTmp(component);
+            return;
+        }
+
         var decision = _pipeline.Process(new CapturedText(target.Id, text, target.IsVisible, context));
         if (decision.Kind == PipelineDecisionKind.UseCachedTranslation && decision.TranslatedText != null)
         {
@@ -157,6 +166,24 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         {
             _fontReplacement?.RestoreTmp(component);
         }
+    }
+
+    private bool ShouldProcessStableText(
+        ReflectionTextTarget target,
+        string text,
+        TranslationCacheContext context,
+        RuntimeConfig config)
+    {
+        return _stabilityGate.ShouldProcess(
+            new StableTextContext(
+                target.Id,
+                config.TargetLanguage,
+                TextPipeline.GetPromptPolicyVersion(config),
+                context.SceneName,
+                context.ComponentHierarchy,
+                context.ComponentType),
+            text,
+            Time.unscaledTime);
     }
 
     private void WarnOnce(string message)
