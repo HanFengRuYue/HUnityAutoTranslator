@@ -100,6 +100,14 @@ public sealed class ComponentRefreshSourceTests
     }
 
     [Fact]
+    public void Text_scanners_refresh_cached_translations_after_stable_release_without_queueing()
+    {
+        AssertScannerUsesCacheOnlyRefresh(File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs")));
+        AssertScannerUsesCacheOnlyRefresh(File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs")));
+        AssertScannerUsesCacheOnlyRefresh(File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs")));
+    }
+
+    [Fact]
     public void Text_change_processor_passes_translated_text_to_component_font_replacement()
     {
         var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs"));
@@ -124,6 +132,18 @@ public sealed class ComponentRefreshSourceTests
         source.Should().Contain("TryFindTargetByComponentContext");
         source.Should().Contain("ComponentContextMatches(result, target)");
         source.Should().Contain("RememberPendingComponentRefresh(result)");
+    }
+
+    [Fact]
+    public void Unity_applier_keeps_context_refresh_pending_when_current_text_temporarily_mismatches()
+    {
+        var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));
+        var normalized = source.Replace("\r\n", "\n", StringComparison.Ordinal);
+
+        source.Should().Contain("if (!ApplyResultToTarget(result, target))");
+        source.Should().Contain("RememberPendingComponentRefresh(result);");
+        normalized.Should().NotContain("_pendingComponentRefreshes.Remove(key);\n            if (ApplyResultToTarget(result, target))");
+        normalized.Should().Contain("if (ApplyResultToTarget(result, target))\n            {\n                break;\n            }");
     }
 
     [Fact]
@@ -216,5 +236,12 @@ public sealed class ComponentRefreshSourceTests
             .Should().BeGreaterThan(cachedTranslationIndex);
         source.Should().Contain(rememberedTranslatedSampleCall);
         source.Should().Contain(cachedTranslatedSampleCall);
+    }
+
+    private static void AssertScannerUsesCacheOnlyRefresh(string source)
+    {
+        source.Should().Contain("StableTextDecisionKind.RefreshCachedTranslation");
+        source.Should().Contain("_pipeline.ResolveCachedTranslationOnly(");
+        source.Should().Contain("PipelineDecisionKind.UseCachedTranslation");
     }
 }

@@ -82,13 +82,17 @@ internal sealed class UnityTextTargetProcessor
             return;
         }
 
-        if (!ShouldProcessStableText(target, text, context, config))
+        var stableDecision = EvaluateStableText(target, text, context, config);
+        if (stableDecision == StableTextDecisionKind.Wait)
         {
             RestoreFont(component, targetKind);
             return;
         }
 
-        var decision = _pipeline.Process(new CapturedText(target.Id, text, target.IsVisible, context));
+        var capturedText = new CapturedText(target.Id, text, target.IsVisible, context);
+        var decision = stableDecision == StableTextDecisionKind.RefreshCachedTranslation
+            ? _pipeline.ResolveCachedTranslationOnly(capturedText)
+            : _pipeline.Process(capturedText);
         if (decision.Kind == PipelineDecisionKind.UseCachedTranslation && decision.TranslatedText != null)
         {
             var applied = false;
@@ -118,13 +122,13 @@ internal sealed class UnityTextTargetProcessor
         action();
     }
 
-    private bool ShouldProcessStableText(
+    private StableTextDecisionKind EvaluateStableText(
         ReflectionTextTarget target,
         string text,
         TranslationCacheContext context,
         RuntimeConfig config)
     {
-        return _stabilityGate.ShouldProcess(
+        return _stabilityGate.Evaluate(
             new StableTextContext(
                 target.Id,
                 config.TargetLanguage,

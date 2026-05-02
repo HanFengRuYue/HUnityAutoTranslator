@@ -115,10 +115,13 @@ internal sealed class UnityMainThreadResultApplier
                 continue;
             }
 
-            if (ApplyResultToTarget(result, target))
+            if (!ApplyResultToTarget(result, target))
             {
-                applied++;
+                RememberPendingComponentRefresh(result);
+                continue;
             }
+
+            applied++;
         }
 
         return applied;
@@ -303,8 +306,6 @@ internal sealed class UnityMainThreadResultApplier
             .ToArray();
         foreach (var result in pending)
         {
-            var key = ComponentContextKey(result.SceneName, result.ComponentHierarchy, result.ComponentType);
-            _pendingComponentRefreshes.Remove(key);
             if (ApplyResultToTarget(result, target))
             {
                 break;

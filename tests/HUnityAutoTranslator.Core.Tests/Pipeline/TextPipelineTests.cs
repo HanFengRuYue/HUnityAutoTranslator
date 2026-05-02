@@ -288,6 +288,72 @@ public sealed class TextPipelineTests
     }
 
     [Fact]
+    public void ResolveCachedTranslationOnly_uses_exact_cache_without_queueing_or_recording_pending()
+    {
+        var cache = new CountingTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var context = new TranslationCacheContext(
+            "PlayerSceneNight",
+            "GUIRoot/GameSettingGUI/CuteSettingCanvasGUI/Window/InfoRoot/InfoAreaControl/Viewport/Content/Slider_Mouse Speed X Cute/LabelArea/TitleText",
+            "UnityEngine.UI.Text");
+        var key = TranslationCacheKey.Create("Camera Speed X", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.Set(key, "\u955c\u5934\u901f\u5ea6 X", context);
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.ResolveCachedTranslationOnly(new CapturedText("target", "Camera Speed X", true, context));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.UseCachedTranslation);
+        decision.TranslatedText.Should().Be("\u955c\u5934\u901f\u5ea6 X");
+        cache.RecordCapturedCallCount.Should().Be(0);
+        queue.PendingCount.Should().Be(0);
+        cache.GetPendingTranslations(config.TargetLanguage, TextPipeline.PromptPolicyVersion, limit: 10).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void ResolveCachedTranslationOnly_materializes_unambiguous_reused_translation_without_queueing()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var key = TranslationCacheKey.Create("Video", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.Set(key, "\u89c6\u9891", new TranslationCacheContext(
+            "GameStartScene",
+            "SettingCanvas/SettingArea/MenuArea/List/Button_Video/Text",
+            "UnityEngine.UI.Text"));
+        var captureContext = new TranslationCacheContext(
+            "PlayerSceneNight",
+            "GUIRoot/GameSettingGUI/CuteSettingCanvasGUI/Tabs/Video/Label",
+            "UnityEngine.UI.Text");
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.ResolveCachedTranslationOnly(new CapturedText("target", "Video", true, captureContext));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.UseCachedTranslation);
+        decision.TranslatedText.Should().Be("\u89c6\u9891");
+        queue.PendingCount.Should().Be(0);
+        cache.TryGet(key, captureContext, out var materialized).Should().BeTrue();
+        materialized.Should().Be("\u89c6\u9891");
+    }
+
+    [Fact]
+    public void ResolveCachedTranslationOnly_does_not_queue_when_no_cache_match_exists()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var context = new TranslationCacheContext("PlayerSceneNight", "Canvas/Settings/Missing", "UnityEngine.UI.Text");
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.ResolveCachedTranslationOnly(new CapturedText("target", "Camera Speed Z", true, context));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.Ignored);
+        decision.TranslatedText.Should().BeNull();
+        queue.PendingCount.Should().Be(0);
+        cache.GetPendingTranslations(config.TargetLanguage, TextPipeline.PromptPolicyVersion, limit: 10).Should().BeEmpty();
+    }
+
+    [Fact]
     public void Process_does_not_reuse_same_source_translation_when_candidates_conflict_without_context_match()
     {
         var cache = new MemoryTranslationCache();

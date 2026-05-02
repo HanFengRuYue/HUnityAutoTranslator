@@ -45,11 +45,7 @@ public sealed class TextPipeline
     public PipelineDecision Process(CapturedText capturedText)
     {
         var config = _configProvider();
-        if (!config.Enabled ||
-            capturedText.SourceText.Length > config.MaxSourceTextLength ||
-            (config.IgnoreInvisibleText && !capturedText.IsVisible) ||
-            !TextFilter.ShouldTranslate(capturedText.SourceText) ||
-            TextFilter.IsAlreadyTargetLanguageSource(capturedText.SourceText, config.TargetLanguage))
+        if (!ShouldProcess(capturedText, config))
         {
             return PipelineDecision.Ignored();
         }
@@ -98,6 +94,46 @@ public sealed class TextPipeline
         }
 
         return PipelineDecision.Queued();
+    }
+
+    public PipelineDecision ResolveCachedTranslationOnly(CapturedText capturedText)
+    {
+        var config = _configProvider();
+        if (!ShouldProcess(capturedText, config) || !config.EnableCacheLookup)
+        {
+            return PipelineDecision.Ignored();
+        }
+
+        var key = TranslationCacheKey.Create(capturedText.SourceText, config.TargetLanguage, config.Provider, GetPromptPolicyVersion(config));
+        if (_cache.TryGet(key, capturedText.Context, out var translatedText) &&
+            CachedTranslationSatisfiesGlossary(capturedText.SourceText, translatedText, config) &&
+            ValidateCachedTranslation(capturedText, translatedText, config).IsValid)
+        {
+            return PipelineDecision.UseCachedTranslation(translatedText);
+        }
+
+        if (TranslationCacheReuse.TryGetReusableTranslation(
+            _cache,
+            key,
+            capturedText.Context,
+            config,
+            _glossary,
+            out var reusableTranslatedText))
+        {
+            _cache.Set(key, reusableTranslatedText, capturedText.Context);
+            return PipelineDecision.UseCachedTranslation(reusableTranslatedText);
+        }
+
+        return PipelineDecision.Ignored();
+    }
+
+    private static bool ShouldProcess(CapturedText capturedText, RuntimeConfig config)
+    {
+        return config.Enabled &&
+            capturedText.SourceText.Length <= config.MaxSourceTextLength &&
+            (!config.IgnoreInvisibleText || capturedText.IsVisible) &&
+            TextFilter.ShouldTranslate(capturedText.SourceText) &&
+            !TextFilter.IsAlreadyTargetLanguageSource(capturedText.SourceText, config.TargetLanguage);
     }
 
     private bool CachedTranslationSatisfiesGlossary(string sourceText, string translatedText, RuntimeConfig config)

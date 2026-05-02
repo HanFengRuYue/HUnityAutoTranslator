@@ -53,6 +53,30 @@ public sealed class UnityTextStabilityGateTests
     }
 
     [Fact]
+    public void Evaluate_returns_cache_refresh_for_released_text_after_refresh_interval()
+    {
+        var gate = new UnityTextStabilityGate(
+            stableSeconds: 0.25,
+            typewriterStableSeconds: 1.0,
+            entryTtlSeconds: 60,
+            releasedTextRefreshSeconds: 2.0);
+        var context = new StableTextContext(
+            "slider-title",
+            "zh-Hans",
+            "prompt-v5",
+            "PlayerSceneNight",
+            "GUIRoot/GameSettingGUI/CuteSettingCanvasGUI/Window/InfoRoot/InfoAreaControl/Viewport/Content/Slider_Mouse Speed X Cute/LabelArea/TitleText",
+            "UnityEngine.UI.Text");
+
+        gate.Evaluate(context, "Camera Speed X", nowSeconds: 0).Should().Be(StableTextDecisionKind.Wait);
+        gate.Evaluate(context, "Camera Speed X", nowSeconds: 0.25).Should().Be(StableTextDecisionKind.Process);
+        gate.Evaluate(context, "Camera Speed X", nowSeconds: 1.5).Should().Be(StableTextDecisionKind.Wait);
+
+        gate.Evaluate(context, "Camera Speed X", nowSeconds: 2.25).Should().Be(StableTextDecisionKind.RefreshCachedTranslation);
+        gate.Evaluate(context, "Camera Speed X", nowSeconds: 2.5).Should().Be(StableTextDecisionKind.Wait);
+    }
+
+    [Fact]
     public void ShouldProcess_resets_when_same_component_switches_to_unrelated_text()
     {
         var gate = new UnityTextStabilityGate(
