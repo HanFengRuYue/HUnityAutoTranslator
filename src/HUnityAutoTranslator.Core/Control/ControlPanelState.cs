@@ -50,6 +50,7 @@ public sealed record ControlPanelState(
     string DefaultSystemPrompt,
     PromptTemplateConfig PromptTemplates,
     PromptTemplateConfig DefaultPromptTemplates,
+    TranslationQualityConfig TranslationQuality,
     int MaxSourceTextLength,
     bool IgnoreInvisibleText,
     bool SkipNumericSymbolText,

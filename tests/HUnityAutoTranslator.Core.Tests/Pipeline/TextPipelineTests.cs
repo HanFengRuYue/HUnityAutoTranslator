@@ -113,6 +113,47 @@ public sealed class TextPipelineTests
     }
 
     [Fact]
+    public void Process_uses_cached_translation_when_quality_rules_are_disabled()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            TranslationQuality = TranslationQualityConfig.Default() with { Enabled = false }
+        };
+        var key = TranslationCacheKey.Create("Ultra", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        var context = new TranslationCacheContext("Main Menu", "Menu/Camera/Canvas/Settings Menu/Gameplay Panel/Textures/Text", "TMPro.TextMeshProUGUI");
+        cache.Set(key, "\u8d85", context);
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.Process(new CapturedText("ui-1", "Ultra", isVisible: true, context));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.UseCachedTranslation);
+        decision.TranslatedText.Should().Be("\u8d85");
+        queue.PendingCount.Should().Be(0);
+        cache.TryGet(key, context, out var cached).Should().BeTrue();
+        cached.Should().Be("\u8d85");
+    }
+
+    [Fact]
+    public void Process_uses_cached_translation_when_source_is_already_simplified_chinese_with_short_technical_token()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var key = TranslationCacheKey.Create("\u753b\u8d28 FPS", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        var context = new TranslationCacheContext("Settings", "Canvas/Settings/Graphics/FpsCounter", "UnityEngine.UI.Text");
+        cache.Set(key, "\u753b\u8d28 FPS", context);
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.Process(new CapturedText("ui-1", "\u753b\u8d28 FPS", isVisible: true, context));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.UseCachedTranslation);
+        decision.TranslatedText.Should().Be("\u753b\u8d28 FPS");
+        queue.PendingCount.Should().Be(0);
+    }
+
+    [Fact]
     public void Process_uses_capture_context_when_reading_cached_translation()
     {
         var cache = new MemoryTranslationCache();

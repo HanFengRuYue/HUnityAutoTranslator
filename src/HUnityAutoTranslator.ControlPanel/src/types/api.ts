@@ -21,6 +21,22 @@ export interface ProviderStatus {
   CheckedUtc: string | null;
 }
 
+export interface TranslationQualityConfig {
+  Enabled: boolean;
+  Mode: string;
+  AllowAlreadyTargetLanguageSource: boolean;
+  EnableRepair: boolean;
+  MaxRetryCount: number;
+  PreserveGameTitle: boolean;
+  RejectGeneratedOuterSymbols: boolean;
+  RejectUntranslatedLatinUiText: boolean;
+  RejectShortSettingValue: boolean;
+  RejectLiteralStateTranslation: boolean;
+  RejectSameParentOptionCollision: boolean;
+  ShortSettingValueMinSourceLength: number;
+  ShortSettingValueMaxTranslationTextElements: number;
+}
+
 export interface ProviderProfileState {
   Id: string;
   Name: string;
@@ -315,6 +331,7 @@ export interface ControlPanelState {
   DefaultSystemPrompt: string;
   PromptTemplates: PromptTemplateConfig;
   DefaultPromptTemplates: PromptTemplateConfig;
+  TranslationQuality: TranslationQualityConfig;
   MaxSourceTextLength: number;
   IgnoreInvisibleText: boolean;
   SkipNumericSymbolText: boolean;
@@ -392,6 +409,7 @@ export interface UpdateConfigRequest {
   ClearTemperature?: boolean;
   CustomPrompt?: string | null;
   PromptTemplates?: PromptTemplateConfig;
+  TranslationQuality?: TranslationQualityConfig;
   MaxSourceTextLength?: number;
   IgnoreInvisibleText?: boolean;
   SkipNumericSymbolText?: boolean;

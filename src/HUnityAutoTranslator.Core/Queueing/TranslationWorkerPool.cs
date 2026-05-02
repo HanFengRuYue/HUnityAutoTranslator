@@ -17,7 +17,6 @@ public sealed class TranslationWorkerPool
 {
     private static readonly TimeSpan IdleWorkerPollInterval = TimeSpan.FromMilliseconds(40);
     private const int MaxBatchItems = 16;
-    private const int MaxQualityRetryCount = 3;
 
     private readonly TranslationJobQueue _queue;
     private readonly ResultDispatcher _dispatcher;
@@ -260,18 +259,19 @@ public sealed class TranslationWorkerPool
         var publishJobs = new List<TranslationJob>();
         var publishTexts = new List<string>();
         var retryJobs = new List<TranslationJob>();
+        var maxQualityRetryCount = _config.TranslationQuality.Normalize().MaxRetryCount;
         for (var i = 0; i < jobs.Count; i++)
         {
             if (failures.TryGetValue(i, out var failure))
             {
-                if (failure.IsQualityFailure && jobs[i].QualityRetryCount < MaxQualityRetryCount)
+                if (failure.IsQualityFailure && jobs[i].QualityRetryCount < maxQualityRetryCount)
                 {
                     var retryJob = jobs[i] with { QualityRetryCount = jobs[i].QualityRetryCount + 1 };
                     retryJobs.Add(retryJob);
                     ReportFinalFailure(
                         jobs[i],
                         failure,
-                        $"重试：{retryJob.QualityRetryCount}/{MaxQualityRetryCount}，已加入等待翻译队列。");
+                        $"重试：{retryJob.QualityRetryCount}/{maxQualityRetryCount}，已加入等待翻译队列。");
                 }
                 else
                 {
@@ -281,7 +281,7 @@ public sealed class TranslationWorkerPool
                     }
 
                     var retryStatus = failure.IsQualityFailure
-                        ? $"重试：{jobs[i].QualityRetryCount}/{MaxQualityRetryCount}，已达上限，保留为待翻译。"
+                        ? $"重试：{jobs[i].QualityRetryCount}/{maxQualityRetryCount}，已达上限，保留为待翻译。"
                         : null;
                     ReportFinalFailure(jobs[i], failure, retryStatus);
                 }
@@ -346,7 +346,8 @@ public sealed class TranslationWorkerPool
             translatedTexts,
             itemContexts,
             targetLanguage,
-            _config.GameTitle))
+            _config.GameTitle,
+            _config.TranslationQuality))
         {
             failures.TryAdd(
                 failure.TextIndex,
@@ -447,7 +448,7 @@ public sealed class TranslationWorkerPool
             contextExampleCount,
             glossaryTermCount,
             itemContexts.Count > 0,
-            QualityRulesEnabled: true,
+            QualityRulesEnabled: _config.TranslationQuality.Normalize().Enabled,
             repairReason,
             items));
     }
@@ -721,12 +722,19 @@ public sealed class TranslationWorkerPool
         string targetLanguage,
         CancellationToken cancellationToken)
     {
+        var qualityConfig = _config.TranslationQuality.Normalize();
+        if (!qualityConfig.Enabled || !qualityConfig.EnableRepair)
+        {
+            return translatedTexts;
+        }
+
         var failures = TranslationQualityValidator.FindFailures(
             jobs.Select(job => job.SourceText).ToArray(),
             translatedTexts,
             itemContexts,
             targetLanguage,
-            _config.GameTitle);
+            _config.GameTitle,
+            qualityConfig);
         if (failures.Count == 0)
         {
             return translatedTexts;

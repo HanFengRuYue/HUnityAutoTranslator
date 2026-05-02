@@ -23,6 +23,7 @@ import {
   Save,
   Server,
   Settings2,
+  ShieldCheck,
   Square,
   Thermometer,
   Trash2,
@@ -62,12 +63,14 @@ import type {
   TextureImageProviderProfileImportResult,
   TextureImageProviderProfileState,
   TextureImageProviderProfileUpdateRequest,
+  TranslationQualityConfig,
   UpdateConfigRequest
 } from "../types/api";
 import { targetLanguageOptions } from "../utils/languages";
 
 const formKey = "ai";
 type PromptTemplateKey = keyof PromptTemplateConfig;
+type TranslationQualityMode = "balanced" | "relaxed" | "strict" | "custom";
 
 interface SaveBehavior {
   quiet?: boolean;
@@ -143,6 +146,46 @@ function createPromptTemplates(): PromptTemplateConfig {
   };
 }
 
+function createTranslationQualityConfig(mode: TranslationQualityMode = "balanced"): TranslationQualityConfig {
+  const balanced: TranslationQualityConfig = {
+    Enabled: true,
+    Mode: "balanced",
+    AllowAlreadyTargetLanguageSource: true,
+    EnableRepair: true,
+    MaxRetryCount: 3,
+    PreserveGameTitle: true,
+    RejectGeneratedOuterSymbols: true,
+    RejectUntranslatedLatinUiText: true,
+    RejectShortSettingValue: true,
+    RejectLiteralStateTranslation: true,
+    RejectSameParentOptionCollision: true,
+    ShortSettingValueMinSourceLength: 4,
+    ShortSettingValueMaxTranslationTextElements: 1
+  };
+
+  if (mode === "relaxed") {
+    return {
+      ...balanced,
+      Mode: "relaxed",
+      MaxRetryCount: 1,
+      RejectShortSettingValue: false,
+      RejectLiteralStateTranslation: false,
+      RejectSameParentOptionCollision: false
+    };
+  }
+
+  if (mode === "strict") {
+    return {
+      ...balanced,
+      Mode: "strict",
+      MaxRetryCount: 5,
+      ShortSettingValueMinSourceLength: 3
+    };
+  }
+
+  return mode === "custom" ? { ...balanced, Mode: "custom" } : balanced;
+}
+
 const form = reactive({
   TargetLanguage: "zh-Hans",
   GameTitle: "",
@@ -154,6 +197,7 @@ const form = reactive({
   TranslationContextMaxCharacters: 1200,
   CustomPrompt: "",
   PromptTemplates: createPromptTemplates(),
+  TranslationQuality: createTranslationQualityConfig(),
   TextureImageEnabled: false,
   TextureImageBaseUrl: "http://192.168.2.10:8317",
   TextureImageEditEndpoint: "/v1/images/edits",
@@ -538,6 +582,50 @@ function buildPromptTemplateOverrides(): PromptTemplateConfig {
   return overrides;
 }
 
+function normalizeTranslationQualityMode(value: string | null | undefined): TranslationQualityMode {
+  return value === "relaxed" || value === "strict" || value === "custom" ? value : "balanced";
+}
+
+function applyTranslationQuality(config: TranslationQualityConfig | null | undefined): void {
+  const mode = normalizeTranslationQualityMode(config?.Mode);
+  form.TranslationQuality = {
+    ...createTranslationQualityConfig(mode),
+    ...(config ?? {}),
+    Mode: mode
+  };
+}
+
+function buildTranslationQualityConfig(): TranslationQualityConfig {
+  return {
+    ...form.TranslationQuality,
+    MaxRetryCount: numberValue(form.TranslationQuality.MaxRetryCount),
+    ShortSettingValueMinSourceLength: numberValue(form.TranslationQuality.ShortSettingValueMinSourceLength),
+    ShortSettingValueMaxTranslationTextElements: numberValue(form.TranslationQuality.ShortSettingValueMaxTranslationTextElements)
+  };
+}
+
+function applyTranslationQualityMode(): void {
+  const mode = normalizeTranslationQualityMode(form.TranslationQuality.Mode);
+  if (mode === "custom") {
+    form.TranslationQuality.Mode = "custom";
+  } else {
+    form.TranslationQuality = {
+      ...createTranslationQualityConfig(mode),
+      Enabled: form.TranslationQuality.Enabled
+    };
+  }
+
+  markDirty();
+}
+
+function setTranslationQualityCustom(): void {
+  if (form.TranslationQuality.Mode !== "custom") {
+    form.TranslationQuality.Mode = "custom";
+  }
+
+  markDirty();
+}
+
 function validatePromptTemplates(): boolean {
   for (const field of promptTemplateFields) {
     const value = form.PromptTemplates[field.key] ?? "";
@@ -566,6 +654,7 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.EnableTranslationContext = Boolean(state.EnableTranslationContext);
   form.TranslationContextMaxExamples = state.TranslationContextMaxExamples ?? 4;
   form.TranslationContextMaxCharacters = state.TranslationContextMaxCharacters ?? 1200;
+  applyTranslationQuality(state.TranslationQuality);
   form.LlamaCppModelPath = state.LlamaCpp?.ModelPath ?? "";
   form.LlamaCppContextSize = state.LlamaCpp?.ContextSize ?? 4096;
   form.LlamaCppGpuLayers = state.LlamaCpp?.GpuLayers ?? 999;
@@ -630,6 +719,7 @@ function buildConfigRequest(providerKind = form.ProviderKind): UpdateConfigReque
     EnableTranslationContext: form.EnableTranslationContext,
     TranslationContextMaxExamples: numberValue(form.TranslationContextMaxExamples),
     TranslationContextMaxCharacters: numberValue(form.TranslationContextMaxCharacters),
+    TranslationQuality: buildTranslationQualityConfig(),
     PromptTemplates: buildPromptTemplateOverrides(),
     LlamaCpp: buildLlamaCppConfig()
   };
@@ -1451,6 +1541,43 @@ watch(selectedProfileId, () => {
             <span class="field-label"><MessageSquareText class="field-label-icon" />上下文字符数</span>
             <input id="translationContextMaxCharacters" v-model.number="form.TranslationContextMaxCharacters" type="number" min="0" @input="markDirty">
           </label>
+        </div>
+      </SectionPanel>
+
+      <SectionPanel title="质量检查" :icon="ShieldCheck">
+        <div class="form-grid four">
+          <label class="field help-target" data-help="选择一组质量检查预设；修改单项后会自动变成自定义。">
+            <span class="field-label"><ShieldCheck class="field-label-icon" />检查预设</span>
+            <select id="translationQualityMode" v-model="form.TranslationQuality.Mode" @change="applyTranslationQualityMode">
+              <option value="balanced">平衡</option>
+              <option value="relaxed">宽松</option>
+              <option value="strict">严格</option>
+              <option value="custom">自定义</option>
+            </select>
+          </label>
+          <label class="field help-target" data-help="质量失败最多重新翻译多少次；0 表示不重试。">
+            <span class="field-label"><Gauge class="field-label-icon" />重试上限</span>
+            <input id="translationQualityMaxRetryCount" v-model.number="form.TranslationQuality.MaxRetryCount" type="number" min="0" max="10" @input="setTranslationQualityCustom">
+          </label>
+          <label class="field help-target" data-help="原文达到这个长度后才检查设置值译文是否过短。">
+            <span class="field-label"><ListChecks class="field-label-icon" />短译原文长度</span>
+            <input id="translationQualityShortSettingValueMinSourceLength" v-model.number="form.TranslationQuality.ShortSettingValueMinSourceLength" type="number" min="1" max="32" @input="setTranslationQualityCustom">
+          </label>
+          <label class="field help-target" data-help="设置值译文少于或等于这个字符数时会被视为可疑短译。">
+            <span class="field-label"><MessageSquareText class="field-label-icon" />短译字符上限</span>
+            <input id="translationQualityShortSettingValueMaxTranslationTextElements" v-model.number="form.TranslationQuality.ShortSettingValueMaxTranslationTextElements" type="number" min="1" max="8" @input="setTranslationQualityCustom">
+          </label>
+        </div>
+        <div class="checks translation-quality-checks">
+          <label class="check help-target" data-help="关闭后不再执行语义质量规则，但格式检查和术语检查仍会执行。"><input id="translationQualityEnabled" v-model="form.TranslationQuality.Enabled" type="checkbox" @change="setTranslationQualityCustom">启用质量检查</label>
+          <label class="check help-target" data-help="目标语言是简体中文时，原文已经是中文且只含短技术缩写会直接放行。"><input id="translationQualityAllowAlreadyTargetLanguageSource" v-model="form.TranslationQuality.AllowAlreadyTargetLanguageSource" type="checkbox" @change="setTranslationQualityCustom">中文原文放行</label>
+          <label class="check help-target" data-help="质量失败后先让 AI 修复一次；关闭后直接进入重试流程。"><input id="translationQualityEnableRepair" v-model="form.TranslationQuality.EnableRepair" type="checkbox" @change="setTranslationQualityCustom">启用质量修复</label>
+          <label class="check help-target" data-help="游戏标题出现在原文时，要求译文保留原标题。"><input id="translationQualityPreserveGameTitle" v-model="form.TranslationQuality.PreserveGameTitle" type="checkbox" @change="setTranslationQualityCustom">保留游戏标题</label>
+          <label class="check help-target" data-help="拒绝 AI 给短文本额外加引号、括号或书名号。"><input id="translationQualityRejectGeneratedOuterSymbols" v-model="form.TranslationQuality.RejectGeneratedOuterSymbols" type="checkbox" @change="setTranslationQualityCustom">拒绝额外外层符号</label>
+          <label class="check help-target" data-help="拒绝普通英文 UI 文本原样未翻译。"><input id="translationQualityRejectUntranslatedLatinUiText" v-model="form.TranslationQuality.RejectUntranslatedLatinUiText" type="checkbox" @change="setTranslationQualityCustom">拒绝英文未翻译</label>
+          <label class="check help-target" data-help="拒绝设置值译文过短或不完整。"><input id="translationQualityRejectShortSettingValue" v-model="form.TranslationQuality.RejectShortSettingValue" type="checkbox" @change="setTranslationQualityCustom">拒绝设置值短译</label>
+          <label class="check help-target" data-help="拒绝 Activated/Enabled 等状态文本被直译成不适合游戏 UI 的表达。"><input id="translationQualityRejectLiteralStateTranslation" v-model="form.TranslationQuality.RejectLiteralStateTranslation" type="checkbox" @change="setTranslationQualityCustom">拒绝状态直译</label>
+          <label class="check help-target" data-help="拒绝同一父级下不同选项被翻成完全相同的文本。"><input id="translationQualityRejectSameParentOptionCollision" v-model="form.TranslationQuality.RejectSameParentOptionCollision" type="checkbox" @change="setTranslationQualityCustom">拒绝同组选项撞译</label>
         </div>
       </SectionPanel>
 

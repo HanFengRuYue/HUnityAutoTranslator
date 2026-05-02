@@ -34,6 +34,7 @@ public sealed record UpdateConfigRequest(
     bool? ClearTemperature = null,
     string? CustomPrompt = null,
     PromptTemplateConfig? PromptTemplates = null,
+    TranslationQualityConfig? TranslationQuality = null,
     int? MaxSourceTextLength = null,
     bool? IgnoreInvisibleText = null,
     bool? SkipNumericSymbolText = null,

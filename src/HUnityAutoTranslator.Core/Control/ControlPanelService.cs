@@ -139,6 +139,7 @@ public sealed class ControlPanelService
                 PromptBuilder.BuildDefaultSystemPrompt(config.TargetLanguage, config.Style, config.GameTitle),
                 config.PromptTemplates,
                 PromptTemplateConfig.Default,
+                config.TranslationQuality,
                 config.MaxSourceTextLength,
                 config.IgnoreInvisibleText,
                 config.SkipNumericSymbolText,
@@ -1351,6 +1352,9 @@ public sealed class ControlPanelService
         var promptTemplates = request.PromptTemplates == null
             ? _config.PromptTemplates
             : request.PromptTemplates.NormalizeAgainstDefaults();
+        var translationQuality = request.TranslationQuality == null
+            ? _config.TranslationQuality
+            : request.TranslationQuality.Normalize();
         if (request.CustomPrompt != null && request.PromptTemplates == null)
         {
             promptTemplates = (promptTemplates with { SystemPrompt = requestedCustomPrompt }).NormalizeAgainstDefaults();
@@ -1388,6 +1392,7 @@ public sealed class ControlPanelService
             Temperature = temperature,
             CustomPrompt = customPrompt,
             PromptTemplates = promptTemplates,
+            TranslationQuality = translationQuality,
             MaxSourceTextLength = maxSourceTextLength,
             IgnoreInvisibleText = request.IgnoreInvisibleText ?? _config.IgnoreInvisibleText,
             SkipNumericSymbolText = request.SkipNumericSymbolText ?? _config.SkipNumericSymbolText,
@@ -1459,6 +1464,7 @@ public sealed class ControlPanelService
                 MaxWritebacksPerFrame: _config.MaxWritebacksPerFrame,
                 CustomPrompt: _config.CustomPrompt,
                 PromptTemplates: _config.PromptTemplates,
+                TranslationQuality: _config.TranslationQuality,
                 MaxSourceTextLength: _config.MaxSourceTextLength,
                 IgnoreInvisibleText: _config.IgnoreInvisibleText,
                 SkipNumericSymbolText: _config.SkipNumericSymbolText,

@@ -1,4 +1,5 @@
 using System.Globalization;
+using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Text;
 
 namespace HUnityAutoTranslator.Core.Prompts;
@@ -40,9 +41,10 @@ public static class TranslationQualityValidator
         IReadOnlyList<string> translatedTexts,
         IReadOnlyList<PromptItemContext>? itemContexts,
         string targetLanguage,
-        string? gameTitle)
+        string? gameTitle,
+        TranslationQualityConfig? qualityConfig = null)
     {
-        var failures = FindFailures(sourceTexts, translatedTexts, itemContexts, targetLanguage, gameTitle);
+        var failures = FindFailures(sourceTexts, translatedTexts, itemContexts, targetLanguage, gameTitle, qualityConfig);
         return failures.Count == 0
             ? ValidationResult.Valid()
             : ValidationResult.Invalid(failures[0].Reason);
@@ -53,9 +55,16 @@ public static class TranslationQualityValidator
         IReadOnlyList<string> translatedTexts,
         IReadOnlyList<PromptItemContext>? itemContexts,
         string targetLanguage,
-        string? gameTitle)
+        string? gameTitle,
+        TranslationQualityConfig? qualityConfig = null)
     {
         var failures = new List<TranslationQualityFailure>();
+        var config = (qualityConfig ?? TranslationQualityConfig.Default()).Normalize();
+        if (!config.Enabled)
+        {
+            return failures;
+        }
+
         if (sourceTexts.Count != translatedTexts.Count)
         {
             failures.Add(new TranslationQualityFailure(0, "translation quality check could not match source and result counts"));
@@ -70,14 +79,14 @@ public static class TranslationQualityValidator
         {
             contextByIndex.TryGetValue(i, out var context);
             var hints = PromptItemClassifier.BuildHints(visibleSourceTexts[i], context, gameTitle);
-            var failure = ValidateSingle(i, visibleSourceTexts[i], visibleTranslatedTexts[i], hints, isSimplifiedChinese, gameTitle);
+            var failure = ValidateSingle(i, visibleSourceTexts[i], visibleTranslatedTexts[i], hints, isSimplifiedChinese, gameTitle, config);
             if (failure != null)
             {
                 failures.Add(failure);
             }
         }
 
-        AddSameParentCollisions(visibleSourceTexts, visibleTranslatedTexts, contextByIndex, gameTitle, failures);
+        AddSameParentCollisions(visibleSourceTexts, visibleTranslatedTexts, contextByIndex, isSimplifiedChinese, config, gameTitle, failures);
         return failures;
     }
 
@@ -87,35 +96,38 @@ public static class TranslationQualityValidator
         string translatedText,
         IReadOnlyList<string> hints,
         bool isSimplifiedChinese,
-        string? gameTitle)
+        string? gameTitle,
+        TranslationQualityConfig config)
     {
-        if (PromptItemClassifier.ContainsGameTitle(sourceText, gameTitle) &&
+        if (config.PreserveGameTitle &&
+            PromptItemClassifier.ContainsGameTitle(sourceText, gameTitle) &&
             !PromptItemClassifier.ContainsGameTitle(translatedText, gameTitle))
         {
             return new TranslationQualityFailure(index, "game title must be preserved exactly when it appears in the source text");
         }
 
-        if (HasGeneratedOuterSymbols(sourceText, translatedText))
+        if (config.RejectGeneratedOuterSymbols && HasGeneratedOuterSymbols(sourceText, translatedText))
         {
             return new TranslationQualityFailure(index, "translation added outer symbols that are not present in the source text");
         }
 
-        if (!isSimplifiedChinese)
+        if (!isSimplifiedChinese ||
+            (config.AllowAlreadyTargetLanguageSource && IsAlreadySimplifiedChineseSource(sourceText)))
         {
             return null;
         }
 
-        if (IsSuspiciousUntranslatedEnglish(sourceText, translatedText, hints))
+        if (config.RejectUntranslatedLatinUiText && IsSuspiciousUntranslatedEnglish(sourceText, translatedText, hints))
         {
             return new TranslationQualityFailure(index, "ordinary English UI text was left untranslated");
         }
 
-        if (IsSuspiciousShortSettingValue(sourceText, translatedText, hints))
+        if (config.RejectShortSettingValue && IsSuspiciousShortSettingValue(sourceText, translatedText, hints, config))
         {
             return new TranslationQualityFailure(index, "settings value translation is too short or incomplete");
         }
 
-        if (IsLiteralStateTranslation(sourceText, translatedText, hints))
+        if (config.RejectLiteralStateTranslation && IsLiteralStateTranslation(sourceText, translatedText, hints))
         {
             return new TranslationQualityFailure(index, "state text is too literal for a game UI setting");
         }
@@ -127,9 +139,16 @@ public static class TranslationQualityValidator
         IReadOnlyList<string> sourceTexts,
         IReadOnlyList<string> translatedTexts,
         IReadOnlyDictionary<int, PromptItemContext> contextByIndex,
+        bool isSimplifiedChinese,
+        TranslationQualityConfig config,
         string? gameTitle,
         List<TranslationQualityFailure> failures)
     {
+        if (!config.RejectSameParentOptionCollision)
+        {
+            return;
+        }
+
         var failedIndexes = failures.Select(failure => failure.TextIndex).ToHashSet();
         for (var i = 0; i < sourceTexts.Count; i++)
         {
@@ -149,6 +168,14 @@ public static class TranslationQualityValidator
                 if (failedIndexes.Contains(j) ||
                     !contextByIndex.TryGetValue(j, out var rightContext) ||
                     !string.Equals(leftParent, PromptItemClassifier.GetParentHierarchy(rightContext.ComponentHierarchy), StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (isSimplifiedChinese &&
+                    config.AllowAlreadyTargetLanguageSource &&
+                    IsAlreadySimplifiedChineseSource(sourceTexts[i]) &&
+                    IsAlreadySimplifiedChineseSource(sourceTexts[j]))
                 {
                     continue;
                 }
@@ -209,7 +236,8 @@ public static class TranslationQualityValidator
     private static bool IsSuspiciousShortSettingValue(
         string sourceText,
         string translatedText,
-        IReadOnlyList<string> hints)
+        IReadOnlyList<string> hints,
+        TranslationQualityConfig config)
     {
         if (!hints.Contains("settings_value") && !hints.Contains("accessibility_option"))
         {
@@ -225,7 +253,8 @@ public static class TranslationQualityValidator
         var compactTranslation = new string((translatedText ?? string.Empty)
             .Where(character => !char.IsWhiteSpace(character) && !char.IsPunctuation(character) && !char.IsSymbol(character))
             .ToArray());
-        return source.Length >= 4 && CountTextElements(compactTranslation) <= 1;
+        return source.Length >= config.ShortSettingValueMinSourceLength &&
+            CountTextElements(compactTranslation) <= config.ShortSettingValueMaxTranslationTextElements;
     }
 
     private static bool IsLiteralStateTranslation(
@@ -310,6 +339,68 @@ public static class TranslationQualityValidator
     private static bool ContainsLatinLetter(string value)
     {
         return value.Any(character => (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z'));
+    }
+
+    private static bool IsAlreadySimplifiedChineseSource(string value)
+    {
+        var normalized = PromptItemClassifier.NormalizeForMatch(value);
+        return ContainsCjk(normalized) && !ContainsTranslatableLatinWord(normalized);
+    }
+
+    private static bool ContainsTranslatableLatinWord(string value)
+    {
+        var token = string.Empty;
+        foreach (var character in value)
+        {
+            if ((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') || char.IsDigit(character))
+            {
+                token += character;
+                continue;
+            }
+
+            if (TokenRequiresTranslation(token))
+            {
+                return true;
+            }
+
+            token = string.Empty;
+        }
+
+        return TokenRequiresTranslation(token);
+    }
+
+    private static bool TokenRequiresTranslation(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return false;
+        }
+
+        if (IsShortTechnicalToken(token))
+        {
+            return false;
+        }
+
+        return token.Any(character => (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z'));
+    }
+
+    private static bool IsShortTechnicalToken(string token)
+    {
+        var compact = token.Trim();
+        if (compact.Length <= 4 && compact.All(character => char.IsUpper(character) || char.IsDigit(character)))
+        {
+            return true;
+        }
+
+        return compact.ToLowerInvariant() is "fps" or "hz" or "ui" or "tmp" or "ugui" or "imgui" or "ms" or "cpu" or "gpu" or "ram" or "vr";
+    }
+
+    private static bool ContainsCjk(string value)
+    {
+        return value.Any(character =>
+            (character >= '\u3400' && character <= '\u4DBF') ||
+            (character >= '\u4E00' && character <= '\u9FFF') ||
+            (character >= '\uF900' && character <= '\uFAFF'));
     }
 
     private static int CountTextElements(string value)

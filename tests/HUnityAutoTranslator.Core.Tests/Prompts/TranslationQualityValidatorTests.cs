@@ -1,4 +1,5 @@
 using FluentAssertions;
+using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Prompts;
 using HUnityAutoTranslator.Core.Text;
 
@@ -56,5 +57,83 @@ public sealed class TranslationQualityValidatorTests
 
         result.IsValid.Should().BeFalse();
         result.Reason.Should().Be("ordinary English UI text was left untranslated");
+    }
+
+    [Fact]
+    public void Quality_validator_allows_simplified_chinese_source_with_short_technical_tokens()
+    {
+        var result = TranslationQualityValidator.ValidateBatch(
+            new[] { "\u753b\u8d28 FPS" },
+            new[] { "\u753b\u8d28 FPS" },
+            new[] { new PromptItemContext(0, "Settings", "Canvas/Settings/Graphics/FpsCounter", "UnityEngine.UI.Text") },
+            "zh-Hans",
+            gameTitle: null,
+            qualityConfig: TranslationQualityConfig.Default());
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Quality_validator_still_rejects_simplified_chinese_source_with_translatable_latin_words()
+    {
+        var result = TranslationQualityValidator.ValidateBatch(
+            new[] { "\u5f00\u59cb Game" },
+            new[] { "\u5f00\u59cb Game" },
+            new[] { new PromptItemContext(0, "MainMenu", "Canvas/Menu/StartButton", "UnityEngine.UI.Text") },
+            "zh-Hans",
+            gameTitle: null,
+            qualityConfig: TranslationQualityConfig.Default());
+
+        result.IsValid.Should().BeFalse();
+        result.Reason.Should().Be("ordinary English UI text was left untranslated");
+    }
+
+    [Fact]
+    public void Quality_validator_respects_individual_rule_switches()
+    {
+        var contexts = new[]
+        {
+            new PromptItemContext(0, "Main Menu", "Menu/Camera/World Canvas/Panels/Main/Title", "TMPro.TextMeshProUGUI"),
+            new PromptItemContext(1, "Main Menu", "Menu/Camera/Canvas/Settings Menu/Main/Title", "TMPro.TextMeshProUGUI"),
+            new PromptItemContext(2, "Main Menu", "Menu/Camera/Canvas/Main/Menu/Start", "UnityEngine.UI.Text"),
+            new PromptItemContext(3, "Main Menu", "Menu/Camera/Canvas/Settings Menu/Gameplay Panel/Textures/Text", "TMPro.TextMeshProUGUI"),
+            new PromptItemContext(4, "Main Menu", "Menu/Camera/Canvas/Settings Menu/Gameplay Panel/Post Processing/Text", "TMPro.TextMeshProUGUI"),
+            new PromptItemContext(5, "Settings", "Canvas/Options/OptionAlpha", "UnityEngine.UI.Text"),
+            new PromptItemContext(6, "Settings", "Canvas/Options/OptionBeta", "UnityEngine.UI.Text")
+        };
+        var config = TranslationQualityConfig.Default() with
+        {
+            Mode = "custom",
+            PreserveGameTitle = false,
+            RejectGeneratedOuterSymbols = false,
+            RejectUntranslatedLatinUiText = false,
+            RejectShortSettingValue = false,
+            RejectLiteralStateTranslation = false,
+            RejectSameParentOptionCollision = false
+        };
+
+        var failures = TranslationQualityValidator.FindFailures(
+            new[] { "The Glitched Attraction", "Settings", "Start Game", "Ultra", "Activated", "Option Alpha", "Option Beta" },
+            new[] { "\u6545\u969c\u5438\u5f15\u529b", "\"\u8bbe\u7f6e\"", "Start Game", "\u8d85", "\u5df2\u6fc0\u6d3b", "\u76f8\u540c\u9009\u9879", "\u76f8\u540c\u9009\u9879" },
+            contexts,
+            "zh-Hans",
+            "The Glitched Attraction",
+            config);
+
+        failures.Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Quality_validator_returns_no_failures_when_quality_check_is_disabled()
+    {
+        var result = TranslationQualityValidator.ValidateBatch(
+            new[] { "Ultra" },
+            new[] { "\u8d85" },
+            new[] { new PromptItemContext(0, "Settings", "Canvas/Settings/Graphics/Quality", "UnityEngine.UI.Text") },
+            "zh-Hans",
+            gameTitle: null,
+            qualityConfig: TranslationQualityConfig.Default() with { Enabled = false });
+
+        result.IsValid.Should().BeTrue();
     }
 }

@@ -144,7 +144,8 @@ public sealed class TextPipeline
             new[] { translatedText },
             new[] { context },
             config.TargetLanguage,
-            config.GameTitle);
+            config.GameTitle,
+            config.TranslationQuality);
     }
 
     private void MarkCachedTranslationPending(TranslationCacheKey key, TranslationCacheContext context)

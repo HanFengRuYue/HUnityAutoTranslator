@@ -63,6 +63,12 @@ public sealed class CfgControlPanelSettingsStoreTests
                 CustomPrompt: null,
                 FontSizeAdjustmentMode: FontSizeAdjustmentMode.Percent,
                 FontSizeAdjustmentValue: -10,
+                TranslationQuality: TranslationQualityConfig.Default() with
+                {
+                    Mode = "custom",
+                    MaxRetryCount = 1,
+                    RejectShortSettingValue = false
+                },
                 LlamaCpp: new LlamaCppConfig(null, 4096, 999, 1, 2048, 512, "auto"))
         });
 
@@ -87,6 +93,10 @@ public sealed class CfgControlPanelSettingsStoreTests
         cfg.Should().Contain("UBatchSize = 512");
         cfg.Should().Contain("FlashAttentionMode = auto");
         cfg.Should().Contain("AutoStartOnStartup = false");
+        cfg.Should().Contain("[质量检查]");
+        cfg.Should().Contain("Mode = custom");
+        cfg.Should().Contain("MaxRetryCount = 1");
+        cfg.Should().Contain("RejectShortSettingValue = false");
         cfg.Should().NotContain("ProviderKind = 3");
         cfg.Should().NotContain("Style = 2");
         cfg.Should().NotContain("FontSizeAdjustmentMode = 2");
@@ -154,6 +164,21 @@ public sealed class CfgControlPanelSettingsStoreTests
             TranslationContextMaxCharacters = 9000
             ManualEditsOverrideAi = false
             ReapplyRememberedTranslations = false
+
+            [质量检查]
+            Enabled = false
+            Mode = strict
+            AllowAlreadyTargetLanguageSource = false
+            EnableRepair = false
+            MaxRetryCount = 9
+            PreserveGameTitle = false
+            RejectGeneratedOuterSymbols = false
+            RejectUntranslatedLatinUiText = false
+            RejectShortSettingValue = false
+            RejectLiteralStateTranslation = false
+            RejectSameParentOptionCollision = false
+            ShortSettingValueMinSourceLength = 3
+            ShortSettingValueMaxTranslationTextElements = 2
 
             [术语库]
             EnableGlossary = false
@@ -223,6 +248,19 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.PromptTemplates.BatchUserPrompt.Should().Be("Batch {InputJson}");
         config.PromptTemplates.GlossaryTermsSection.Should().Be("Terms {GlossaryTermsJson}");
         config.PromptTemplates.QualityRepairPrompt.Should().Be("Quality {SourceText} {InvalidTranslation} {FailureReason} {RepairContextJson}");
+        config.TranslationQuality.Enabled.Should().BeFalse();
+        config.TranslationQuality.Mode.Should().Be("strict");
+        config.TranslationQuality.AllowAlreadyTargetLanguageSource.Should().BeTrue();
+        config.TranslationQuality.EnableRepair.Should().BeTrue();
+        config.TranslationQuality.MaxRetryCount.Should().Be(5);
+        config.TranslationQuality.PreserveGameTitle.Should().BeTrue();
+        config.TranslationQuality.RejectGeneratedOuterSymbols.Should().BeTrue();
+        config.TranslationQuality.RejectUntranslatedLatinUiText.Should().BeTrue();
+        config.TranslationQuality.RejectShortSettingValue.Should().BeTrue();
+        config.TranslationQuality.RejectLiteralStateTranslation.Should().BeTrue();
+        config.TranslationQuality.RejectSameParentOptionCollision.Should().BeTrue();
+        config.TranslationQuality.ShortSettingValueMinSourceLength.Should().Be(3);
+        config.TranslationQuality.ShortSettingValueMaxTranslationTextElements.Should().Be(1);
         config.ReplacementFontFile.Should().Be(@"C:\Fonts\NotoSansSC-Regular.otf");
         config.LlamaCpp.ModelPath.Should().Be(@"D:\Models\game-ui.gguf");
         config.LlamaCpp.ContextSize.Should().Be(512);

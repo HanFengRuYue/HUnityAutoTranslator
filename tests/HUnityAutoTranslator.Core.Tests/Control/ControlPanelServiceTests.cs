@@ -917,6 +917,29 @@ public sealed class ControlPanelServiceTests
     }
 
     [Fact]
+    public void UpdateConfig_saves_translation_quality_settings()
+    {
+        var service = ControlPanelService.CreateDefault();
+        var request = TranslationQualityConfig.Default() with
+        {
+            Mode = "custom",
+            Enabled = false,
+            AllowAlreadyTargetLanguageSource = false,
+            EnableRepair = false,
+            MaxRetryCount = 1,
+            RejectShortSettingValue = false,
+            ShortSettingValueMinSourceLength = 3,
+            ShortSettingValueMaxTranslationTextElements = 2
+        };
+
+        service.UpdateConfig(new UpdateConfigRequest(TranslationQuality: request));
+
+        var state = service.GetState();
+        state.TranslationQuality.Should().Be(request);
+        service.GetConfig().TranslationQuality.Should().Be(request);
+    }
+
+    [Fact]
     public void CreateDefault_loads_glossary_settings_and_keeps_auto_extraction_disabled_by_default()
     {
         var defaults = RuntimeConfig.CreateDefault();

@@ -1268,6 +1268,9 @@ input[type="range"] {
 .translation-context-row .field {
   flex: 1 1 180px;
 }
+.translation-quality-checks {
+  margin-top: 12px;
+}
 .check {
   display: inline-flex;
   align-items: center;

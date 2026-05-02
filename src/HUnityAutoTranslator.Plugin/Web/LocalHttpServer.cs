@@ -1297,7 +1297,8 @@ internal sealed class LocalHttpServer : IDisposable
             new[] { entry.TranslatedText! },
             new[] { itemContext },
             string.IsNullOrWhiteSpace(entry.TargetLanguage) ? config.TargetLanguage : entry.TargetLanguage,
-            config.GameTitle).IsValid;
+            config.GameTitle,
+            config.TranslationQuality).IsValid;
     }
 
     private bool TryGetExistingTranslation(TranslationCacheEntry entry, out string translatedText)

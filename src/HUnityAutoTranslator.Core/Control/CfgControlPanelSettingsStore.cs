@@ -12,6 +12,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
     private const string ProviderSection = "翻译服务";
     private const string ScanSection = "扫描与写回";
     private const string CacheSection = "缓存与上下文";
+    private const string TranslationQualitySection = "质量检查";
     private const string GlossarySection = "术语库";
     private const string PromptTemplateSection = "提示词模板";
     private const string FontSection = "字体";
@@ -85,6 +86,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             MaxWritebacksPerFrame: ReadInt(values, ScanSection, "MaxWritebacksPerFrame"),
             CustomPrompt: null,
             PromptTemplates: BuildPromptTemplates(values),
+            TranslationQuality: BuildTranslationQualityConfig(values),
             MaxSourceTextLength: ReadInt(values, ScanSection, "MaxSourceTextLength"),
             IgnoreInvisibleText: ReadBool(values, ScanSection, "IgnoreInvisibleText"),
             SkipNumericSymbolText: ReadBool(values, ScanSection, "SkipNumericSymbolText"),
@@ -205,6 +207,47 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             ReadPrompt(values, PromptTemplateSection, "GlossaryExtractionUserPrompt"));
     }
 
+    private static TranslationQualityConfig? BuildTranslationQualityConfig(Dictionary<string, Dictionary<string, string>> values)
+    {
+        var keys = new[]
+        {
+            "Enabled",
+            "Mode",
+            "AllowAlreadyTargetLanguageSource",
+            "EnableRepair",
+            "MaxRetryCount",
+            "PreserveGameTitle",
+            "RejectGeneratedOuterSymbols",
+            "RejectUntranslatedLatinUiText",
+            "RejectShortSettingValue",
+            "RejectLiteralStateTranslation",
+            "RejectSameParentOptionCollision",
+            "ShortSettingValueMinSourceLength",
+            "ShortSettingValueMaxTranslationTextElements"
+        };
+        if (!keys.Any(key => HasValue(values, TranslationQualitySection, key)))
+        {
+            return null;
+        }
+
+        var defaults = TranslationQualityConfig.Default();
+        return new TranslationQualityConfig(
+            ReadBool(values, TranslationQualitySection, "Enabled") ?? defaults.Enabled,
+            ReadString(values, TranslationQualitySection, "Mode") ?? defaults.Mode,
+            ReadBool(values, TranslationQualitySection, "AllowAlreadyTargetLanguageSource") ?? defaults.AllowAlreadyTargetLanguageSource,
+            ReadBool(values, TranslationQualitySection, "EnableRepair") ?? defaults.EnableRepair,
+            ReadInt(values, TranslationQualitySection, "MaxRetryCount") ?? defaults.MaxRetryCount,
+            ReadBool(values, TranslationQualitySection, "PreserveGameTitle") ?? defaults.PreserveGameTitle,
+            ReadBool(values, TranslationQualitySection, "RejectGeneratedOuterSymbols") ?? defaults.RejectGeneratedOuterSymbols,
+            ReadBool(values, TranslationQualitySection, "RejectUntranslatedLatinUiText") ?? defaults.RejectUntranslatedLatinUiText,
+            ReadBool(values, TranslationQualitySection, "RejectShortSettingValue") ?? defaults.RejectShortSettingValue,
+            ReadBool(values, TranslationQualitySection, "RejectLiteralStateTranslation") ?? defaults.RejectLiteralStateTranslation,
+            ReadBool(values, TranslationQualitySection, "RejectSameParentOptionCollision") ?? defaults.RejectSameParentOptionCollision,
+            ReadInt(values, TranslationQualitySection, "ShortSettingValueMinSourceLength") ?? defaults.ShortSettingValueMinSourceLength,
+            ReadInt(values, TranslationQualitySection, "ShortSettingValueMaxTranslationTextElements") ?? defaults.ShortSettingValueMaxTranslationTextElements)
+            .Normalize();
+    }
+
     private static string BuildFile(ControlPanelSettings settings, string? legacyProviderSectionText)
     {
         var defaults = RuntimeConfig.CreateDefault();
@@ -268,6 +311,22 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "上下文示例最多占用多少字符。", "1200", "范围：0 到 8000。", "TranslationContextMaxCharacters", Int(config.TranslationContextMaxCharacters ?? defaults.TranslationContextMaxCharacters));
         Option(builder, "人工编辑过的翻译是否优先于 AI 结果。", "true", "true 或 false。", "ManualEditsOverrideAi", Bool(config.ManualEditsOverrideAi ?? defaults.ManualEditsOverrideAi));
         Option(builder, "切换场景或刷新时是否重新套用已记住的翻译。", "true", "true 或 false。", "ReapplyRememberedTranslations", Bool(config.ReapplyRememberedTranslations ?? defaults.ReapplyRememberedTranslations));
+
+        var quality = (config.TranslationQuality ?? defaults.TranslationQuality).Normalize();
+        Section(builder, TranslationQualitySection);
+        Option(builder, "是否启用 AI 译文质量检查。关闭后仍会保留格式检查和术语检查。", "true", "true 或 false。", "Enabled", Bool(quality.Enabled));
+        Option(builder, "质量检查预设。custom 表示使用下方单项开关。", "balanced", "可选：balanced、relaxed、strict、custom。", "Mode", Text(quality.Mode));
+        Option(builder, "目标语言为简体中文时，原文本身已经是中文且只含短技术缩写时是否放行。", "true", "true 或 false。", "AllowAlreadyTargetLanguageSource", Bool(quality.AllowAlreadyTargetLanguageSource));
+        Option(builder, "质量失败后是否先请求 AI 修复一次。关闭后会直接进入质量重试/待翻译流程。", "true", "true 或 false。", "EnableRepair", Bool(quality.EnableRepair));
+        Option(builder, "质量失败最多重试多少次。", "3", "范围：0 到 10。", "MaxRetryCount", Int(quality.MaxRetryCount));
+        Option(builder, "是否要求游戏标题在译文中按原文保留。", "true", "true 或 false。", "PreserveGameTitle", Bool(quality.PreserveGameTitle));
+        Option(builder, "是否拒绝 AI 给短文本额外添加引号、括号或书名号。", "true", "true 或 false。", "RejectGeneratedOuterSymbols", Bool(quality.RejectGeneratedOuterSymbols));
+        Option(builder, "是否拒绝普通英文 UI 文本原样未翻译。", "true", "true 或 false。", "RejectUntranslatedLatinUiText", Bool(quality.RejectUntranslatedLatinUiText));
+        Option(builder, "是否拒绝设置值译文过短或不完整。", "true", "true 或 false。", "RejectShortSettingValue", Bool(quality.RejectShortSettingValue));
+        Option(builder, "是否拒绝状态文本过于直译。", "true", "true 或 false。", "RejectLiteralStateTranslation", Bool(quality.RejectLiteralStateTranslation));
+        Option(builder, "是否拒绝同一父级下不同选项被翻成相同文本。", "true", "true 或 false。", "RejectSameParentOptionCollision", Bool(quality.RejectSameParentOptionCollision));
+        Option(builder, "触发短译检查的原文最小长度。", "4", "范围：1 到 32。", "ShortSettingValueMinSourceLength", Int(quality.ShortSettingValueMinSourceLength));
+        Option(builder, "短译检查允许的译文最大字符数。", "1", "范围：1 到 8。", "ShortSettingValueMaxTranslationTextElements", Int(quality.ShortSettingValueMaxTranslationTextElements));
 
         Section(builder, GlossarySection);
         Option(builder, "是否启用术语库约束。", "true", "true 或 false。", "EnableGlossary", Bool(config.EnableGlossary ?? defaults.EnableGlossary));

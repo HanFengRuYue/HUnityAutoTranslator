@@ -198,6 +198,27 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_ai_settings_exposes_translation_quality_controls()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+
+        apiTypesSource.Should().Contain("export interface TranslationQualityConfig");
+        apiTypesSource.Should().Contain("TranslationQuality: TranslationQualityConfig;");
+        apiTypesSource.Should().Contain("TranslationQuality?: TranslationQualityConfig;");
+        aiPageSource.Should().Contain("TranslationQuality: createTranslationQualityConfig()");
+        aiPageSource.Should().Contain("applyTranslationQuality(state.TranslationQuality)");
+        aiPageSource.Should().Contain("TranslationQuality: buildTranslationQualityConfig()");
+        aiPageSource.Should().Contain("setTranslationQualityCustom");
+        aiPageSource.Should().Contain("id=\"translationQualityMode\"");
+        aiPageSource.Should().Contain("id=\"translationQualityEnabled\"");
+        aiPageSource.Should().Contain("id=\"translationQualityAllowAlreadyTargetLanguageSource\"");
+        aiPageSource.Should().Contain("id=\"translationQualityEnableRepair\"");
+        aiPageSource.Should().Contain("id=\"translationQualityMaxRetryCount\"");
+        aiPageSource.Should().Contain("id=\"translationQualityRejectShortSettingValue\"");
+    }
+
+    [Fact]
     public void Vue_glossary_controls_only_live_on_glossary_page()
     {
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));

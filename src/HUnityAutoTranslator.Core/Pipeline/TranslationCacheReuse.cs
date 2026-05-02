@@ -88,7 +88,8 @@ public static class TranslationCacheReuse
             new[] { translatedText },
             new[] { itemContext },
             config.TargetLanguage,
-            config.GameTitle).IsValid;
+            config.GameTitle,
+            config.TranslationQuality).IsValid;
     }
 
     private static int Score(TranslationCacheEntry candidate, TranslationCacheContext context)
