@@ -31,6 +31,19 @@ public sealed class ComponentRefreshSourceTests
     }
 
     [Fact]
+    public void Manual_translation_save_publishes_context_refresh_even_when_only_component_font_changed()
+    {
+        var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+        var publishBlock = source[
+            source.IndexOf("private bool PublishManualWriteback", StringComparison.Ordinal)..
+            source.IndexOf("private bool PublishRestoreSourceWriteback", StringComparison.Ordinal)];
+
+        publishBlock.Should().NotContain("string.Equals(entry.TranslatedText, previousTranslatedText");
+        publishBlock.Should().Contain("targetLanguage: entry.TargetLanguage");
+        publishBlock.Should().Contain("componentType: entry.ComponentType");
+    }
+
+    [Fact]
     public void Manual_translation_clear_and_delete_publish_source_restore_writeback()
     {
         var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
@@ -111,6 +124,23 @@ public sealed class ComponentRefreshSourceTests
         source.Should().Contain("TryFindTargetByComponentContext");
         source.Should().Contain("ComponentContextMatches(result, target)");
         source.Should().Contain("RememberPendingComponentRefresh(result)");
+    }
+
+    [Fact]
+    public void Unity_applier_reapplies_component_font_after_context_refresh()
+    {
+        var applierSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));
+        var runtimeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+        var targetSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "IUnityTextTarget.cs"));
+        var reflectionTargetSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ReflectionTextTarget.cs"));
+
+        applierSource.Should().Contain("public void SetFontReplacementService(UnityTextFontReplacementService? fontReplacement)");
+        applierSource.Should().Contain("ApplyFontForResult(result, target)");
+        applierSource.Should().Contain("_fontReplacement?.ApplyToTmp(target.Component, key, context, result.TranslatedText)");
+        applierSource.Should().Contain("_fontReplacement?.ApplyToUgui(target.Component, key, context, result.TranslatedText)");
+        runtimeSource.Should().Contain("_resultApplier.SetFontReplacementService(_fontReplacement);");
+        targetSource.Should().Contain("UnityEngine.Object Component { get; }");
+        reflectionTargetSource.Should().Contain("public UnityEngine.Object Component => _component;");
     }
 
     [Fact]

@@ -1343,8 +1343,7 @@ internal sealed class LocalHttpServer : IDisposable
     private bool PublishManualWriteback(TranslationCacheEntry entry, string? previousTranslatedText)
     {
         if (string.IsNullOrWhiteSpace(entry.SourceText) ||
-            string.IsNullOrWhiteSpace(entry.TranslatedText) ||
-            string.Equals(entry.TranslatedText, previousTranslatedText, StringComparison.Ordinal))
+            string.IsNullOrWhiteSpace(entry.TranslatedText))
         {
             return false;
         }
@@ -1362,6 +1361,7 @@ internal sealed class LocalHttpServer : IDisposable
             entry.TranslatedText!,
             ManualWritebackPriority,
             previousTranslatedText: previousTranslatedText,
+            targetLanguage: entry.TargetLanguage,
             sceneName: entry.SceneName,
             componentHierarchy: entry.ComponentHierarchy,
             componentType: entry.ComponentType,
@@ -1394,6 +1394,7 @@ internal sealed class LocalHttpServer : IDisposable
             entry.SourceText,
             ManualWritebackPriority,
             previousTranslatedText: removedTranslatedText,
+            targetLanguage: entry.TargetLanguage,
             sceneName: entry.SceneName,
             componentHierarchy: entry.ComponentHierarchy,
             componentType: entry.ComponentType,

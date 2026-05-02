@@ -1,6 +1,8 @@
+using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Dispatching;
+using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Runtime;
 
 namespace HUnityAutoTranslator.Plugin.Unity;
@@ -20,6 +22,7 @@ internal sealed class UnityMainThreadResultApplier
     private readonly RoundRobinCursor _reapplyCursor = new();
     private int _fontSizeAdjustmentLogCount;
     private bool _useTranslatedText = true;
+    private UnityTextFontReplacementService? _fontReplacement;
 
     public UnityMainThreadResultApplier()
         : this(RuntimeConfig.CreateDefault, fontSizeAdjustmentLogger: null)
@@ -30,6 +33,11 @@ internal sealed class UnityMainThreadResultApplier
     {
         _configProvider = configProvider;
         _fontSizeAdjustmentLogger = fontSizeAdjustmentLogger;
+    }
+
+    public void SetFontReplacementService(UnityTextFontReplacementService? fontReplacement)
+    {
+        _fontReplacement = fontReplacement;
     }
 
     public void Register(IUnityTextTarget target)
@@ -240,7 +248,9 @@ internal sealed class UnityMainThreadResultApplier
         }
 
         ForgetPendingComponentRefresh(result);
-        return TryApplyRemembered(target);
+        var appliedText = TryApplyRemembered(target);
+        var appliedFont = ApplyFontForResult(result, target);
+        return appliedText || appliedFont;
     }
 
     private bool ApplyRestoreSourceToTarget(TranslationResult result, IUnityTextTarget target)
@@ -365,6 +375,18 @@ internal sealed class UnityMainThreadResultApplier
             string.Equals(SimpleName(normalizedActual), SimpleName(normalizedExpected), StringComparison.Ordinal);
     }
 
+    private static bool IsTmpTarget(string? componentType)
+    {
+        var value = Normalize(componentType);
+        return value.StartsWith("TMPro.", StringComparison.Ordinal) ||
+            value.Contains("TextMeshPro", StringComparison.Ordinal);
+    }
+
+    private static bool IsUguiTarget(string? componentType)
+    {
+        return string.Equals(Normalize(componentType), "UnityEngine.UI.Text", StringComparison.Ordinal);
+    }
+
     private static string ComponentContextKey(string? sceneName, string? componentHierarchy, string? componentType)
     {
         return string.Join(
@@ -395,6 +417,46 @@ internal sealed class UnityMainThreadResultApplier
         target.SetText(replacement);
         ApplyFontSizeState(target, translatedTextIsActive: _useTranslatedText);
         return true;
+    }
+
+    private bool ApplyFontForResult(TranslationResult result, IUnityTextTarget target)
+    {
+        if (_fontReplacement == null ||
+            result.RestoreSourceText ||
+            string.IsNullOrWhiteSpace(result.SourceText) ||
+            string.IsNullOrWhiteSpace(result.TranslatedText) ||
+            !string.Equals(target.GetText(), result.TranslatedText, StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var config = _configProvider();
+        var targetLanguage = string.IsNullOrWhiteSpace(result.TargetLanguage)
+            ? config.TargetLanguage
+            : result.TargetLanguage!;
+        var key = TranslationCacheKey.Create(
+            result.SourceText,
+            targetLanguage,
+            config.Provider,
+            TextPipeline.GetPromptPolicyVersion(config));
+        var context = new TranslationCacheContext(
+            result.SceneName ?? target.SceneName,
+            result.ComponentHierarchy ?? target.HierarchyPath,
+            result.ComponentType ?? target.ComponentType);
+
+        if (IsTmpTarget(target.ComponentType))
+        {
+            _fontReplacement?.ApplyToTmp(target.Component, key, context, result.TranslatedText);
+            return true;
+        }
+
+        if (IsUguiTarget(target.ComponentType))
+        {
+            _fontReplacement?.ApplyToUgui(target.Component, key, context, result.TranslatedText);
+            return true;
+        }
+
+        return false;
     }
 
     private void RememberOriginalFontSize(IUnityTextTarget target)

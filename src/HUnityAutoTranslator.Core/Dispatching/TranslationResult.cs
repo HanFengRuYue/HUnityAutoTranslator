@@ -8,6 +8,7 @@ public sealed class TranslationResult
         string translatedText,
         int priority,
         string? previousTranslatedText = null,
+        string? targetLanguage = null,
         string? sceneName = null,
         string? componentHierarchy = null,
         string? componentType = null,
@@ -19,6 +20,7 @@ public sealed class TranslationResult
         TranslatedText = translatedText;
         Priority = priority;
         PreviousTranslatedText = string.IsNullOrEmpty(previousTranslatedText) ? null : previousTranslatedText;
+        TargetLanguage = string.IsNullOrWhiteSpace(targetLanguage) ? null : targetLanguage;
         SceneName = sceneName;
         ComponentHierarchy = componentHierarchy;
         ComponentType = componentType;
@@ -35,6 +37,8 @@ public sealed class TranslationResult
     public int Priority { get; }
 
     public string? PreviousTranslatedText { get; }
+
+    public string? TargetLanguage { get; }
 
     public string? SceneName { get; }
 

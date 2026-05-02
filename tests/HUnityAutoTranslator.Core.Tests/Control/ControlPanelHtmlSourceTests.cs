@@ -385,7 +385,7 @@ public sealed class ControlPanelHtmlSourceTests
     {
         var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
 
-        serviceSource.Should().Contain("SetTmpFont(component, fontAsset)");
+        serviceSource.Should().Contain("SetTmpFont(component, fontAsset, populateCharacters: true)");
         serviceSource.Should().Contain("AddTmpFallbackToComponentFont(component, fontAsset)");
         serviceSource.Should().Contain("PopulateTmpFontAsset(fontAsset, component)");
         serviceSource.Should().Contain("method.Name == \"TryAddCharacters\"");
@@ -427,10 +427,12 @@ public sealed class ControlPanelHtmlSourceTests
         applyToTmpBlock.Should().Contain("var componentFallbackInstalled = AddTmpFallbackToComponentFont(component, fontAsset);");
         applyToTmpBlock.Should().Contain("var globalFallbackInstalled = AddTmpFallback(fontAsset);");
         applyToTmpBlock.Should().Contain("if (!componentFallbackInstalled && !globalFallbackInstalled)");
-        applyToTmpBlock.IndexOf("AddTmpFallbackToComponentFont(component, fontAsset)", StringComparison.Ordinal)
-            .Should().BeLessThan(applyToTmpBlock.IndexOf("SetTmpFont(component, fontAsset)", StringComparison.Ordinal));
-        applyToTmpBlock.IndexOf("AddTmpFallback(fontAsset)", StringComparison.Ordinal)
-            .Should().BeLessThan(applyToTmpBlock.IndexOf("SetTmpFont(component, fontAsset)", StringComparison.Ordinal));
+        var fallbackOnlyBlock = applyToTmpBlock[
+            applyToTmpBlock.IndexOf("PopulateTmpFontAsset(fontAsset, translatedText);", StringComparison.Ordinal)..];
+        fallbackOnlyBlock.IndexOf("AddTmpFallbackToComponentFont(component, fontAsset)", StringComparison.Ordinal)
+            .Should().BeLessThan(fallbackOnlyBlock.IndexOf("SetTmpFont(component, fontAsset, populateCharacters: true)", StringComparison.Ordinal));
+        fallbackOnlyBlock.IndexOf("AddTmpFallback(fontAsset)", StringComparison.Ordinal)
+            .Should().BeLessThan(fallbackOnlyBlock.IndexOf("SetTmpFont(component, fontAsset, populateCharacters: true)", StringComparison.Ordinal));
 
         var addGlobalFallbackBlock = serviceSource[
             serviceSource.IndexOf("private bool AddTmpFallback(object fontAsset)", StringComparison.Ordinal)..
@@ -454,10 +456,49 @@ public sealed class ControlPanelHtmlSourceTests
         tmpBlock.Should().Contain("string translatedText");
         uguiBlock.Should().Contain("OriginalUguiFontCanRenderText(component, translatedText)");
         tmpBlock.Should().Contain("OriginalTmpFontCanRenderText(component, translatedText)");
+        tmpBlock.Should().Contain("var hasComponentFontOverride = HasComponentFontOverride(key, context);");
+        uguiBlock.Should().Contain("var hasComponentFontOverride = HasComponentFontOverride(key, context);");
         uguiBlock.IndexOf("OriginalUguiFontCanRenderText(component, translatedText)", StringComparison.Ordinal)
             .Should().BeLessThan(uguiBlock.IndexOf("ResolveUnityTextFont(config, key, context", StringComparison.Ordinal));
         tmpBlock.IndexOf("OriginalTmpFontCanRenderText(component, translatedText)", StringComparison.Ordinal)
             .Should().BeLessThan(tmpBlock.IndexOf("ResolveTmpFontAsset(config, key, context", StringComparison.Ordinal));
+        uguiBlock.Should().Contain("if (!hasComponentFontOverride && OriginalUguiFontCanRenderText(component, translatedText))");
+        tmpBlock.Should().Contain("if (!hasComponentFontOverride && OriginalTmpFontCanRenderText(component, translatedText))");
+    }
+
+    [Fact]
+    public void Tmp_component_font_override_directly_replaces_component_font_before_fallbacks()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+        var applyToTmpBlock = serviceSource[
+            serviceSource.IndexOf("public void ApplyToTmp", StringComparison.Ordinal)..
+            serviceSource.IndexOf("public void RestoreTmp", StringComparison.Ordinal)];
+
+        applyToTmpBlock.Should().Contain("if (resolved?.Source == \"row\")");
+        applyToTmpBlock.Should().Contain("SetTmpFont(component, fontAsset, populateCharacters: true)");
+        applyToTmpBlock.IndexOf("SetTmpFont(component, fontAsset, populateCharacters: true)", StringComparison.Ordinal)
+            .Should().BeLessThan(applyToTmpBlock.IndexOf("AddTmpFallbackToComponentFont(component, fontAsset)", StringComparison.Ordinal));
+        applyToTmpBlock.Should().Contain("return;");
+        serviceSource.Should().Contain("public string Source { get; }");
+        serviceSource.Should().Contain("new ResolvedFont(cacheKey, candidate.Source, candidate.DisplayName, font)");
+    }
+
+    [Fact]
+    public void Tmp_original_font_probe_is_read_only_and_never_adds_glyphs_to_game_font_assets()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+        var tmpProbeBlock = serviceSource[
+            serviceSource.IndexOf("private static bool TmpFontAssetCanRenderText", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private static IEnumerable<object?> EnumerateTmpFallbacks", StringComparison.Ordinal)];
+        var restoreBlock = serviceSource[
+            serviceSource.IndexOf("private void RestoreKnownTmpFont", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private static void ForgetFontTarget", StringComparison.Ordinal)];
+
+        serviceSource.Should().Contain("private static bool TryTmpFontAssetContainsCharacterReadOnly");
+        tmpProbeBlock.Should().NotContain("HasCharacter");
+        tmpProbeBlock.Should().NotContain("method.Invoke(fontAsset");
+        restoreBlock.Should().Contain("SetTmpFont(component, originalFont, populateCharacters: false)");
+        serviceSource.Should().Contain("SetTmpFont(component, fontAsset, populateCharacters: true)");
     }
 
     [Fact]
@@ -469,13 +510,15 @@ public sealed class ControlPanelHtmlSourceTests
             serviceSource.IndexOf("public void RestoreTmp", StringComparison.Ordinal)];
 
         applyToTmpBlock.Should().Contain("var samplingPointSize = ResolveComponentFontSamplingPointSize(component, config);");
-        applyToTmpBlock.Should().Contain("ResolveTmpFontAsset(config, key, context, samplingPointSize, out _)");
+        applyToTmpBlock.Should().Contain("ResolveTmpFontAsset(config, key, context, samplingPointSize, out var resolved)");
         serviceSource.Should().Contain("EnsureTmpFallbackTable(targetFontAsset)");
         serviceSource.Should().Contain("SetProperty(targetFontAsset, \"fallbackFontAssetTable\", createdTable)");
         serviceSource.Should().Contain("SetField(targetFontAsset, \"m_FallbackFontAssetTable\", createdTable)");
         serviceSource.Should().Contain("private static bool TmpFontAssetCanRenderText(object? fontAsset, string text");
-        applyToTmpBlock.IndexOf("AddTmpFallbackToComponentFont(component, fontAsset)", StringComparison.Ordinal)
-            .Should().BeLessThan(applyToTmpBlock.IndexOf("SetTmpFont(component, fontAsset)", StringComparison.Ordinal));
+        var fallbackOnlyBlock = applyToTmpBlock[
+            applyToTmpBlock.IndexOf("PopulateTmpFontAsset(fontAsset, translatedText);", StringComparison.Ordinal)..];
+        fallbackOnlyBlock.IndexOf("AddTmpFallbackToComponentFont(component, fontAsset)", StringComparison.Ordinal)
+            .Should().BeLessThan(fallbackOnlyBlock.IndexOf("SetTmpFont(component, fontAsset, populateCharacters: true)", StringComparison.Ordinal));
     }
 
     [Fact]
