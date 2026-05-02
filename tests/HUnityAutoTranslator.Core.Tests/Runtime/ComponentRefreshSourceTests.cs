@@ -58,25 +58,23 @@ public sealed class ComponentRefreshSourceTests
     [Fact]
     public void Text_scanners_reread_text_after_registration_before_skip_and_pipeline()
     {
-        var processorSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs"));
-        var tmpSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs"));
-        var uguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs"));
-
-        AssertScannerRereadsAfterRegister(processorSource);
-        tmpSource.Should().Contain("UnityTextTargetProcessor");
-        uguiSource.Should().Contain("UnityTextTargetProcessor");
+        AssertScannerRereadsAfterRegister(File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs")));
+        AssertScannerRereadsAfterRegister(File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs")));
     }
 
     [Fact]
     public void Text_scanners_apply_component_fonts_only_after_translated_text_is_available()
     {
-        var processorSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs"));
         AssertComponentFontReplacementWaitsForTranslatedText(
-            processorSource,
-            "ApplyFont(component, targetKind,");
+            File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs")),
+            "_fontReplacement?.ApplyToTmp(component,",
+            "_fontReplacement?.ApplyToTmp(component, rememberedKey, context, text);",
+            "_fontReplacement?.ApplyToTmp(component, key, context, decision.TranslatedText);");
         AssertComponentFontReplacementWaitsForTranslatedText(
-            processorSource,
-            "ApplyFont(component, targetKind,");
+            File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs")),
+            "_fontReplacement?.ApplyToUgui(component,",
+            "_fontReplacement?.ApplyToUgui(component, rememberedKey, context, text);",
+            "_fontReplacement?.ApplyToUgui(component, key, context, decision.TranslatedText);");
 
         var imguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ImguiHookInstaller.cs"));
         imguiSource.Should().Contain("ResolveForDraw(text)");
@@ -151,7 +149,11 @@ public sealed class ComponentRefreshSourceTests
         pipelineIndex.Should().BeGreaterThan(rereadIndex);
     }
 
-    private static void AssertComponentFontReplacementWaitsForTranslatedText(string source, string applyCall)
+    private static void AssertComponentFontReplacementWaitsForTranslatedText(
+        string source,
+        string applyCall,
+        string rememberedTranslatedSampleCall,
+        string cachedTranslatedSampleCall)
     {
         var firstApplyIndex = source.IndexOf(applyCall, StringComparison.Ordinal);
         firstApplyIndex.Should().BeGreaterThanOrEqualTo(0);
@@ -165,5 +167,7 @@ public sealed class ComponentRefreshSourceTests
         firstApplyIndex.Should().BeGreaterThan(rememberedCheckIndex);
         source.IndexOf(applyCall, cachedTranslationIndex, StringComparison.Ordinal)
             .Should().BeGreaterThan(cachedTranslationIndex);
+        source.Should().Contain(rememberedTranslatedSampleCall);
+        source.Should().Contain(cachedTranslatedSampleCall);
     }
 }

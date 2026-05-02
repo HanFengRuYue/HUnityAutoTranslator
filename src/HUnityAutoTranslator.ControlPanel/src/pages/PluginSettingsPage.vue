@@ -318,7 +318,7 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
     <div class="page-head">
       <div>
         <h1>插件设置</h1>
-        <p>控制采集、写回、热键、缓存策略和字体替换。</p>
+        <p>控制采集、写回、热键、缓存策略和字体辅助。</p>
       </div>
       <div class="actions">
         <button class="secondary" type="button" :disabled="!formDirty" @click="reset"><RotateCcw class="button-icon" />还原</button>
@@ -363,12 +363,12 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
         </div>
       </SectionPanel>
 
-      <SectionPanel title="字体替换" :icon="Type">
+      <SectionPanel title="按需字体辅助" :icon="Type">
         <div class="checks font-replacement-checks">
-          <label class="check font-primary-toggle help-target" data-help="开启后插件会尝试把文本组件换成能显示中文的字体。"><input id="enableFontReplacement" v-model="form.EnableFontReplacement" type="checkbox">启用字体替换</label>
-          <label class="check help-target" data-help="替换 UGUI Text 使用的字体，解决中文方块或缺字。"><input id="replaceUguiFonts" v-model="form.ReplaceUguiFonts" type="checkbox">UGUI 替换字体</label>
-          <label class="check help-target" data-help="为 TextMeshPro 安装 fallback 字体，不直接改原 TMP 字体资产。"><input id="replaceTmpFonts" v-model="form.ReplaceTmpFonts" type="checkbox">TextMeshPro fallback</label>
-          <label class="check help-target" data-help="替换 IMGUI 绘制文本时使用的字体，主要影响旧式界面。"><input id="replaceImguiFonts" v-model="form.ReplaceImguiFonts" type="checkbox">IMGUI 替换字体</label>
+          <label class="check font-primary-toggle help-target" data-help="优先保留原字体，只有缺字时才启用替换或 fallback。"><input id="enableFontReplacement" v-model="form.EnableFontReplacement" type="checkbox">启用按需字体辅助</label>
+          <label class="check help-target" data-help="UGUI Text 原字体缺字时才切换到中文字体，减少方块字和发虚风险。"><input id="replaceUguiFonts" v-model="form.ReplaceUguiFonts" type="checkbox">UGUI 按需辅助</label>
+          <label class="check help-target" data-help="为 TextMeshPro 按需安装 fallback 字体，优先保留原 TMP 字体资产和材质。"><input id="replaceTmpFonts" v-model="form.ReplaceTmpFonts" type="checkbox">TextMeshPro 按需 fallback</label>
+          <label class="check help-target" data-help="IMGUI 绘制文本缺字时使用中文字体，主要影响旧式界面。"><input id="replaceImguiFonts" v-model="form.ReplaceImguiFonts" type="checkbox">IMGUI 按需辅助</label>
           <label class="check help-target" data-help="未手动指定字体时自动选择系统 CJK 字体，适合作为默认兜底。"><input id="autoUseCjkFallbackFonts" v-model="form.AutoUseCjkFallbackFonts" type="checkbox">自动使用 CJK 字体</label>
         </div>
         <div id="automaticReplacementFontSummary" class="automatic-font-summary">

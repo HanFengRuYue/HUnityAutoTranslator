@@ -440,6 +440,45 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
+    public void Font_replacement_keeps_original_component_fonts_when_translated_text_is_supported()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+        var uguiBlock = serviceSource[
+            serviceSource.IndexOf("public void ApplyToUgui", StringComparison.Ordinal)..
+            serviceSource.IndexOf("public void RestoreUgui", StringComparison.Ordinal)];
+        var tmpBlock = serviceSource[
+            serviceSource.IndexOf("public void ApplyToTmp", StringComparison.Ordinal)..
+            serviceSource.IndexOf("public void RestoreTmp", StringComparison.Ordinal)];
+
+        uguiBlock.Should().Contain("string translatedText");
+        tmpBlock.Should().Contain("string translatedText");
+        uguiBlock.Should().Contain("OriginalUguiFontCanRenderText(component, translatedText)");
+        tmpBlock.Should().Contain("OriginalTmpFontCanRenderText(component, translatedText)");
+        uguiBlock.IndexOf("OriginalUguiFontCanRenderText(component, translatedText)", StringComparison.Ordinal)
+            .Should().BeLessThan(uguiBlock.IndexOf("ResolveUnityTextFont(config, key, context", StringComparison.Ordinal));
+        tmpBlock.IndexOf("OriginalTmpFontCanRenderText(component, translatedText)", StringComparison.Ordinal)
+            .Should().BeLessThan(tmpBlock.IndexOf("ResolveTmpFontAsset(config, key, context", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Tmp_font_replacement_prepares_fallback_tables_before_direct_assignment()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+        var applyToTmpBlock = serviceSource[
+            serviceSource.IndexOf("public void ApplyToTmp", StringComparison.Ordinal)..
+            serviceSource.IndexOf("public void RestoreTmp", StringComparison.Ordinal)];
+
+        applyToTmpBlock.Should().Contain("var samplingPointSize = ResolveComponentFontSamplingPointSize(component, config);");
+        applyToTmpBlock.Should().Contain("ResolveTmpFontAsset(config, key, context, samplingPointSize, out _)");
+        serviceSource.Should().Contain("EnsureTmpFallbackTable(targetFontAsset)");
+        serviceSource.Should().Contain("SetProperty(targetFontAsset, \"fallbackFontAssetTable\", createdTable)");
+        serviceSource.Should().Contain("SetField(targetFontAsset, \"m_FallbackFontAssetTable\", createdTable)");
+        serviceSource.Should().Contain("private static bool TmpFontAssetCanRenderText(object? fontAsset, string text");
+        applyToTmpBlock.IndexOf("AddTmpFallbackToComponentFont(component, fontAsset)", StringComparison.Ordinal)
+            .Should().BeLessThan(applyToTmpBlock.IndexOf("SetTmpFont(component, fontAsset)", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Ugui_font_replacement_prefers_manual_file_before_os_font_names_while_tmp_keeps_file_candidates()
     {
         var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
@@ -455,7 +494,7 @@ public sealed class ControlPanelHtmlSourceTests
         serviceSource.Should().Contain("foreach (var fontName in CandidateFontNames)");
         serviceSource.Should().Contain("private IEnumerable<FontCandidate> EnumerateUnityFontCandidates");
         serviceSource.Should().Contain("private IEnumerable<FontCandidate> EnumerateTmpFontCandidates");
-        uguiBlock.Should().Contain("ResolveUnityTextFont(config, key, context)");
+        uguiBlock.Should().Contain("ResolveUnityTextFont(config, key, context");
         imguiBlock.Should().Contain("ResolveCachedImguiFont(config, key, context");
         serviceSource.Should().Contain("var resolved = ResolveUnityTextFont(config, key, context, fontSize);");
         serviceSource.Should().Contain("foreach (var candidate in EnumerateTmpFontCandidates(config, key, context))");

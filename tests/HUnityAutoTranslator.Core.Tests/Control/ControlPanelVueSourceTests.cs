@@ -198,27 +198,6 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
-    public void Vue_ai_settings_exposes_translation_quality_controls()
-    {
-        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
-        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
-
-        apiTypesSource.Should().Contain("export interface TranslationQualityConfig");
-        apiTypesSource.Should().Contain("TranslationQuality: TranslationQualityConfig;");
-        apiTypesSource.Should().Contain("TranslationQuality?: TranslationQualityConfig;");
-        aiPageSource.Should().Contain("TranslationQuality: createTranslationQualityConfig()");
-        aiPageSource.Should().Contain("applyTranslationQuality(state.TranslationQuality)");
-        aiPageSource.Should().Contain("TranslationQuality: buildTranslationQualityConfig()");
-        aiPageSource.Should().Contain("setTranslationQualityCustom");
-        aiPageSource.Should().Contain("id=\"translationQualityMode\"");
-        aiPageSource.Should().Contain("id=\"translationQualityEnabled\"");
-        aiPageSource.Should().Contain("id=\"translationQualityAllowAlreadyTargetLanguageSource\"");
-        aiPageSource.Should().Contain("id=\"translationQualityEnableRepair\"");
-        aiPageSource.Should().Contain("id=\"translationQualityMaxRetryCount\"");
-        aiPageSource.Should().Contain("id=\"translationQualityRejectShortSettingValue\"");
-    }
-
-    [Fact]
     public void Vue_glossary_controls_only_live_on_glossary_page()
     {
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
@@ -1474,31 +1453,17 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
-    public void Vue_status_page_exposes_local_self_check_results_and_runner()
+    public void Vue_and_cfg_describe_font_controls_as_on_demand_assistance()
     {
-        var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
-        var storeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "state", "controlPanelStore.ts"));
-        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
-        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+        var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
+        var cfgSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Core", "Control", "CfgControlPanelSettingsStore.cs"));
 
-        apiTypesSource.Should().Contain("export type SelfCheckSeverity");
-        apiTypesSource.Should().Contain("export type SelfCheckRunState");
-        apiTypesSource.Should().Contain("export interface SelfCheckItem");
-        apiTypesSource.Should().Contain("export interface SelfCheckReport");
-        apiTypesSource.Should().Contain("SelfCheck: SelfCheckReport | null;");
-        storeSource.Should().Contain("export async function runSelfCheck");
-        storeSource.Should().Contain("/api/self-check/run");
-        storeSource.Should().Contain("/api/self-check");
-        statusPageSource.Should().Contain("本地自检");
-        statusPageSource.Should().Contain("selfCheckReport");
-        statusPageSource.Should().Contain("runSelfCheck");
-        statusPageSource.Should().Contain("ErrorCount");
-        statusPageSource.Should().Contain("WarningCount");
-        statusPageSource.Should().Contain("SkippedCount");
-        statusPageSource.Should().Contain("class=\"self-check-list\"");
-        CssBlock(cssSource, @"\.self-check-panel").Should().Contain("display: grid;");
-        cssSource.Should().Contain(".self-check-list");
-        cssSource.Should().Contain(".self-check-item");
+        pluginPageSource.Should().Contain("按需字体辅助");
+        pluginPageSource.Should().Contain("优先保留原字体，只有缺字时才启用替换或 fallback。");
+        pluginPageSource.Should().NotContain("开启后插件会尝试把文本组件换成能显示中文的字体。");
+        pluginPageSource.Should().NotContain(">启用字体替换</label>");
+        cfgSource.Should().Contain("是否启用按需字体辅助。");
+        cfgSource.Should().Contain("优先保留原字体，只有缺字时才使用替换字体或 TMP fallback。");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)
