@@ -80,6 +80,24 @@ public sealed class BoundedRuntimeLoopSourceTests
     }
 
     [Fact]
+    public void Ugui_tmp_capture_paths_share_stability_gate_before_entering_pipeline()
+    {
+        var runtimeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+        var processorSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs"));
+        var tmpSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs"));
+        var uguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs"));
+
+        runtimeSource.Should().Contain("var textStabilityGate = new UnityTextStabilityGate();");
+        runtimeSource.Should().Contain("new UnityTextChangeHookInstaller(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate)");
+        runtimeSource.Should().Contain("new UguiTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate)");
+        runtimeSource.Should().Contain("new TmpTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate)");
+
+        AssertUsesStabilityGateBeforePipeline(processorSource);
+        AssertUsesStabilityGateBeforePipeline(tmpSource);
+        AssertUsesStabilityGateBeforePipeline(uguiSource);
+    }
+
+    [Fact]
     public void Runtime_hotkeys_are_wired_to_plugin_actions()
     {
         var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
@@ -212,5 +230,17 @@ public sealed class BoundedRuntimeLoopSourceTests
 
         directory.Should().NotBeNull("tests should run from inside the repository checkout");
         return Path.Combine(new[] { directory!.FullName }.Concat(relativeSegments).ToArray());
+    }
+
+    private static void AssertUsesStabilityGateBeforePipeline(string source)
+    {
+        source.Should().Contain("UnityTextStabilityGate");
+        source.Should().Contain("ShouldProcessStableText(target, text, context, config)");
+        source.Should().Contain("_stabilityGate.ShouldProcess(");
+
+        var gateIndex = source.IndexOf("ShouldProcessStableText(target, text, context, config)", StringComparison.Ordinal);
+        var pipelineIndex = source.IndexOf("_pipeline.Process(new CapturedText", StringComparison.Ordinal);
+        gateIndex.Should().BeGreaterThanOrEqualTo(0);
+        pipelineIndex.Should().BeGreaterThan(gateIndex);
     }
 }
