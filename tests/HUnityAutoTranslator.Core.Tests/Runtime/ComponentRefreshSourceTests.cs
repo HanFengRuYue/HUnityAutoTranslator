@@ -77,11 +77,13 @@ public sealed class ComponentRefreshSourceTests
             "_fontReplacement?.ApplyToUgui(component, key, context, decision.TranslatedText);");
 
         var imguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ImguiHookInstaller.cs"));
-        imguiSource.Should().Contain("ResolveForDraw(text)");
-        imguiSource.Should().Contain("RequestImguiFont(key, context, translatedText)");
-        imguiSource.Should().Contain("_fontReplacement.ApplyToImgui(");
-        imguiSource.Should().NotContain("TryBeginFontScope");
-        imguiSource.Should().NotContain("PostfixStringText");
+        imguiSource.Should().Contain("ResolveForDraw(sourceText)");
+        imguiSource.Should().Contain("BeginImguiDrawFontScope(__originalMethod, __args, key, context, resolution.DisplayText)");
+        imguiSource.Should().Contain("PostfixStringText(UnityTextFontReplacementService.ImguiFontScope? __state)");
+        imguiSource.Should().Contain("__state?.Dispose();");
+        imguiSource.Should().NotContain("RequestImguiFont(");
+        imguiSource.Should().NotContain("ApplyPendingImguiFontForDraw");
+        imguiSource.Should().NotContain("_fontReplacement.ApplyToImgui(");
     }
 
     [Fact]

@@ -368,7 +368,7 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
           <label class="check font-primary-toggle help-target" data-help="优先保留原字体，只有缺字时才启用替换或 fallback。"><input id="enableFontReplacement" v-model="form.EnableFontReplacement" type="checkbox">启用按需字体辅助</label>
           <label class="check help-target" data-help="UGUI Text 原字体缺字时才切换到中文字体，减少方块字和发虚风险。"><input id="replaceUguiFonts" v-model="form.ReplaceUguiFonts" type="checkbox">UGUI 按需辅助</label>
           <label class="check help-target" data-help="为 TextMeshPro 按需安装 fallback 字体，优先保留原 TMP 字体资产和材质。"><input id="replaceTmpFonts" v-model="form.ReplaceTmpFonts" type="checkbox">TextMeshPro 按需 fallback</label>
-          <label class="check help-target" data-help="IMGUI 绘制文本缺字时使用中文字体，主要影响旧式界面。"><input id="replaceImguiFonts" v-model="form.ReplaceImguiFonts" type="checkbox">IMGUI 按需辅助</label>
+          <label class="check help-target" data-help="IMGUI 当前绘制项缺字时才临时使用中文字体，绘制后立即恢复原皮肤字体。"><input id="replaceImguiFonts" v-model="form.ReplaceImguiFonts" type="checkbox">IMGUI 临时辅助</label>
           <label class="check help-target" data-help="未手动指定字体时自动选择系统 CJK 字体，适合作为默认兜底。"><input id="autoUseCjkFallbackFonts" v-model="form.AutoUseCjkFallbackFonts" type="checkbox">自动使用 CJK 字体</label>
         </div>
         <div id="automaticReplacementFontSummary" class="automatic-font-summary">

@@ -279,7 +279,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "是否启用按需字体辅助。", "true", "优先保留原字体，只有缺字时才使用替换字体或 TMP fallback。", "EnableFontReplacement", Bool(config.EnableFontReplacement ?? defaults.EnableFontReplacement));
         Option(builder, "UGUI 原字体缺字时是否启用字体辅助。", "true", "true 或 false。", "ReplaceUguiFonts", Bool(config.ReplaceUguiFonts ?? defaults.ReplaceUguiFonts));
         Option(builder, "TextMeshPro 缺字时是否启用 TMP fallback。", "true", "true 或 false。", "ReplaceTmpFonts", Bool(config.ReplaceTmpFonts ?? defaults.ReplaceTmpFonts));
-        Option(builder, "IMGUI 文本缺字时是否启用字体辅助。", "true", "true 或 false。", "ReplaceImguiFonts", Bool(config.ReplaceImguiFonts ?? defaults.ReplaceImguiFonts));
+        Option(builder, "IMGUI 当前绘制项缺字时是否启用临时字体辅助。", "true", "只在单次绘制期间临时使用辅助字体，绘制后立即恢复原皮肤字体。", "ReplaceImguiFonts", Bool(config.ReplaceImguiFonts ?? defaults.ReplaceImguiFonts));
         Option(builder, "未填写自定义字体时，是否自动使用系统中的中日韩字体。", "true", "true 或 false。", "AutoUseCjkFallbackFonts", Bool(config.AutoUseCjkFallbackFonts ?? defaults.AutoUseCjkFallbackFonts));
         Option(builder, "自定义字体名称。留空表示自动选择。", "留空", "示例：Noto Sans SC、Microsoft YaHei。", "ReplacementFontName", Text(config.ReplacementFontName));
         Option(builder, "自定义字体文件完整路径。留空表示自动选择。", "留空", "示例：C:\\Windows\\Fonts\\msyh.ttc。", "ReplacementFontFile", Text(config.ReplacementFontFile));

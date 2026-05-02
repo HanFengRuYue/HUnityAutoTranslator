@@ -30,9 +30,6 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
         ImguiPendingRefreshSeconds,
         ImguiStateTtlSeconds);
     private Harmony? _harmony;
-    private ImguiFontRequest? _pendingImguiFontRequest;
-    private int _pendingImguiFontRequestVersion;
-    private int _appliedImguiFontRequestVersion;
     private bool _enableImguiForDraw;
     private string _drawTargetLanguage = "zh-Hans";
     private string _drawPromptPolicyVersion = string.Empty;
@@ -113,7 +110,10 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
 
             try
             {
-                _harmony!.Patch(method, prefix: new HarmonyMethod(typeof(ImguiHookInstaller), nameof(PrefixStringText)));
+                _harmony!.Patch(
+                    method,
+                    prefix: new HarmonyMethod(typeof(ImguiHookInstaller), nameof(PrefixStringText)),
+                    postfix: new HarmonyMethod(typeof(ImguiHookInstaller), nameof(PostfixStringText)));
             }
             catch (Exception ex)
             {
@@ -132,8 +132,13 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
         return method.GetParameters().Any(parameter => parameter.Name == "text" && parameter.ParameterType == typeof(string));
     }
 
-    private static void PrefixStringText(ref string text)
+    private static void PrefixStringText(
+        MethodBase __originalMethod,
+        object[] __args,
+        ref string text,
+        ref UnityTextFontReplacementService.ImguiFontScope? __state)
     {
+        __state = null;
         if (_instance == null ||
             !_instance._enabled ||
             !_instance._enableImguiForDraw ||
@@ -143,27 +148,27 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
             return;
         }
 
-        _instance.ApplyPendingImguiFontForDraw();
-        var resolution = _instance.ResolveForDraw(text);
+        var sourceText = text;
+        var resolution = _instance.ResolveForDraw(sourceText);
         text = resolution.DisplayText;
+        if (_instance._fontReplacement == null || string.IsNullOrEmpty(resolution.DisplayText))
+        {
+            return;
+        }
+
+        var config = _instance._configProvider();
+        var key = TranslationCacheKey.Create(
+            sourceText,
+            _instance._drawTargetLanguage,
+            config.Provider,
+            _instance._drawPromptPolicyVersion);
+        var context = new TranslationCacheContext(_instance._drawSceneName, ComponentHierarchy: null, ComponentType: "IMGUI");
+        __state = _instance._fontReplacement?.BeginImguiDrawFontScope(__originalMethod, __args, key, context, resolution.DisplayText);
     }
 
-    private void ApplyPendingImguiFontForDraw()
+    private static void PostfixStringText(UnityTextFontReplacementService.ImguiFontScope? __state)
     {
-        if (_fontReplacement == null)
-        {
-            return;
-        }
-
-        var request = _pendingImguiFontRequest;
-        var version = _pendingImguiFontRequestVersion;
-        if (request == null || _appliedImguiFontRequestVersion == version)
-        {
-            return;
-        }
-
-        _fontReplacement.ApplyToImgui(request.Key, request.Context, request.SampleText);
-        _appliedImguiFontRequestVersion = version;
+        __state?.Dispose();
     }
 
     private ImguiTranslationStateResult ResolveForDraw(string text)
@@ -191,18 +196,12 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
         if (ImguiTextClassifier.ShouldSkipTranslation(pendingText.SourceText, pendingText.TargetLanguage))
         {
             _stateCache.MarkIgnored(pendingText, nowSeconds);
-            if (ImguiTextClassifier.ShouldPrepareFontForSkippedText(pendingText.SourceText, pendingText.TargetLanguage))
-            {
-                RequestImguiFont(key, context, pendingText.SourceText);
-            }
-
             return;
         }
 
         if (_cache.TryGet(key, context, out var translatedText))
         {
             _stateCache.MarkCached(pendingText, translatedText, nowSeconds);
-            RequestImguiFont(key, context, translatedText);
             return;
         }
 
@@ -221,7 +220,6 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
         if (decision.Kind == PipelineDecisionKind.UseCachedTranslation && decision.TranslatedText != null)
         {
             _stateCache.MarkCached(pendingText, decision.TranslatedText, nowSeconds);
-            RequestImguiFont(key, context, decision.TranslatedText);
         }
         else if (decision.Kind == PipelineDecisionKind.Ignored)
         {
@@ -231,23 +229,6 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
         {
             _stateCache.MarkQueued(pendingText, nowSeconds);
         }
-    }
-
-    private void RequestImguiFont(TranslationCacheKey key, TranslationCacheContext context, string translatedText)
-    {
-        if (_fontReplacement == null || string.IsNullOrEmpty(translatedText))
-        {
-            return;
-        }
-
-        var request = new ImguiFontRequest(key, context, translatedText);
-        if (Equals(_pendingImguiFontRequest, request))
-        {
-            return;
-        }
-
-        _pendingImguiFontRequest = request;
-        _pendingImguiFontRequestVersion++;
     }
 
     private void RefreshDrawContext(RuntimeConfig config)
@@ -281,8 +262,4 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
         _logger.LogWarning(message);
     }
 
-    private sealed record ImguiFontRequest(
-        TranslationCacheKey Key,
-        TranslationCacheContext Context,
-        string SampleText);
 }
