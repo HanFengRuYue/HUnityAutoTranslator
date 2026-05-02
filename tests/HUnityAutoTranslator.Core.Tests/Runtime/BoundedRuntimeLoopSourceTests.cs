@@ -125,22 +125,23 @@ public sealed class BoundedRuntimeLoopSourceTests
         imguiSource.Should().Contain("_stateCache.TakePendingBatch(");
         imguiSource.Should().Contain("ProcessPendingImguiText(");
         imguiSource.Should().Contain("publishResult: false");
-        imguiSource.Should().Contain("ApplyPendingImguiFontForDraw();");
-        imguiSource.Should().NotContain("PostfixStringText");
-        imguiSource.Should().NotContain("ImguiDrawState");
+        imguiSource.Should().Contain("BeginImguiDrawFontScope(__originalMethod, __args, key, context, resolution.DisplayText)");
+        imguiSource.Should().Contain("PostfixStringText");
+        imguiSource.Should().Contain("__state?.Dispose();");
+        imguiSource.Should().NotContain("ApplyPendingImguiFontForDraw");
         imguiSource.Should().NotContain("TryBeginFontScope");
         imguiSource.Should().NotContain("TryResolveImguiFont");
 
         var prefixBlock = imguiSource[
             imguiSource.IndexOf("private static void PrefixStringText", StringComparison.Ordinal)..
-            imguiSource.IndexOf("private void ApplyPendingImguiFontForDraw", StringComparison.Ordinal)];
-        prefixBlock.Should().NotContain("_configProvider()");
+            imguiSource.IndexOf("private ImguiTranslationStateResult ResolveForDraw", StringComparison.Ordinal)];
+        prefixBlock.Should().Contain("_configProvider()");
         prefixBlock.Should().NotContain("GetActiveSceneName");
 
         var pendingBlock = imguiSource[
             imguiSource.IndexOf("private void ProcessPendingImguiText", StringComparison.Ordinal)..
-            imguiSource.IndexOf("private void RequestImguiFont", StringComparison.Ordinal)];
-        pendingBlock.Should().Contain("RequestImguiFont(");
+            imguiSource.IndexOf("private void RefreshDrawContext", StringComparison.Ordinal)];
+        pendingBlock.Should().NotContain("RequestImguiFont(");
         pendingBlock.Should().NotContain("ApplyToImgui");
         pendingBlock.Should().NotContain("GUI.skin");
     }

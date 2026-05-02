@@ -83,7 +83,6 @@ internal sealed class UnityTextFontReplacementService
     private readonly HashSet<string> _warnedUnityFontFailures = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _warnedTmpCandidateFailureSets = new(StringComparer.OrdinalIgnoreCase);
     private Font? _originalImguiFont;
-    private Font? _imguiReplacementFont;
     private string? _automaticFontFallbackConfigKey;
     private string? _automaticFontFallbackName;
     private string? _automaticFontFallbackFile;
@@ -229,48 +228,57 @@ internal sealed class UnityTextFontReplacementService
         ForgetFontTarget(component, _tmpFontTargets, _tmpOriginalFonts, _tmpReplacementFonts);
     }
 
-    public void ApplyToImgui(TranslationCacheKey key, TranslationCacheContext context, string? sampleText = null)
+    public ImguiFontScope? BeginImguiDrawFontScope(
+        MethodBase originalMethod,
+        object[] args,
+        TranslationCacheKey key,
+        TranslationCacheContext context,
+        string displayedText)
     {
         var config = _configProvider();
         ReportAutomaticFontFallbacks(config);
         if (!config.EnableFontReplacement || !config.ReplaceImguiFonts)
         {
-            return;
+            RestoreImguiFont();
+            return null;
         }
 
         if (!_runtimeReplacementFontsEnabled)
         {
             RestoreImguiFont();
-            return;
+            return null;
         }
 
         if (!TryGetImguiSkin(out var skin))
         {
-            return;
+            return null;
         }
 
-        var fontSize = ResolveImguiFontPointSize(skin, config);
+        CaptureImguiSkinFont(skin);
+        var drawStyle = ResolveImguiDrawStyle(originalMethod, args, skin);
+        var fontSize = ResolveImguiFontPointSize(drawStyle.Style, skin, config);
+        if (ImguiOriginalFontCanRenderText(drawStyle.Style, skin, displayedText, fontSize))
+        {
+            RestoreImguiFont();
+            return null;
+        }
+
         var resolved = ResolveCachedImguiFont(config, key, context, fontSize);
         if (resolved?.Font == null)
         {
-            return;
+            RestoreImguiFont();
+            return null;
         }
 
-        if (!_capturedImguiFont)
-        {
-            _originalImguiFont = skin.font;
-            _capturedImguiFont = true;
-        }
-
-        _imguiReplacementFont = resolved.Font;
-        TryRequestCharactersOnce(resolved, sampleText, fontSize);
-        skin.font = resolved.Font;
+        TryRequestCharactersOnce(resolved, displayedText, fontSize);
+        return drawStyle.HasExplicitStyle && drawStyle.Style != null
+            ? ImguiFontScope.ForStyle(drawStyle.Style, resolved.Font)
+            : ImguiFontScope.ForSkin(skin, resolved.Font);
     }
 
     public void RestoreImgui()
     {
         RestoreImguiFont();
-        _imguiReplacementFont = null;
     }
 
     public bool TryResolveImguiFont(
@@ -473,15 +481,15 @@ internal sealed class UnityTextFontReplacementService
         return 1;
     }
 
+    private void CaptureImguiSkinFont(GUISkin skin)
+    {
+        _originalImguiFont = skin.font;
+        _capturedImguiFont = true;
+    }
+
     private int ApplyImguiReplacementFont()
     {
-        if (!_capturedImguiFont || !TryGetImguiSkin(out var skin) || _imguiReplacementFont == null)
-        {
-            return 0;
-        }
-
-        skin.font = _imguiReplacementFont;
-        return 1;
+        return 0;
     }
 
     private static bool TryGetImguiSkin(out GUISkin skin)
@@ -516,6 +524,61 @@ internal sealed class UnityTextFontReplacementService
 
         _ = config;
         return 16;
+    }
+
+    private static int ResolveImguiFontPointSize(GUIStyle? style, GUISkin skin, RuntimeConfig config)
+    {
+        if (style?.fontSize > 0)
+        {
+            return Math.Max(8, Math.Min(32, style.fontSize));
+        }
+
+        return ResolveImguiFontPointSize(skin, config);
+    }
+
+    private static ImguiDrawStyle ResolveImguiDrawStyle(MethodBase originalMethod, object[] args, GUISkin skin)
+    {
+        foreach (var argument in args)
+        {
+            if (argument is GUIStyle explicitStyle)
+            {
+                return new ImguiDrawStyle(explicitStyle, HasExplicitStyle: true);
+            }
+        }
+
+        return new ImguiDrawStyle(ResolveImguiSkinStyle(originalMethod, skin), HasExplicitStyle: false);
+    }
+
+    private static GUIStyle? ResolveImguiSkinStyle(MethodBase originalMethod, GUISkin skin)
+    {
+        return originalMethod.Name switch
+        {
+            "Label" => skin.label,
+            "Button" => skin.button,
+            "Toggle" => skin.toggle,
+            "TextField" => skin.textField,
+            _ => null
+        };
+    }
+
+    private static bool ImguiOriginalFontCanRenderText(GUIStyle? style, GUISkin skin, string displayedText, int fontSize)
+    {
+        var probeText = BuildFontProbeText(displayedText);
+        if (probeText.Length == 0)
+        {
+            return true;
+        }
+
+        var fonts = new[] { style?.font, skin.font }
+            .Where(font => font != null)
+            .Distinct()
+            .ToArray();
+        if (fonts.Length == 0)
+        {
+            return true;
+        }
+
+        return fonts.Any(font => UnityFontCanRenderText(font, displayedText, fontSize));
     }
 
     private void ReportAutomaticFontFallbacks(RuntimeConfig config)
@@ -2052,6 +2115,71 @@ internal sealed class UnityTextFontReplacementService
         _logger.LogWarning(
             "无法用候选字体创建 TMP 后备字体。" +
             $"已尝试：{string.Join(", ", attemptedCandidates)}。最后错误：{lastError ?? "无"}");
+    }
+
+    private readonly struct ImguiDrawStyle
+    {
+        public ImguiDrawStyle(GUIStyle? style, bool HasExplicitStyle)
+        {
+            Style = style;
+            this.HasExplicitStyle = HasExplicitStyle;
+        }
+
+        public GUIStyle? Style { get; }
+
+        public bool HasExplicitStyle { get; }
+    }
+
+    public sealed class ImguiFontScope : IDisposable
+    {
+        private readonly GUIStyle? _style;
+        private readonly GUISkin? _skin;
+        private readonly Font? _originalFont;
+        private bool _disposed;
+
+        private ImguiFontScope(GUIStyle? style, GUISkin? skin, Font replacementFont)
+        {
+            _style = style;
+            _skin = skin;
+            if (_style != null)
+            {
+                _originalFont = _style.font;
+                _style.font = replacementFont;
+            }
+            else if (_skin != null)
+            {
+                _originalFont = _skin.font;
+                _skin.font = replacementFont;
+            }
+        }
+
+        public static ImguiFontScope? ForStyle(GUIStyle? style, Font replacementFont)
+        {
+            return style == null ? null : new ImguiFontScope(style, skin: null, replacementFont);
+        }
+
+        public static ImguiFontScope ForSkin(GUISkin skin, Font replacementFont)
+        {
+            return new ImguiFontScope(style: null, skin, replacementFont);
+        }
+
+        public void Dispose()
+        {
+            if (_disposed)
+            {
+                return;
+            }
+
+            _disposed = true;
+            if (_style != null)
+            {
+                _style.font = _originalFont;
+            }
+            else if (_skin != null)
+            {
+                _skin.font = _originalFont;
+            }
+        }
     }
 
     private sealed class FontCandidate

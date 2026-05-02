@@ -1478,11 +1478,15 @@ public sealed class ControlPanelVueSourceTests
         var cfgSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Core", "Control", "CfgControlPanelSettingsStore.cs"));
 
         pluginPageSource.Should().Contain("字体替换功能");
-        pluginPageSource.Should().Contain("只在缺字或需要补字时处理字体，不会主动乱改已有字体效果。");
+        pluginPageSource.Should().Contain("优先保留原字体，只在缺字或需要补字时使用替换或 fallback。");
+        pluginPageSource.Should().Contain("IMGUI 临时字体替换");
+        pluginPageSource.Should().Contain("IMGUI 当前绘制项缺字时才临时使用中文字体");
         pluginPageSource.Should().NotContain("开启后插件会尝试把文本组件换成能显示中文的字体。");
         pluginPageSource.Should().NotContain("按需字体辅助");
         cfgSource.Should().Contain("是否启用字体替换功能。");
         cfgSource.Should().Contain("只在缺字或需要补字时使用替换字体或 TMP fallback，不会主动乱改已有字体效果。");
+        cfgSource.Should().Contain("IMGUI 当前绘制项缺字时是否启用临时字体替换。");
+        cfgSource.Should().Contain("只在单次绘制期间临时使用替换字体，绘制后立即恢复原皮肤字体。");
         cfgSource.Should().NotContain("按需字体辅助");
     }
 

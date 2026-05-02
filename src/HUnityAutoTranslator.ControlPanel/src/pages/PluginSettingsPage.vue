@@ -365,10 +365,10 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
 
       <SectionPanel title="字体替换功能" :icon="Type">
         <div class="checks font-replacement-checks">
-          <label class="check font-primary-toggle help-target" data-help="只在缺字或需要补字时处理字体，不会主动乱改已有字体效果。"><input id="enableFontReplacement" v-model="form.EnableFontReplacement" type="checkbox">启用字体替换功能</label>
+          <label class="check font-primary-toggle help-target" data-help="优先保留原字体，只在缺字或需要补字时使用替换或 fallback。"><input id="enableFontReplacement" v-model="form.EnableFontReplacement" type="checkbox">启用字体替换功能</label>
           <label class="check help-target" data-help="UGUI Text 缺字时才切换到中文字体，减少方块字和发虚风险。"><input id="replaceUguiFonts" v-model="form.ReplaceUguiFonts" type="checkbox">UGUI 字体替换</label>
           <label class="check help-target" data-help="为 TextMeshPro 缺字文本安装 fallback 字体，优先保留原 TMP 字体资产和材质。"><input id="replaceTmpFonts" v-model="form.ReplaceTmpFonts" type="checkbox">TextMeshPro fallback</label>
-          <label class="check help-target" data-help="IMGUI 绘制文本缺字时使用中文字体，主要影响旧式界面。"><input id="replaceImguiFonts" v-model="form.ReplaceImguiFonts" type="checkbox">IMGUI 字体替换</label>
+          <label class="check help-target" data-help="IMGUI 当前绘制项缺字时才临时使用中文字体，绘制后立即恢复原皮肤字体。"><input id="replaceImguiFonts" v-model="form.ReplaceImguiFonts" type="checkbox">IMGUI 临时字体替换</label>
           <label class="check help-target" data-help="未手动指定字体时自动选择系统 CJK 字体，适合作为默认兜底。"><input id="autoUseCjkFallbackFonts" v-model="form.AutoUseCjkFallbackFonts" type="checkbox">自动使用 CJK 字体</label>
         </div>
         <div id="automaticReplacementFontSummary" class="automatic-font-summary">

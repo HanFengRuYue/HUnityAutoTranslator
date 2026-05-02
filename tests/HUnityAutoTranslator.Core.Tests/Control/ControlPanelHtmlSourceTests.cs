@@ -487,7 +487,7 @@ public sealed class ControlPanelHtmlSourceTests
             serviceSource.IndexOf("public void ApplyToUgui", StringComparison.Ordinal)..
             serviceSource.IndexOf("public void RestoreUgui", StringComparison.Ordinal)];
         var imguiBlock = serviceSource[
-            serviceSource.IndexOf("public void ApplyToImgui", StringComparison.Ordinal)..
+            serviceSource.IndexOf("public ImguiFontScope? BeginImguiDrawFontScope", StringComparison.Ordinal)..
             serviceSource.IndexOf("public void RestoreImgui", StringComparison.Ordinal)];
 
         serviceSource.Should().Contain("private static readonly string[] CandidateFontNames");
@@ -519,7 +519,7 @@ public sealed class ControlPanelHtmlSourceTests
     {
         var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
         var imguiBlock = serviceSource[
-            serviceSource.IndexOf("public void ApplyToImgui", StringComparison.Ordinal)..
+            serviceSource.IndexOf("public ImguiFontScope? BeginImguiDrawFontScope", StringComparison.Ordinal)..
             serviceSource.IndexOf("public void RestoreImgui", StringComparison.Ordinal)];
         var restoreBlock = serviceSource[
             serviceSource.IndexOf("private int RestoreImguiFont", StringComparison.Ordinal)..
@@ -535,6 +535,37 @@ public sealed class ControlPanelHtmlSourceTests
         imguiBlock.Should().NotContain("GUI.skin");
         restoreBlock.Should().Contain("TryGetImguiSkin(out var skin)");
         restoreBlock.Should().NotContain("GUI.skin");
+    }
+
+    [Fact]
+    public void Imgui_font_replacement_uses_temporary_draw_scope_instead_of_persistent_skin_replacement()
+    {
+        var hookSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ImguiHookInstaller.cs"));
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+
+        hookSource.Should().Contain("postfix: new HarmonyMethod(typeof(ImguiHookInstaller), nameof(PostfixStringText))");
+        hookSource.Should().Contain("BeginImguiDrawFontScope(__originalMethod, __args, key, context, resolution.DisplayText)");
+        hookSource.Should().Contain("PostfixStringText(UnityTextFontReplacementService.ImguiFontScope? __state)");
+        hookSource.Should().NotContain("_pendingImguiFontRequest");
+        hookSource.Should().NotContain("ApplyPendingImguiFontForDraw");
+
+        var beginScopeBlock = serviceSource[
+            serviceSource.IndexOf("public ImguiFontScope? BeginImguiDrawFontScope", StringComparison.Ordinal)..
+            serviceSource.IndexOf("public void RestoreImgui", StringComparison.Ordinal)];
+        beginScopeBlock.Should().Contain("ImguiOriginalFontCanRenderText(drawStyle.Style, skin, displayedText, fontSize)");
+        beginScopeBlock.Should().Contain("ResolveCachedImguiFont(config, key, context, fontSize)");
+        beginScopeBlock.IndexOf("ImguiOriginalFontCanRenderText(drawStyle.Style, skin, displayedText, fontSize)", StringComparison.Ordinal)
+            .Should().BeLessThan(beginScopeBlock.IndexOf("ResolveCachedImguiFont(config, key, context, fontSize)", StringComparison.Ordinal));
+        beginScopeBlock.Should().Contain("ImguiFontScope.ForStyle(drawStyle.Style, resolved.Font)");
+        beginScopeBlock.Should().Contain("ImguiFontScope.ForSkin(skin, resolved.Font)");
+        beginScopeBlock.Should().NotContain("skin.font = resolved.Font;");
+
+        var replacementApplyBlock = serviceSource[
+            serviceSource.IndexOf("private int ApplyImguiReplacementFont", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private static bool TryGetImguiSkin", StringComparison.Ordinal)];
+        replacementApplyBlock.Should().NotContain("skin.font = _imguiReplacementFont");
+        serviceSource.Should().Contain("public sealed class ImguiFontScope : IDisposable");
+        serviceSource.Should().Contain("public void Dispose()");
     }
 
     [Fact]
