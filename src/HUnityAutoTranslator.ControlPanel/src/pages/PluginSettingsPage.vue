@@ -30,7 +30,7 @@ const form = reactive({
   EnableUgui: true,
   EnableTmp: true,
   EnableImgui: true,
-  ScanIntervalMilliseconds: 750,
+  ScanIntervalMilliseconds: 100,
   MaxScanTargetsPerTick: 256,
   MaxWritebacksPerFrame: 32,
   MaxSourceTextLength: 2000,

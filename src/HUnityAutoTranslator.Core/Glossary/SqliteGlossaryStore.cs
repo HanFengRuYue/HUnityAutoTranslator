@@ -34,6 +34,8 @@ public sealed class SqliteGlossaryStore : IGlossaryStore, IDisposable
 
     private readonly string _filePath;
     private readonly string _connectionString;
+    private readonly object _enabledTermsCacheGate = new();
+    private readonly Dictionary<string, IReadOnlyList<GlossaryTerm>> _enabledTermsByLanguage = new(StringComparer.Ordinal);
     private bool _disposed;
 
     public SqliteGlossaryStore(string filePath)
@@ -171,6 +173,14 @@ LIMIT $limit;
 
     public IReadOnlyList<GlossaryTerm> GetEnabledTerms(string targetLanguage)
     {
+        lock (_enabledTermsCacheGate)
+        {
+            if (_enabledTermsByLanguage.TryGetValue(targetLanguage, out var cached))
+            {
+                return cached;
+            }
+        }
+
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -198,7 +208,13 @@ ORDER BY LENGTH(source_term) DESC, source_term COLLATE NOCASE;
             rows.Add(ReadTerm(reader));
         }
 
-        return rows;
+        var result = rows.ToArray();
+        lock (_enabledTermsCacheGate)
+        {
+            _enabledTermsByLanguage[targetLanguage] = result;
+        }
+
+        return result;
     }
 
     public GlossaryTerm UpsertManual(GlossaryTerm term)
@@ -249,6 +265,7 @@ DO UPDATE SET
 """;
         AddTermParameters(command, normalized, normalized.CreatedUtc == default ? now : normalized.CreatedUtc, now);
         command.ExecuteNonQuery();
+        InvalidateEnabledTermsCache();
         return normalized;
     }
 
@@ -341,6 +358,7 @@ DO UPDATE SET
 """;
         AddTermParameters(upsert, normalized, existing?.CreatedUtc ?? now, now);
         upsert.ExecuteNonQuery();
+        InvalidateEnabledTermsCache();
         return existing == null ? GlossaryUpsertResult.Created : GlossaryUpsertResult.Updated;
     }
 
@@ -357,6 +375,7 @@ WHERE target_language = $target_language
         command.Parameters.AddWithValue("$target_language", normalized.TargetLanguage);
         command.Parameters.AddWithValue("$normalized_source_term", normalized.NormalizedSourceTerm);
         command.ExecuteNonQuery();
+        InvalidateEnabledTermsCache();
     }
 
     public void Dispose()
@@ -405,6 +424,14 @@ PRAGMA user_version={SchemaVersion};
         var connection = new SqliteConnection(_connectionString);
         connection.Open();
         return connection;
+    }
+
+    private void InvalidateEnabledTermsCache()
+    {
+        lock (_enabledTermsCacheGate)
+        {
+            _enabledTermsByLanguage.Clear();
+        }
     }
 
     private static string BuildWhereClause(

@@ -19,6 +19,14 @@ public sealed class RuntimeConfigTests
     }
 
     [Fact]
+    public void DefaultConfig_uses_low_latency_scan_interval()
+    {
+        var config = RuntimeConfig.CreateDefault();
+
+        config.ScanInterval.Should().Be(TimeSpan.FromMilliseconds(100));
+    }
+
+    [Fact]
     public void Runtime_contract_does_not_expose_cache_retention()
     {
         typeof(RuntimeConfig).GetProperty("CacheRetentionDays").Should().BeNull();

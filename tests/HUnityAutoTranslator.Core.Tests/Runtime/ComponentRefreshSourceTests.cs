@@ -58,19 +58,25 @@ public sealed class ComponentRefreshSourceTests
     [Fact]
     public void Text_scanners_reread_text_after_registration_before_skip_and_pipeline()
     {
-        AssertScannerRereadsAfterRegister(File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs")));
-        AssertScannerRereadsAfterRegister(File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs")));
+        var processorSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs"));
+        var tmpSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs"));
+        var uguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs"));
+
+        AssertScannerRereadsAfterRegister(processorSource);
+        tmpSource.Should().Contain("UnityTextTargetProcessor");
+        uguiSource.Should().Contain("UnityTextTargetProcessor");
     }
 
     [Fact]
     public void Text_scanners_apply_component_fonts_only_after_translated_text_is_available()
     {
+        var processorSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs"));
         AssertComponentFontReplacementWaitsForTranslatedText(
-            File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs")),
-            "_fontReplacement?.ApplyToTmp(component,");
+            processorSource,
+            "ApplyFont(component, targetKind,");
         AssertComponentFontReplacementWaitsForTranslatedText(
-            File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs")),
-            "_fontReplacement?.ApplyToUgui(component,");
+            processorSource,
+            "ApplyFont(component, targetKind,");
 
         var imguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ImguiHookInstaller.cs"));
         imguiSource.Should().Contain("ResolveForDraw(text)");
