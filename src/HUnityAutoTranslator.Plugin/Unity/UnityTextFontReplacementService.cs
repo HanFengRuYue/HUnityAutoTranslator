@@ -28,8 +28,8 @@ internal sealed class UnityTextFontReplacementService
         PreferredAutomaticFontName,
         "Microsoft YaHei UI",
         "Microsoft YaHei",
-        "DengXian Light",
         "DengXian",
+        "DengXian Light",
         "SimSun",
         "SimHei",
         "Arial Unicode MS",
@@ -37,6 +37,30 @@ internal sealed class UnityTextFontReplacementService
     };
 
     private static readonly string[] CandidateFontFiles =
+    {
+        PreferredAutomaticFontFile,
+        @"C:\Windows\Fonts\Deng.ttf",
+        @"C:\Windows\Fonts\Dengl.ttf",
+        @"C:\Windows\Fonts\simfang.ttf",
+        @"C:\Windows\Fonts\simkai.ttf",
+        @"C:\Windows\Fonts\simsunb.ttf",
+        @"C:\Windows\Fonts\NotoSerifSC-VF.ttf",
+        @"C:\Windows\Fonts\simhei.ttf"
+    };
+
+    private static readonly string[] StandardTmpAutomaticFontFiles =
+    {
+        PreferredAutomaticFontFile,
+        @"C:\Windows\Fonts\simhei.ttf",
+        @"C:\Windows\Fonts\Deng.ttf",
+        @"C:\Windows\Fonts\Dengl.ttf",
+        @"C:\Windows\Fonts\simfang.ttf",
+        @"C:\Windows\Fonts\simkai.ttf",
+        @"C:\Windows\Fonts\simsunb.ttf",
+        @"C:\Windows\Fonts\NotoSerifSC-VF.ttf"
+    };
+
+    private static readonly string[] OutlineConstrainedTmpAutomaticFontFiles =
     {
         PreferredAutomaticFontFile,
         @"C:\Windows\Fonts\Dengl.ttf",
@@ -225,7 +249,9 @@ internal sealed class UnityTextFontReplacementService
         }
 
         var samplingPointSize = ResolveComponentFontSamplingPointSize(component, config);
-        var fontAsset = ResolveTmpFontAsset(config, key, context, samplingPointSize, out var resolved);
+        var componentMaterial = GetTmpComponentMaterial(component);
+        var styleProfile = ResolveTmpFallbackStyleProfile(componentMaterial, ResolvedFont.AutomaticProbe);
+        var fontAsset = ResolveTmpFontAsset(config, key, context, samplingPointSize, styleProfile, out var resolved);
         if (fontAsset == null)
         {
             return;
@@ -1173,7 +1199,13 @@ internal sealed class UnityTextFontReplacementService
         TranslationCacheContext? context,
         out ResolvedFont? resolvedFont)
     {
-        return ResolveTmpFontAsset(config, key, context, config.FontSamplingPointSize, out resolvedFont);
+        return ResolveTmpFontAsset(
+            config,
+            key,
+            context,
+            config.FontSamplingPointSize,
+            TmpFallbackStyleProfile.PreserveSource,
+            out resolvedFont);
     }
 
     private object? ResolveTmpFontAsset(
@@ -1181,6 +1213,7 @@ internal sealed class UnityTextFontReplacementService
         TranslationCacheKey? key,
         TranslationCacheContext? context,
         int samplingPointSize,
+        TmpFallbackStyleProfile styleProfile,
         out ResolvedFont? resolvedFont)
     {
         resolvedFont = null;
@@ -1193,7 +1226,7 @@ internal sealed class UnityTextFontReplacementService
 
         var attemptedCandidates = new List<string>();
         string? lastError = null;
-        foreach (var candidate in EnumerateTmpFontCandidates(config, key, context))
+        foreach (var candidate in EnumerateTmpFontCandidates(config, key, context, styleProfile))
         {
             var resolved = ResolveExplicitFont(candidate, samplingPointSize);
             if (resolved == null)
@@ -1302,7 +1335,8 @@ internal sealed class UnityTextFontReplacementService
     private IEnumerable<FontCandidate> EnumerateTmpFontCandidates(
         RuntimeConfig config,
         TranslationCacheKey? key,
-        TranslationCacheContext? context)
+        TranslationCacheContext? context,
+        TmpFallbackStyleProfile styleProfile)
     {
         if (key != null && context != null && _cache.TryGetReplacementFont(key, context, out var overrideFont))
         {
@@ -1330,7 +1364,7 @@ internal sealed class UnityTextFontReplacementService
             yield break;
         }
 
-        foreach (var fontFile in CandidateFontFiles)
+        foreach (var fontFile in SelectTmpAutomaticFontFiles(styleProfile))
         {
             if (!File.Exists(fontFile))
             {
@@ -1343,6 +1377,13 @@ internal sealed class UnityTextFontReplacementService
                 yield return candidate;
             }
         }
+    }
+
+    private static IEnumerable<string> SelectTmpAutomaticFontFiles(TmpFallbackStyleProfile styleProfile)
+    {
+        return styleProfile == TmpFallbackStyleProfile.ConstrainOutline
+            ? OutlineConstrainedTmpAutomaticFontFiles
+            : StandardTmpAutomaticFontFiles;
     }
 
     private ResolvedFont? ResolveExplicitFont(FontCandidate candidate, int size)
@@ -3106,6 +3147,13 @@ internal sealed class UnityTextFontReplacementService
 
     private sealed class ResolvedFont
     {
+        public static readonly ResolvedFont AutomaticProbe = new(
+            cacheKey: "automatic-probe",
+            source: "auto-file",
+            value: string.Empty,
+            displayName: string.Empty,
+            font: null!);
+
         public ResolvedFont(string cacheKey, string source, string value, string displayName, Font font)
         {
             CacheKey = cacheKey;

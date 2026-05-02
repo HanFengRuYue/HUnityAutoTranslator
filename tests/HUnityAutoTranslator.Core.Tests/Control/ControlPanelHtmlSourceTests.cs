@@ -372,7 +372,7 @@ public sealed class ControlPanelHtmlSourceTests
         serviceSource.Should().Contain("ResolveTmpFontAsset");
         serviceSource.Should().Contain("EnumerateTmpFontCandidates");
         serviceSource.Should().Contain("EnumerateUnityFontCandidates");
-        serviceSource.Should().Contain("foreach (var candidate in EnumerateTmpFontCandidates(config, key, context))");
+        serviceSource.Should().Contain("foreach (var candidate in EnumerateTmpFontCandidates(config, key, context, styleProfile))");
         serviceSource.Should().Contain("无法用候选字体创建 TMP 后备字体");
         serviceSource.Should().Contain("Action<string?, string?> automaticFontFallbackReporter");
         serviceSource.Should().Contain("ReportAutomaticFontFallbacks(config);");
@@ -516,7 +516,9 @@ public sealed class ControlPanelHtmlSourceTests
             serviceSource.IndexOf("private static void CopyTmpMaterialPresetProperties", StringComparison.Ordinal)..
             serviceSource.IndexOf("private static void ApplyTmpComponentColorToMaterial", StringComparison.Ordinal)];
 
-        applyToTmpBlock.Should().Contain("ResolveTmpFontAsset(config, key, context, samplingPointSize, out var resolved)");
+        applyToTmpBlock.Should().Contain("var componentMaterial = GetTmpComponentMaterial(component);");
+        applyToTmpBlock.Should().Contain("var styleProfile = ResolveTmpFallbackStyleProfile(componentMaterial, ResolvedFont.AutomaticProbe);");
+        applyToTmpBlock.Should().Contain("ResolveTmpFontAsset(config, key, context, samplingPointSize, styleProfile, out var resolved)");
         applyToTmpBlock.Should().Contain("PrepareTmpFallbackMaterial(component, fontAsset, resolved)");
         prepareBlock.Should().Contain("var styleProfile = ResolveTmpFallbackStyleProfile(componentMaterial, resolved);");
         prepareBlock.Should().Contain("ApplyTmpAutomaticFallbackStyle(fontAssetMaterial, resolved, styleProfile)");
@@ -638,7 +640,7 @@ public sealed class ControlPanelHtmlSourceTests
             serviceSource.IndexOf("public void RestoreTmp", StringComparison.Ordinal)];
 
         applyToTmpBlock.Should().Contain("var samplingPointSize = ResolveComponentFontSamplingPointSize(component, config);");
-        applyToTmpBlock.Should().Contain("ResolveTmpFontAsset(config, key, context, samplingPointSize, out var resolved)");
+        applyToTmpBlock.Should().Contain("ResolveTmpFontAsset(config, key, context, samplingPointSize, styleProfile, out var resolved)");
         serviceSource.Should().Contain("EnsureTmpFallbackTable(targetFontAsset)");
         serviceSource.Should().Contain("SetProperty(targetFontAsset, \"fallbackFontAssetTable\", createdTable)");
         serviceSource.Should().Contain("SetField(targetFontAsset, \"m_FallbackFontAssetTable\", createdTable)");
@@ -668,7 +670,7 @@ public sealed class ControlPanelHtmlSourceTests
         uguiBlock.Should().Contain("ResolveUnityTextFont(config, key, context");
         imguiBlock.Should().Contain("ResolveCachedImguiFont(config, key, context");
         serviceSource.Should().Contain("var resolved = ResolveUnityTextFont(config, key, context, fontSize);");
-        serviceSource.Should().Contain("foreach (var candidate in EnumerateTmpFontCandidates(config, key, context))");
+        serviceSource.Should().Contain("foreach (var candidate in EnumerateTmpFontCandidates(config, key, context, styleProfile))");
 
         var uguiCandidateBlock = serviceSource[
             serviceSource.IndexOf("private IEnumerable<FontCandidate> EnumerateUnityFontCandidates", StringComparison.Ordinal)..
@@ -841,18 +843,19 @@ public sealed class ControlPanelHtmlSourceTests
             serviceSource.IndexOf("private static readonly string[] CandidateFontFiles", StringComparison.Ordinal)];
         var candidateFileBlock = serviceSource[
             serviceSource.IndexOf("private static readonly string[] CandidateFontFiles", StringComparison.Ordinal)..
-            serviceSource.IndexOf("private static readonly string[] TmpFontAssetTypeNames", StringComparison.Ordinal)];
+            serviceSource.IndexOf("private static readonly string[] StandardTmpAutomaticFontFiles", StringComparison.Ordinal)];
 
         candidateNameBlock.IndexOf("Noto Sans SC", StringComparison.Ordinal)
             .Should().BeLessThan(candidateNameBlock.IndexOf("Microsoft YaHei UI", StringComparison.Ordinal));
-        candidateFileBlock.Should().Contain(@"C:\Windows\Fonts\NotoSansSC-VF.ttf");
-        candidateFileBlock.Should().Contain(@"C:\Windows\Fonts\Dengl.ttf");
+        serviceSource.Should().Contain(@"private const string PreferredAutomaticFontFile = @""C:\Windows\Fonts\NotoSansSC-VF.ttf"";");
+        candidateFileBlock.Should().Contain("PreferredAutomaticFontFile");
         candidateFileBlock.Should().Contain(@"C:\Windows\Fonts\Deng.ttf");
+        candidateFileBlock.Should().Contain(@"C:\Windows\Fonts\Dengl.ttf");
         candidateFileBlock.Should().Contain(@"C:\Windows\Fonts\simfang.ttf");
         candidateFileBlock.IndexOf("PreferredAutomaticFontFile", StringComparison.Ordinal)
             .Should().BeLessThan(candidateFileBlock.IndexOf(@"C:\Windows\Fonts\simhei.ttf", StringComparison.Ordinal));
-        candidateFileBlock.IndexOf(@"C:\Windows\Fonts\Dengl.ttf", StringComparison.Ordinal)
-            .Should().BeLessThan(candidateFileBlock.IndexOf(@"C:\Windows\Fonts\Deng.ttf", StringComparison.Ordinal));
+        candidateFileBlock.IndexOf(@"C:\Windows\Fonts\Deng.ttf", StringComparison.Ordinal)
+            .Should().BeLessThan(candidateFileBlock.IndexOf(@"C:\Windows\Fonts\Dengl.ttf", StringComparison.Ordinal));
         candidateFileBlock.IndexOf(@"C:\Windows\Fonts\Dengl.ttf", StringComparison.Ordinal)
             .Should().BeLessThan(candidateFileBlock.IndexOf(@"C:\Windows\Fonts\simhei.ttf", StringComparison.Ordinal));
         candidateFileBlock.IndexOf(@"C:\Windows\Fonts\Deng.ttf", StringComparison.Ordinal)
@@ -873,6 +876,36 @@ public sealed class ControlPanelHtmlSourceTests
             serviceSource.IndexOf("private IEnumerable<FontCandidate> EnumerateTmpFontCandidates", StringComparison.Ordinal)..
             serviceSource.IndexOf("private ResolvedFont? ResolveExplicitFont", StringComparison.Ordinal)];
         tmpCandidateBlock.Should().NotContain("FontCandidate.Create(\"auto-name\"");
+    }
+
+    [Fact]
+    public void Tmp_automatic_candidates_use_light_font_only_for_outline_constrained_materials()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+        var resolveBlock = serviceSource[
+            serviceSource.IndexOf("private object? ResolveTmpFontAsset", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private IEnumerable<FontCandidate> EnumerateUnityFontCandidates", StringComparison.Ordinal)];
+        var tmpCandidateBlock = serviceSource[
+            serviceSource.IndexOf("private IEnumerable<FontCandidate> EnumerateTmpFontCandidates", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private ResolvedFont? ResolveExplicitFont", StringComparison.Ordinal)];
+
+        serviceSource.Should().Contain("private static readonly string[] StandardTmpAutomaticFontFiles");
+        serviceSource.Should().Contain("private static readonly string[] OutlineConstrainedTmpAutomaticFontFiles");
+        serviceSource.Should().Contain("SelectTmpAutomaticFontFiles(styleProfile)");
+        resolveBlock.Should().Contain("TmpFallbackStyleProfile styleProfile");
+        tmpCandidateBlock.Should().Contain("TmpFallbackStyleProfile styleProfile");
+        tmpCandidateBlock.Should().Contain("foreach (var fontFile in SelectTmpAutomaticFontFiles(styleProfile))");
+
+        var standardBlock = serviceSource[
+            serviceSource.IndexOf("private static readonly string[] StandardTmpAutomaticFontFiles", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private static readonly string[] OutlineConstrainedTmpAutomaticFontFiles", StringComparison.Ordinal)];
+        var outlineBlock = serviceSource[
+            serviceSource.IndexOf("private static readonly string[] OutlineConstrainedTmpAutomaticFontFiles", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private static readonly string[] TmpFontAssetTypeNames", StringComparison.Ordinal)];
+        standardBlock.IndexOf(@"C:\Windows\Fonts\simhei.ttf", StringComparison.Ordinal)
+            .Should().BeLessThan(standardBlock.IndexOf(@"C:\Windows\Fonts\Dengl.ttf", StringComparison.Ordinal));
+        outlineBlock.IndexOf(@"C:\Windows\Fonts\Dengl.ttf", StringComparison.Ordinal)
+            .Should().BeLessThan(outlineBlock.IndexOf(@"C:\Windows\Fonts\simhei.ttf", StringComparison.Ordinal));
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)
