@@ -45,6 +45,8 @@ internal sealed class PluginRuntime : IDisposable
     private float _nextHighlighterSnapshotTime;
     private float _nextSkippedWritebackLogTime;
     private bool _openedControlPanel;
+    private bool _hotkeyTickFailureLogged;
+    private bool _pendingAutomaticSelfCheck;
 
     public PluginRuntime(ManualLogSource logger, string? pluginDirectory = null)
     {
@@ -132,7 +134,7 @@ internal sealed class PluginRuntime : IDisposable
                 dataDirectory,
                 _logger);
             _httpServer.Start(config.HttpHost, config.HttpPort);
-            _selfCheck.StartAutomaticAsync();
+            _pendingAutomaticSelfCheck = true;
             _hotkeys = new RuntimeHotkeyController(
                 _httpServer,
                 _captureCoordinator,
@@ -232,8 +234,9 @@ internal sealed class PluginRuntime : IDisposable
         }
 
         var config = _controlPanel.GetConfig();
-        _hotkeys?.Tick(config);
         _selfCheck?.Tick();
+        StartPendingAutomaticSelfCheck();
+        TryTickHotkeys(config);
         var scanned = false;
         if (_captureCoordinator != null && Time.unscaledTime >= _nextScanTime)
         {
@@ -249,6 +252,35 @@ internal sealed class PluginRuntime : IDisposable
         }
 
         _textureReplacement?.Tick();
+    }
+
+    private void StartPendingAutomaticSelfCheck()
+    {
+        if (!_pendingAutomaticSelfCheck || _selfCheck == null)
+        {
+            return;
+        }
+
+        _pendingAutomaticSelfCheck = false;
+        _selfCheck.StartAutomaticAsync();
+    }
+
+    private void TryTickHotkeys(RuntimeConfig config)
+    {
+        try
+        {
+            _hotkeys?.Tick(config);
+        }
+        catch (Exception ex)
+        {
+            if (_hotkeyTickFailureLogged)
+            {
+                return;
+            }
+
+            _hotkeyTickFailureLogged = true;
+            _logger.LogWarning($"运行时热键轮询失败，已跳过本帧热键处理：{ex.Message}");
+        }
     }
 
     private void MaybeRefreshHighlighterSnapshot(bool force)

@@ -19,6 +19,28 @@ public sealed class SelfCheckSourceTests
     }
 
     [Fact]
+    public void Automatic_self_check_starts_after_the_unity_update_loop_is_running()
+    {
+        var runtimeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+        var startBlock = runtimeSource[
+            runtimeSource.IndexOf("public void Start()", StringComparison.Ordinal)..
+            runtimeSource.IndexOf("private void StartLlamaCppIfConfigured", StringComparison.Ordinal)];
+        var tickBlock = runtimeSource[
+            runtimeSource.IndexOf("public void Tick()", StringComparison.Ordinal)..
+            runtimeSource.IndexOf("private void TryTickHotkeys", StringComparison.Ordinal)];
+
+        startBlock.Should().Contain("_pendingAutomaticSelfCheck = true;");
+        startBlock.Should().NotContain("_selfCheck.StartAutomaticAsync();");
+        tickBlock.Should().Contain("_selfCheck?.Tick();");
+        tickBlock.Should().Contain("StartPendingAutomaticSelfCheck();");
+        tickBlock.IndexOf("_selfCheck?.Tick();", StringComparison.Ordinal)
+            .Should().BeLessThan(tickBlock.IndexOf("StartPendingAutomaticSelfCheck();", StringComparison.Ordinal));
+
+        runtimeSource.Should().Contain("private void StartPendingAutomaticSelfCheck()");
+        runtimeSource.Should().Contain("_selfCheck.StartAutomaticAsync();");
+    }
+
+    [Fact]
     public void Self_check_service_keeps_external_api_and_llama_runtime_calls_out_of_probe_path()
     {
         var servicePath = FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Diagnostics", "SelfCheckService.cs");
