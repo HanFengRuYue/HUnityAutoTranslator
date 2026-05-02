@@ -111,6 +111,11 @@ public static class TranslationQualityValidator
             return new TranslationQualityFailure(index, "translation added outer symbols that are not present in the source text");
         }
 
+        if (config.RejectGeneratedOuterSymbols && UiMarkerSymbolGuard.HasChangedMarkers(sourceText, translatedText))
+        {
+            return new TranslationQualityFailure(index, "translation changed UI marker symbols that must be preserved");
+        }
+
         if (!isSimplifiedChinese ||
             (config.AllowAlreadyTargetLanguageSource && IsAlreadySimplifiedChineseSource(sourceText)))
         {

@@ -812,6 +812,35 @@ public sealed class WorkerPoolTests
     }
 
     [Fact]
+    public async Task WorkerPool_preserves_ui_marker_prefix_when_provider_omits_it()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var provider = new CapturingProvider(new[] { "\u52a0\u5165\u961f\u4f0d" });
+        var config = RuntimeConfig.CreateDefault() with { MaxConcurrentRequests = 1 };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            provider,
+            new ProviderRateLimiter(120),
+            config,
+            cache);
+
+        var context = new TranslationCacheContext("Lobby", "Canvas/Menu/JoinCrew", "UnityEngine.UI.Text");
+        queue.Enqueue(TranslationJob.Create("ui-1", "> Join a crew", TranslationPriority.VisibleUi, context));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        var results = dispatcher.Drain(10);
+        results.Should().ContainSingle();
+        results[0].TranslatedText.Should().Be("> \u52a0\u5165\u961f\u4f0d");
+        var key = TranslationCacheKey.Create("> Join a crew", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, context, out var cached).Should().BeTrue();
+        cached.Should().Be("> \u52a0\u5165\u961f\u4f0d");
+    }
+
+    [Fact]
     public async Task WorkerPool_does_not_cache_translation_when_outer_symbol_repair_fails()
     {
         var queue = new TranslationJobQueue();

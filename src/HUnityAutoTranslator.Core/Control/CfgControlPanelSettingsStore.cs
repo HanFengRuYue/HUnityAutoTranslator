@@ -320,7 +320,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "质量失败后是否先请求 AI 修复一次。关闭后会直接进入质量重试/待翻译流程。", "true", "true 或 false。", "EnableRepair", Bool(quality.EnableRepair));
         Option(builder, "质量失败最多重试多少次。", "3", "范围：0 到 10。", "MaxRetryCount", Int(quality.MaxRetryCount));
         Option(builder, "是否要求游戏标题在译文中按原文保留。", "true", "true 或 false。", "PreserveGameTitle", Bool(quality.PreserveGameTitle));
-        Option(builder, "是否拒绝 AI 给短文本额外添加引号、括号或书名号。", "true", "true 或 false。", "RejectGeneratedOuterSymbols", Bool(quality.RejectGeneratedOuterSymbols));
+        Option(builder, "是否拒绝 AI 改变原文已有的外层/结构符号，例如额外添加或漏掉选择箭头、项目符号。", "true", "true 或 false。", "RejectGeneratedOuterSymbols", Bool(quality.RejectGeneratedOuterSymbols));
         Option(builder, "是否拒绝普通英文 UI 文本原样未翻译。", "true", "true 或 false。", "RejectUntranslatedLatinUiText", Bool(quality.RejectUntranslatedLatinUiText));
         Option(builder, "是否拒绝设置值译文过短或不完整。", "true", "true 或 false。", "RejectShortSettingValue", Bool(quality.RejectShortSettingValue));
         Option(builder, "是否拒绝状态文本过于直译。", "true", "true 或 false。", "RejectLiteralStateTranslation", Bool(quality.RejectLiteralStateTranslation));
