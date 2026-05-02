@@ -5,16 +5,16 @@ namespace HUnityAutoTranslator.Core.Text;
 public static class PreservableTextClassifier
 {
     private static readonly Regex VersionPattern = new(
-        @"^(?:v(?:ersion)?\s*)?\d+(?:[._-]\d+){1,5}(?:[-+][A-Za-z0-9._-]+)?$",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        @"^(?:(?:v|version)\s*\d+(?:[._-]\d+){0,5}|\d+(?:[._-]\d+){1,5})(?:[-+][A-Za-z0-9._-]+)?$",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static readonly Regex UrlPattern = new(
         @"^(?:[a-z][a-z0-9+.-]*://|www\.)\S+$",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static readonly Regex EmailPattern = new(
         @"^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static readonly Regex HandlePattern = new(
         @"^@[A-Za-z0-9_.-]{2,}$",
@@ -22,7 +22,7 @@ public static class PreservableTextClassifier
 
     private static readonly Regex AuthorCreditPattern = new(
         @"^(?:by|author|created\s+by|made\s+by)\s+.+$",
-        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
     private static readonly Regex HeartCreditPattern = new(
         @"^[A-Za-z0-9_.-]{3,}\s*(?:<3|\u2665|\u2764\ufe0f?)$",

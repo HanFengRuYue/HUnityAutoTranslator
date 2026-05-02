@@ -79,6 +79,25 @@ public sealed class TextPipelineTests
         metrics.Snapshot().CapturedTextCount.Should().Be(0);
     }
 
+    [Theory]
+    [InlineData("v81")]
+    [InlineData("HUnityAutoTranslator.Plugin.dll")]
+    public void Process_ignores_preservable_identifiers(string sourceText)
+    {
+        var cache = new CountingTranslationCache();
+        var queue = new TranslationJobQueue();
+        var metrics = new ControlPanelMetrics();
+        var config = RuntimeConfig.CreateDefault();
+        var pipeline = new TextPipeline(cache, queue, config, metrics);
+
+        var decision = pipeline.Process(new CapturedText("ui-1", sourceText, isVisible: true));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.Ignored);
+        cache.RecordCapturedCallCount.Should().Be(0);
+        queue.PendingCount.Should().Be(0);
+        metrics.Snapshot().CapturedTextCount.Should().Be(0);
+    }
+
     [Fact]
     public void Process_uses_custom_prompt_template_hash_in_cache_key()
     {

@@ -588,8 +588,9 @@ async function retranslateSelectedRows(): Promise<void> {
   }
 
   const result = await postJson<RetranslateResult>("/api/translations/retranslate", selectedRows.value);
-  tableMessage.value = `已提交 ${result.QueuedCount}/${result.RequestedCount} 行重新翻译。`;
-  showToast("已提交重翻任务。", "ok");
+  const preservedText = result.PreservedCount > 0 ? `，${result.PreservedCount} 行已保留原文。` : "。";
+  tableMessage.value = `已提交 ${result.QueuedCount}/${result.RequestedCount} 行重新翻译${preservedText}`;
+  showToast(tableMessage.value, "ok");
 }
 
 async function highlightSelectedRow(): Promise<void> {

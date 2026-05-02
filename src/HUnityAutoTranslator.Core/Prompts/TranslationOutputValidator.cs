@@ -24,6 +24,16 @@ public static class TranslationOutputValidator
             return ValidationResult.Invalid("译文为空");
         }
 
+        if (PreservableTextClassifier.CanRemainUntranslated(sourceText))
+        {
+            var visibleSourceText = RichTextGuard.GetVisibleText(sourceText).Trim();
+            var visibleTranslatedText = RichTextGuard.GetVisibleText(translatedText).Trim();
+            if (!string.Equals(visibleSourceText, visibleTranslatedText, StringComparison.Ordinal))
+            {
+                return ValidationResult.Invalid("preservable technical text must remain unchanged");
+            }
+        }
+
         var trimmed = translatedText.TrimStart();
         if (ExplanatoryPrefixes.Any(prefix => trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
         {

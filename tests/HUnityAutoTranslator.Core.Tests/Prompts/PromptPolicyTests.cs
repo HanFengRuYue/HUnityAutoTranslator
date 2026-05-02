@@ -422,6 +422,33 @@ public sealed class PromptPolicyTests
         failures.Should().BeEmpty();
     }
 
+    [Theory]
+    [InlineData("v81", "\u5bf9\u5e94 v81 \u7248\u672c\u53f7")]
+    [InlineData("HUnityAutoTranslator.Plugin.dll", "\u63d2\u4ef6\u6587\u4ef6")]
+    public void Validator_rejects_overtranslated_preservable_identifiers(string sourceText, string translatedText)
+    {
+        var result = TranslationOutputValidator.ValidateSingle(
+            sourceText,
+            translatedText,
+            requireSameRichTextTags: true);
+
+        result.IsValid.Should().BeFalse();
+        result.Reason.Should().Contain("must remain unchanged");
+    }
+
+    [Theory]
+    [InlineData("v81")]
+    [InlineData("HUnityAutoTranslator.Plugin.dll")]
+    public void Validator_allows_preservable_identifiers_to_remain_unchanged(string sourceText)
+    {
+        var result = TranslationOutputValidator.ValidateSingle(
+            sourceText,
+            sourceText,
+            requireSameRichTextTags: true);
+
+        result.IsValid.Should().BeTrue();
+    }
+
     [Fact]
     public void Glossary_validator_rejects_missing_required_target_term()
     {

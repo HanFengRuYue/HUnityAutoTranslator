@@ -584,6 +584,7 @@ export interface DeleteResult {
 export interface RetranslateResult {
   RequestedCount: number;
   QueuedCount: number;
+  PreservedCount: number;
 }
 
 export interface TranslationHighlightResult {
