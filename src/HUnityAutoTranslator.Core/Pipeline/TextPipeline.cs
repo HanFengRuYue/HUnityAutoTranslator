@@ -48,7 +48,8 @@ public sealed class TextPipeline
         if (!config.Enabled ||
             capturedText.SourceText.Length > config.MaxSourceTextLength ||
             (config.IgnoreInvisibleText && !capturedText.IsVisible) ||
-            !TextFilter.ShouldTranslate(capturedText.SourceText))
+            !TextFilter.ShouldTranslate(capturedText.SourceText) ||
+            TextFilter.IsAlreadyTargetLanguageSource(capturedText.SourceText, config.TargetLanguage))
         {
             return PipelineDecision.Ignored();
         }

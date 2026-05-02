@@ -343,64 +343,7 @@ public static class TranslationQualityValidator
 
     private static bool IsAlreadySimplifiedChineseSource(string value)
     {
-        var normalized = PromptItemClassifier.NormalizeForMatch(value);
-        return ContainsCjk(normalized) && !ContainsTranslatableLatinWord(normalized);
-    }
-
-    private static bool ContainsTranslatableLatinWord(string value)
-    {
-        var token = string.Empty;
-        foreach (var character in value)
-        {
-            if ((character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z') || char.IsDigit(character))
-            {
-                token += character;
-                continue;
-            }
-
-            if (TokenRequiresTranslation(token))
-            {
-                return true;
-            }
-
-            token = string.Empty;
-        }
-
-        return TokenRequiresTranslation(token);
-    }
-
-    private static bool TokenRequiresTranslation(string token)
-    {
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            return false;
-        }
-
-        if (IsShortTechnicalToken(token))
-        {
-            return false;
-        }
-
-        return token.Any(character => (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z'));
-    }
-
-    private static bool IsShortTechnicalToken(string token)
-    {
-        var compact = token.Trim();
-        if (compact.Length <= 4 && compact.All(character => char.IsUpper(character) || char.IsDigit(character)))
-        {
-            return true;
-        }
-
-        return compact.ToLowerInvariant() is "fps" or "hz" or "ui" or "tmp" or "ugui" or "imgui" or "ms" or "cpu" or "gpu" or "ram" or "vr";
-    }
-
-    private static bool ContainsCjk(string value)
-    {
-        return value.Any(character =>
-            (character >= '\u3400' && character <= '\u4DBF') ||
-            (character >= '\u4E00' && character <= '\u9FFF') ||
-            (character >= '\uF900' && character <= '\uFAFF'));
+        return TextFilter.IsAlreadyTargetLanguageSource(value, "zh-Hans");
     }
 
     private static int CountTextElements(string value)

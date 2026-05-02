@@ -79,6 +79,102 @@ public static class TextFilter
         return hasLetter && hasNonSymbol && nonSymbolCount >= 2;
     }
 
+    public static bool IsAlreadyTargetLanguageSource(string? value, string? targetLanguage)
+    {
+        if (!IsSimplifiedChineseTarget(targetLanguage))
+        {
+            return false;
+        }
+
+        var normalized = TextNormalizer.NormalizeForCache(RichTextGuard.GetVisibleText(value ?? string.Empty));
+        return normalized.Length > 0 &&
+            ContainsCjk(normalized) &&
+            !ContainsKanaOrHangul(normalized) &&
+            !ContainsTranslatableLatinToken(normalized);
+    }
+
+    private static bool IsSimplifiedChineseTarget(string? targetLanguage)
+    {
+        var normalized = (targetLanguage ?? string.Empty).Trim().ToLowerInvariant();
+        return normalized is "zh" or "zh-hans" or "zh-cn" or "zh-sg" or "simplified chinese";
+    }
+
+    private static bool ContainsTranslatableLatinToken(string value)
+    {
+        var token = string.Empty;
+        foreach (var character in value)
+        {
+            if (IsAsciiLetterOrDigit(character))
+            {
+                token += character;
+                continue;
+            }
+
+            if (TokenRequiresTranslation(token))
+            {
+                return true;
+            }
+
+            token = string.Empty;
+        }
+
+        return TokenRequiresTranslation(token);
+    }
+
+    private static bool TokenRequiresTranslation(string token)
+    {
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            return false;
+        }
+
+        if (IsShortTechnicalToken(token))
+        {
+            return false;
+        }
+
+        return token.Any(IsAsciiLetter);
+    }
+
+    private static bool IsShortTechnicalToken(string token)
+    {
+        var compact = token.Trim();
+        if (compact.Length <= 4 && compact.All(character => char.IsUpper(character) || char.IsDigit(character)))
+        {
+            return true;
+        }
+
+        return compact.ToLowerInvariant() is "fps" or "hz" or "ui" or "tmp" or "ugui" or "imgui" or "ms" or "cpu" or "gpu" or "ram" or "vr";
+    }
+
+    private static bool IsAsciiLetterOrDigit(char character)
+    {
+        return IsAsciiLetter(character) || char.IsDigit(character);
+    }
+
+    private static bool IsAsciiLetter(char character)
+    {
+        return (character >= 'A' && character <= 'Z') || (character >= 'a' && character <= 'z');
+    }
+
+    private static bool ContainsCjk(string value)
+    {
+        return value.Any(character =>
+            (character >= '\u3400' && character <= '\u4DBF') ||
+            (character >= '\u4E00' && character <= '\u9FFF') ||
+            (character >= '\uF900' && character <= '\uFAFF'));
+    }
+
+    private static bool ContainsKanaOrHangul(string value)
+    {
+        return value.Any(character =>
+            (character >= '\u3040' && character <= '\u30FF') ||
+            (character >= '\u31F0' && character <= '\u31FF') ||
+            (character >= '\u1100' && character <= '\u11FF') ||
+            (character >= '\u3130' && character <= '\u318F') ||
+            (character >= '\uAC00' && character <= '\uD7AF'));
+    }
+
     private static bool IsNumericSpecification(string value)
     {
         return ResolutionPattern.IsMatch(value) ||

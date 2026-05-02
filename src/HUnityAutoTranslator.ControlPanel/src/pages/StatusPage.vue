@@ -4,6 +4,7 @@ import {
   Activity,
   AlertTriangle,
   Bot,
+  ChevronDown,
   CheckCircle2,
   Coins,
   Database,
@@ -20,6 +21,8 @@ import SectionPanel from "../components/SectionPanel.vue";
 import { controlPanelStore, refreshState, runSelfCheck } from "../state/controlPanelStore";
 import type { SelfCheckItem, SelfCheckSeverity } from "../types/api";
 import { formatDateTime, formatNumber, formatRate } from "../utils/format";
+
+type SelfCheckTone = "ok" | "warn" | "danger" | "info";
 
 const providerNames: Record<string, string> = {
   "0": "OpenAI",
@@ -147,14 +150,23 @@ const selfCheckTone = computed(() => {
 });
 
 const selfCheckGroups = computed(() => {
-  const groups = new Map<string, SelfCheckItem[]>();
-  for (const item of selfCheckItems.value) {
-    const items = groups.get(item.Category) ?? [];
-    items.push(item);
-    groups.set(item.Category, items);
+  const groups = new Map<string, { items: SelfCheckItem[]; order: number }>();
+  for (const [index, item] of selfCheckItems.value.entries()) {
+    const group = groups.get(item.Category) ?? { items: [], order: index };
+    group.items.push(item);
+    groups.set(item.Category, group);
   }
 
-  return Array.from(groups, ([category, items]) => ({ category, items }));
+  return Array.from(groups, ([category, group]) => {
+    const items = [...group.items].sort(compareSelfCheckItems);
+    return {
+      category,
+      items,
+      order: group.order,
+      tone: groupTone(items),
+      attentionCount: items.filter(requiresAttention).length
+    };
+  }).sort(compareSelfCheckGroups);
 });
 
 const isSelfCheckRunning = computed(() => runStateName(selfCheckReport.value?.State) === "Running");
@@ -236,7 +248,7 @@ function severityText(value: SelfCheckSeverity): string {
   return "正常";
 }
 
-function severityTone(value: SelfCheckSeverity): "ok" | "warn" | "danger" | "info" {
+function severityTone(value: SelfCheckSeverity): SelfCheckTone {
   const severity = severityName(value);
   if (severity === "Error" || severity === "3") {
     return "danger";
@@ -253,8 +265,74 @@ function severityTone(value: SelfCheckSeverity): "ok" | "warn" | "danger" | "inf
   return "ok";
 }
 
+function severitySortRank(value: SelfCheckSeverity): number {
+  const severity = severityName(value);
+  if (severity === "Error" || severity === "3") {
+    return 0;
+  }
+
+  if (severity === "Warning" || severity === "2") {
+    return 1;
+  }
+
+  if (severity === "Info" || severity === "1") {
+    return 2;
+  }
+
+  if (severity === "Skipped" || severity === "4") {
+    return 3;
+  }
+
+  return 4;
+}
+
+function groupSortRank(items: SelfCheckItem[]): number {
+  const ranks = items.map((item) => severitySortRank(item.Severity));
+  const highestRank = ranks.length ? Math.min(...ranks) : 4;
+  return highestRank <= 1 ? highestRank : 2;
+}
+
+function compareSelfCheckItems(first: SelfCheckItem, second: SelfCheckItem): number {
+  return severitySortRank(first.Severity) - severitySortRank(second.Severity)
+    || first.Name.localeCompare(second.Name, "zh-Hans-CN")
+    || first.Id.localeCompare(second.Id, "zh-Hans-CN");
+}
+
+function compareSelfCheckGroups(
+  first: { items: SelfCheckItem[]; attentionCount: number; order: number },
+  second: { items: SelfCheckItem[]; attentionCount: number; order: number }
+): number {
+  return groupSortRank(first.items) - groupSortRank(second.items)
+    || second.attentionCount - first.attentionCount
+    || first.order - second.order;
+}
+
+function requiresAttention(item: SelfCheckItem): boolean {
+  return severitySortRank(item.Severity) <= 1;
+}
+
+function groupTone(items: SelfCheckItem[]): SelfCheckTone {
+  if (items.some((item) => severityTone(item.Severity) === "danger")) {
+    return "danger";
+  }
+
+  if (items.some((item) => severityTone(item.Severity) === "warn")) {
+    return "warn";
+  }
+
+  if (items.some((item) => severityTone(item.Severity) === "info")) {
+    return "info";
+  }
+
+  return "ok";
+}
+
 function selfCheckSeverityIcon(value: SelfCheckSeverity) {
   const tone = severityTone(value);
+  return selfCheckToneIcon(tone);
+}
+
+function selfCheckToneIcon(tone: SelfCheckTone) {
   if (tone === "danger") {
     return XCircle;
   }
@@ -338,57 +416,80 @@ function syncSelfCheckPanelOpen(event: Event): void {
               <ShieldCheck class="section-icon" aria-hidden="true" />
               <h2 id="section-本地自检">本地自检</h2>
             </div>
+            <div class="self-check-title-meta">
+              <strong :class="`status-${selfCheckTone}`">{{ selfCheckStatusText }}</strong>
+              <span>{{ formatNumber(selfCheckReport?.ErrorCount) }} 错误 · {{ formatNumber(selfCheckReport?.WarningCount) }} 警告</span>
+            </div>
           </div>
-          <div class="section-actions">
+          <div class="section-actions self-check-header-actions">
+            <span class="self-check-toggle-button" :title="selfCheckPanelOpen ? '收起本地自检明细' : '展开本地自检明细'">
+              <ChevronDown class="self-check-toggle-icon" aria-hidden="true" />
+              <span>{{ selfCheckPanelOpen ? "收起明细" : "展开明细" }}</span>
+            </span>
             <button class="secondary" type="button" :disabled="isSelfCheckRunning" @click.stop.prevent="runSelfCheck()">
               <RefreshCw class="button-icon" />
               {{ isSelfCheckRunning ? "自检中..." : "重新自检" }}
             </button>
           </div>
         </summary>
-        <div class="self-check-summary">
-          <div>
-            <span>总状态</span>
-            <strong :class="`status-${selfCheckTone}`">{{ selfCheckStatusText }}</strong>
+        <div class="self-check-panel-body">
+          <div class="self-check-summary">
+            <div>
+              <span>总状态</span>
+              <strong :class="`status-${selfCheckTone}`">{{ selfCheckStatusText }}</strong>
+            </div>
+            <div>
+              <span>错误 / 警告</span>
+              <strong>{{ formatNumber(selfCheckReport?.ErrorCount) }} / {{ formatNumber(selfCheckReport?.WarningCount) }}</strong>
+            </div>
+            <div>
+              <span>跳过项</span>
+              <strong>{{ formatNumber(selfCheckReport?.SkippedCount) }}</strong>
+            </div>
+            <div>
+              <span>最近运行</span>
+              <strong>{{ selfCheckReport?.CompletedUtc ? formatDateTime(selfCheckReport.CompletedUtc) : runStateText(selfCheckReport?.State) }}</strong>
+            </div>
           </div>
-          <div>
-            <span>错误 / 警告</span>
-            <strong>{{ formatNumber(selfCheckReport?.ErrorCount) }} / {{ formatNumber(selfCheckReport?.WarningCount) }}</strong>
-          </div>
-          <div>
-            <span>跳过项</span>
-            <strong>{{ formatNumber(selfCheckReport?.SkippedCount) }}</strong>
-          </div>
-          <div>
-            <span>最近运行</span>
-            <strong>{{ selfCheckReport?.CompletedUtc ? formatDateTime(selfCheckReport.CompletedUtc) : runStateText(selfCheckReport?.State) }}</strong>
-          </div>
-        </div>
-        <div v-if="selfCheckGroups.length" class="self-check-list">
-          <details v-for="group in selfCheckGroups" :key="group.category" class="self-check-group" open>
-            <summary>
-              <span>{{ group.category }}</span>
-              <strong>{{ formatNumber(group.items.length) }}</strong>
-            </summary>
-            <article
-              v-for="item in group.items"
-              :key="item.Id"
-              class="self-check-item"
-              :class="`self-check-${severityTone(item.Severity)}`"
+          <div v-if="selfCheckGroups.length" class="self-check-list">
+            <details
+              v-for="group in selfCheckGroups"
+              :key="group.category"
+              class="self-check-group"
+              :class="`self-check-group-${group.tone}`"
+              open
             >
-              <component :is="selfCheckSeverityIcon(item.Severity)" class="self-check-item-icon" />
-              <div>
-                <div class="self-check-item-head">
-                  <strong>{{ item.Name }}</strong>
-                  <span>{{ severityText(item.Severity) }}</span>
+              <summary class="self-check-group-summary">
+                <span class="self-check-group-title">
+                  <ChevronDown class="self-check-group-chevron" aria-hidden="true" />
+                  <component :is="selfCheckToneIcon(group.tone)" class="self-check-group-icon" />
+                  <span>{{ group.category }}</span>
+                </span>
+                <span class="self-check-group-counts">
+                  <strong v-if="group.attentionCount" class="self-check-attention-count">{{ formatNumber(group.attentionCount) }} 项需处理</strong>
+                  <strong>{{ formatNumber(group.items.length) }}</strong>
+                </span>
+              </summary>
+              <article
+                v-for="item in group.items"
+                :key="item.Id"
+                class="self-check-item"
+                :class="`self-check-${severityTone(item.Severity)}`"
+              >
+                <component :is="selfCheckSeverityIcon(item.Severity)" class="self-check-item-icon" />
+                <div>
+                  <div class="self-check-item-head">
+                    <strong>{{ item.Name }}</strong>
+                    <span>{{ severityText(item.Severity) }}</span>
+                  </div>
+                  <p>{{ item.Evidence }}</p>
+                  <small>{{ item.Recommendation }}</small>
                 </div>
-                <p>{{ item.Evidence }}</p>
-                <small>{{ item.Recommendation }}</small>
-              </div>
-            </article>
-          </details>
+              </article>
+            </details>
+          </div>
+          <div v-else class="empty-state compact">暂无自检结果</div>
         </div>
-        <div v-else class="empty-state compact">暂无自检结果</div>
       </details>
 
       <SectionPanel title="AI 服务" :icon="Bot">

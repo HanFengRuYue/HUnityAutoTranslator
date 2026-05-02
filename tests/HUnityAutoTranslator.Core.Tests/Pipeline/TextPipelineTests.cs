@@ -62,6 +62,24 @@ public sealed class TextPipelineTests
     }
 
     [Fact]
+    public void Process_ignores_source_text_that_is_already_simplified_chinese()
+    {
+        var cache = new CountingTranslationCache();
+        var queue = new TranslationJobQueue();
+        var metrics = new ControlPanelMetrics();
+        var config = RuntimeConfig.CreateDefault();
+        var pipeline = new TextPipeline(cache, queue, config, metrics);
+
+        var decision = pipeline.Process(new CapturedText("ui-1", "\u6e38\u620f\u8bbe\u7f6e", isVisible: true));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.Ignored);
+        cache.RecordCapturedCallCount.Should().Be(0);
+        cache.GetPendingTranslations(config.TargetLanguage, TextPipeline.PromptPolicyVersion, limit: 10).Should().BeEmpty();
+        queue.PendingCount.Should().Be(0);
+        metrics.Snapshot().CapturedTextCount.Should().Be(0);
+    }
+
+    [Fact]
     public void Process_uses_custom_prompt_template_hash_in_cache_key()
     {
         var cache = new MemoryTranslationCache();
@@ -169,7 +187,7 @@ public sealed class TextPipelineTests
     }
 
     [Fact]
-    public void Process_uses_cached_translation_when_source_is_already_simplified_chinese_with_short_technical_token()
+    public void Process_ignores_already_simplified_chinese_source_with_short_technical_token()
     {
         var cache = new MemoryTranslationCache();
         var queue = new TranslationJobQueue();
@@ -181,8 +199,8 @@ public sealed class TextPipelineTests
 
         var decision = pipeline.Process(new CapturedText("ui-1", "\u753b\u8d28 FPS", isVisible: true, context));
 
-        decision.Kind.Should().Be(PipelineDecisionKind.UseCachedTranslation);
-        decision.TranslatedText.Should().Be("\u753b\u8d28 FPS");
+        decision.Kind.Should().Be(PipelineDecisionKind.Ignored);
+        decision.TranslatedText.Should().BeNull();
         queue.PendingCount.Should().Be(0);
     }
 

@@ -1472,6 +1472,32 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_status_page_prioritizes_self_check_issues_and_exposes_fold_controls()
+    {
+        var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        statusPageSource.Should().Contain("ChevronDown");
+        statusPageSource.Should().Contain("self-check-toggle-button");
+        statusPageSource.Should().Contain("self-check-panel-body");
+        statusPageSource.Should().Contain("selfCheckGroups = computed");
+        statusPageSource.Should().Contain(".sort(compareSelfCheckGroups)");
+        statusPageSource.Should().Contain(".sort(compareSelfCheckItems)");
+        statusPageSource.Should().Contain("function severitySortRank");
+        statusPageSource.Should().Contain("function requiresAttention");
+        statusPageSource.Should().Contain("项需处理");
+        statusPageSource.Should().Contain("self-check-group-icon");
+
+        CssBlock(cssSource, @"\.self-check-panel-body").Should().Contain("padding: 14px 16px 16px;").And.Contain("gap: 12px;");
+        CssBlock(cssSource, @"\.self-check-toggle-button").Should().Contain("display: inline-flex;");
+        CssBlock(cssSource, @"\.self-check-panel-collapsible:not\(\[open\]\) \.self-check-toggle-icon").Should().Contain("rotate(-90deg)");
+        CssBlock(cssSource, @"\.self-check-warn").Should().Contain("var(--self-check-warn)").And.Contain("box-shadow: inset 3px 0 0");
+        CssBlock(cssSource, @"\.self-check-danger").Should().Contain("var(--self-check-danger)").And.Contain("box-shadow: inset 3px 0 0");
+        CssBlock(cssSource, @"\.self-check-group-danger").Should().Contain("border-color");
+        CssBlock(cssSource, @"\.self-check-attention-count").Should().Contain("var(--self-check-warn)");
+    }
+
+    [Fact]
     public void Vue_and_cfg_describe_font_controls_as_font_replacement_without_overstatement()
     {
         var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
