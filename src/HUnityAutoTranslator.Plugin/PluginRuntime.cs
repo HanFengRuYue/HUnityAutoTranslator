@@ -37,6 +37,7 @@ internal sealed class PluginRuntime : IDisposable
     private RuntimeHotkeyController? _hotkeys;
     private LlamaCppServerManager? _llamaCppServer;
     private LlamaCppModelDownloadManager? _llamaCppModelDownloads;
+    private SelfCheckService? _selfCheck;
     private float _nextScanTime;
     private float _nextSkippedWritebackLogTime;
     private bool _openedControlPanel;
@@ -98,6 +99,19 @@ internal sealed class PluginRuntime : IDisposable
             _captureCoordinator.Start();
             _workerHost = new TranslationWorkerHost(_controlPanel, _queue, _dispatcher, _cache, _glossary, _metrics, _logger, _llamaCppServer);
             _workerHost.Start();
+            _selfCheck = new SelfCheckService(
+                _controlPanel,
+                _cache,
+                _glossary,
+                _queue,
+                _dispatcher,
+                _resultApplier,
+                _textureReplacement,
+                _llamaCppServer,
+                pluginDirectory,
+                dataDirectory,
+                () => _httpServer?.Url ?? string.Empty,
+                _logger);
             _httpServer = new LocalHttpServer(
                 _controlPanel,
                 _cache,
@@ -108,9 +122,11 @@ internal sealed class PluginRuntime : IDisposable
                 _textureReplacement,
                 _llamaCppServer,
                 _llamaCppModelDownloads,
+                _selfCheck,
                 dataDirectory,
                 _logger);
             _httpServer.Start(config.HttpHost, config.HttpPort);
+            _selfCheck.StartAutomaticAsync();
             _hotkeys = new RuntimeHotkeyController(_httpServer, _captureCoordinator, _resultApplier, _fontReplacement, _logger);
             StartLlamaCppIfConfigured();
             _logger.LogInfo($"{MyPluginInfo.PLUGIN_NAME} 已加载。控制面板：{_httpServer.Url}");
@@ -204,6 +220,7 @@ internal sealed class PluginRuntime : IDisposable
 
         var config = _controlPanel.GetConfig();
         _hotkeys?.Tick(config);
+        _selfCheck?.Tick();
         if (_captureCoordinator != null && Time.unscaledTime >= _nextScanTime)
         {
             _captureCoordinator.Tick();

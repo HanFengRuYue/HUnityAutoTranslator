@@ -6,6 +6,7 @@ import type {
   FontPickOptions,
   FontPickResult,
   PageKey,
+  SelfCheckReport,
   ThemeMode,
   ToastKind,
   UpdateConfigRequest
@@ -136,6 +137,42 @@ export async function refreshState(options: { quiet?: boolean } = {}): Promise<C
     return null;
   } finally {
     controlPanelStore.isRefreshing = false;
+  }
+}
+
+export async function getSelfCheck(): Promise<SelfCheckReport | null> {
+  try {
+    const report = await getJson<SelfCheckReport>("/api/self-check");
+    if (controlPanelStore.state) {
+      controlPanelStore.state.SelfCheck = report;
+    }
+
+    controlPanelStore.connection = "online";
+    return report;
+  } catch (error) {
+    markPanelDisconnected(error);
+    showToast(controlPanelStore.lastError ?? "读取本地自检结果失败", "error");
+    return null;
+  }
+}
+
+export async function runSelfCheck(): Promise<SelfCheckReport | null> {
+  try {
+    const report = await postJson<SelfCheckReport>("/api/self-check/run", {});
+    if (controlPanelStore.state) {
+      controlPanelStore.state.SelfCheck = report;
+    }
+
+    controlPanelStore.connection = "online";
+    showToast("本地自检已开始", "info", 2200);
+    window.setTimeout(() => {
+      void getSelfCheck();
+    }, 1800);
+    return report;
+  } catch (error) {
+    markPanelDisconnected(error);
+    showToast(controlPanelStore.lastError ?? "启动本地自检失败", "error");
+    return null;
   }
 }
 

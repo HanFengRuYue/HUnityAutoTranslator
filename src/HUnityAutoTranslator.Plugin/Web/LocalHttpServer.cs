@@ -32,6 +32,7 @@ internal sealed class LocalHttpServer : IDisposable
     private readonly UnityTextureReplacementService _textureReplacement;
     private readonly LlamaCppServerManager? _llamaCppServer;
     private readonly LlamaCppModelDownloadManager _llamaCppModelDownloads;
+    private readonly SelfCheckService _selfCheck;
     private readonly HttpClient _httpClient = new();
     private readonly ProviderUtilityClient _providerUtilityClient;
     private readonly ManualLogSource _logger;
@@ -51,6 +52,7 @@ internal sealed class LocalHttpServer : IDisposable
         UnityTextureReplacementService textureReplacement,
         LlamaCppServerManager? llamaCppServer,
         LlamaCppModelDownloadManager llamaCppModelDownloads,
+        SelfCheckService selfCheck,
         string dataDirectory,
         ManualLogSource logger)
     {
@@ -63,6 +65,7 @@ internal sealed class LocalHttpServer : IDisposable
         _textureReplacement = textureReplacement;
         _llamaCppServer = llamaCppServer;
         _llamaCppModelDownloads = llamaCppModelDownloads;
+        _selfCheck = selfCheck;
         _providerUtilityClient = new ProviderUtilityClient(_httpClient, _controlPanel.GetApiKey);
         _logger = logger;
         _dataDirectory = dataDirectory;
@@ -162,6 +165,14 @@ internal sealed class LocalHttpServer : IDisposable
             else if (context.Request.HttpMethod == "POST" && path == "/api/texture-image/test")
             {
                 await WriteJsonAsync(context.Response, await TestTextureImageConnectionAsync().ConfigureAwait(false)).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "GET" && path == "/api/self-check")
+            {
+                await WriteJsonAsync(context.Response, _selfCheck.GetLatestReport()).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/self-check/run")
+            {
+                await WriteJsonAsync(context.Response, _selfCheck.StartManualAsync()).ConfigureAwait(false);
             }
             else if (path.StartsWith("/api/texture-image-profiles", StringComparison.Ordinal))
             {
@@ -586,7 +597,7 @@ internal sealed class LocalHttpServer : IDisposable
             _controlPanel.SetLlamaCppStatus(_llamaCppServer.GetStatus(_controlPanel.GetConfig()));
         }
 
-        await WriteJsonAsync(response, _controlPanel.GetState(_queue.PendingCount, _cache.Count, _dispatcher.PendingCount)).ConfigureAwait(false);
+        await WriteJsonAsync(response, _controlPanel.GetState(_queue.PendingCount, _cache.Count, _dispatcher.PendingCount, _selfCheck.GetLatestReport())).ConfigureAwait(false);
     }
 
     private async Task HandleTextureImageProviderProfilesAsync(HttpListenerContext context, string path)

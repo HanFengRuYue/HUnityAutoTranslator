@@ -14,6 +14,35 @@ export type ThemeMode = "system" | "light" | "dark";
 export type ConnectionState = "connecting" | "online" | "offline";
 export type ToastKind = "ok" | "warn" | "error" | "info";
 export type FontPickStatus = "selected" | "cancelled" | "unsupported" | "error";
+export type SelfCheckSeverity = "Ok" | "Info" | "Warning" | "Error" | "Skipped" | number;
+export type SelfCheckRunState = "NotStarted" | "Running" | "Completed" | "Failed" | number;
+
+export interface SelfCheckItem {
+  Id: string;
+  Category: string;
+  Name: string;
+  Severity: SelfCheckSeverity;
+  Summary: string;
+  Evidence: string;
+  Recommendation: string;
+  DurationMilliseconds: number;
+}
+
+export interface SelfCheckReport {
+  State: SelfCheckRunState;
+  Severity: SelfCheckSeverity;
+  StartedUtc: string | null;
+  CompletedUtc: string | null;
+  DurationMilliseconds: number;
+  ItemCount: number;
+  OkCount: number;
+  InfoCount: number;
+  WarningCount: number;
+  ErrorCount: number;
+  SkippedCount: number;
+  Items: SelfCheckItem[];
+  Message: string;
+}
 
 export interface ProviderStatus {
   State: string;
@@ -359,6 +388,7 @@ export interface ControlPanelState {
   ActiveTextureImageProviderProfileId: string | null;
   ActiveTextureImageProviderProfileName: string | null;
   ActiveTextureImageProviderProfileModel: string | null;
+  SelfCheck: SelfCheckReport | null;
 }
 
 export interface UpdateConfigRequest {

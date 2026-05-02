@@ -93,4 +93,5 @@ public sealed record ControlPanelState(
     IReadOnlyList<TextureImageProviderProfileState>? TextureImageProviderProfiles = null,
     string? ActiveTextureImageProviderProfileId = null,
     string? ActiveTextureImageProviderProfileName = null,
-    string? ActiveTextureImageProviderProfileModel = null);
+    string? ActiveTextureImageProviderProfileModel = null,
+    SelfCheckReport? SelfCheck = null);

@@ -82,7 +82,11 @@ public sealed class ControlPanelService
         return service;
     }
 
-    public ControlPanelState GetState(int queueCount = 0, int cacheCount = 0, int writebackQueueCount = 0)
+    public ControlPanelState GetState(
+        int queueCount = 0,
+        int cacheCount = 0,
+        int writebackQueueCount = 0,
+        SelfCheckReport? selfCheck = null)
     {
         lock (_gate)
         {
@@ -182,7 +186,8 @@ public sealed class ControlPanelService
                 textureProfiles,
                 activeTextureProfile?.Id,
                 activeTextureProfile?.Name,
-                activeTextureProfile?.ImageModel);
+                activeTextureProfile?.ImageModel,
+                selfCheck);
         }
     }
 

@@ -1452,6 +1452,34 @@ public sealed class ControlPanelVueSourceTests
         CssBlock(cssSource, @"\.texture-summary").Should().Contain("margin-bottom: 0;");
     }
 
+    [Fact]
+    public void Vue_status_page_exposes_local_self_check_results_and_runner()
+    {
+        var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));
+        var storeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "state", "controlPanelStore.ts"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        apiTypesSource.Should().Contain("export type SelfCheckSeverity");
+        apiTypesSource.Should().Contain("export type SelfCheckRunState");
+        apiTypesSource.Should().Contain("export interface SelfCheckItem");
+        apiTypesSource.Should().Contain("export interface SelfCheckReport");
+        apiTypesSource.Should().Contain("SelfCheck: SelfCheckReport | null;");
+        storeSource.Should().Contain("export async function runSelfCheck");
+        storeSource.Should().Contain("/api/self-check/run");
+        storeSource.Should().Contain("/api/self-check");
+        statusPageSource.Should().Contain("本地自检");
+        statusPageSource.Should().Contain("selfCheckReport");
+        statusPageSource.Should().Contain("runSelfCheck");
+        statusPageSource.Should().Contain("ErrorCount");
+        statusPageSource.Should().Contain("WarningCount");
+        statusPageSource.Should().Contain("SkippedCount");
+        statusPageSource.Should().Contain("class=\"self-check-list\"");
+        CssBlock(cssSource, @"\.self-check-panel").Should().Contain("display: grid;");
+        cssSource.Should().Contain(".self-check-list");
+        cssSource.Should().Contain(".self-check-item");
+    }
+
     private static string FindRepositoryFile(params string[] relativeSegments)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
