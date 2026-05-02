@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Runtime.CompilerServices;
 using System.Reflection;
 using BepInEx.Logging;
 using HUnityAutoTranslator.Core.Caching;
@@ -122,7 +123,7 @@ internal sealed class UnityTextFontReplacementService
         }
     }
 
-    public void ApplyToUgui(UnityEngine.Object component, TranslationCacheKey key, TranslationCacheContext context)
+    public void ApplyToUgui(UnityEngine.Object component, TranslationCacheKey key, TranslationCacheContext context, string translatedText)
     {
         var config = _configProvider();
         ReportAutomaticFontFallbacks(config);
@@ -137,7 +138,14 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
-        var resolved = ResolveUnityTextFont(config, key, context);
+        if (OriginalUguiFontCanRenderText(component, translatedText))
+        {
+            RestoreUgui(component);
+            return;
+        }
+
+        var samplingPointSize = ResolveComponentFontSamplingPointSize(component, config);
+        var resolved = ResolveUnityTextFont(config, key, context, samplingPointSize);
         if (resolved?.Font == null)
         {
             return;
@@ -157,7 +165,7 @@ internal sealed class UnityTextFontReplacementService
         ForgetFontTarget(component, _uguiFontTargets, _uguiOriginalFonts, _uguiReplacementFonts);
     }
 
-    public void ApplyToTmp(UnityEngine.Object component, TranslationCacheKey key, TranslationCacheContext context)
+    public void ApplyToTmp(UnityEngine.Object component, TranslationCacheKey key, TranslationCacheContext context, string translatedText)
     {
         var config = _configProvider();
         ReportAutomaticFontFallbacks(config);
@@ -172,12 +180,20 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
-        var fontAsset = ResolveTmpFontAsset(config, key, context, out _);
+        if (OriginalTmpFontCanRenderText(component, translatedText))
+        {
+            RestoreTmp(component);
+            return;
+        }
+
+        var samplingPointSize = ResolveComponentFontSamplingPointSize(component, config);
+        var fontAsset = ResolveTmpFontAsset(config, key, context, samplingPointSize, out _);
         if (fontAsset == null)
         {
             return;
         }
 
+        PopulateTmpFontAsset(fontAsset, translatedText);
         var componentFallbackInstalled = AddTmpFallbackToComponentFont(component, fontAsset);
         var globalFallbackInstalled = AddTmpFallback(fontAsset);
         if (componentFallbackInstalled)
@@ -639,10 +655,316 @@ internal sealed class UnityTextFontReplacementService
         }
     }
 
+    private bool OriginalUguiFontCanRenderText(UnityEngine.Object component, string translatedText)
+    {
+        if (BuildFontProbeText(translatedText).Length == 0)
+        {
+            return true;
+        }
+
+        var originalFont = _uguiOriginalFonts.TryGetValue(component.GetInstanceID(), out var rememberedFont)
+            ? rememberedFont
+            : GetProperty(component, "font");
+        return originalFont is Font font &&
+            UnityFontCanRenderText(font, translatedText, ResolveComponentFontSamplingPointSize(component, _configProvider()));
+    }
+
+    private bool OriginalTmpFontCanRenderText(UnityEngine.Object component, string translatedText)
+    {
+        return TmpFontAssetCanRenderText(ResolveOriginalTmpFontAsset(component), translatedText);
+    }
+
+    private object? ResolveOriginalTmpFontAsset(UnityEngine.Object component)
+    {
+        if (_tmpOriginalFonts.TryGetValue(component.GetInstanceID(), out var rememberedFont))
+        {
+            return rememberedFont;
+        }
+
+        return GetCurrentTmpFontAsset(component);
+    }
+
+    private static object? GetCurrentTmpFontAsset(object component)
+    {
+        return GetProperty(component, "font") ??
+            GetProperty(component, "fontAsset") ??
+            GetField(component, "m_fontAsset") ??
+            GetField(component, "m_currentFontAsset");
+    }
+
+    private static int ResolveComponentFontSamplingPointSize(UnityEngine.Object component, RuntimeConfig config)
+    {
+        var configuredSize = Math.Max(1, config.FontSamplingPointSize);
+        var componentSize = ResolveComponentFontSize(component);
+        return componentSize > 0
+            ? Math.Max(configuredSize, (int)Math.Ceiling(componentSize))
+            : configuredSize;
+    }
+
+    private static float ResolveComponentFontSize(UnityEngine.Object component)
+    {
+        var value = GetProperty(component, "fontSize") ?? GetField(component, "m_fontSize");
+        return value switch
+        {
+            int intValue => intValue,
+            float floatValue => floatValue,
+            double doubleValue => (float)doubleValue,
+            _ => 0
+        };
+    }
+
+    private static bool UnityFontCanRenderText(Font? font, string text, int fontSize)
+    {
+        var probeText = BuildFontProbeText(text);
+        if (probeText.Length == 0)
+        {
+            return true;
+        }
+
+        if (font == null)
+        {
+            return false;
+        }
+
+        TryRequestCharacters(font, probeText, Math.Max(1, fontSize));
+        foreach (var character in probeText)
+        {
+            try
+            {
+                if (!font.HasCharacter(character))
+                {
+                    return false;
+                }
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static string BuildFontProbeText(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return string.Empty;
+        }
+
+        var characters = new List<char>();
+        foreach (var character in text)
+        {
+            if (character <= 0x7f ||
+                char.IsControl(character) ||
+                char.IsWhiteSpace(character) ||
+                char.IsSurrogate(character) ||
+                characters.Contains(character))
+            {
+                continue;
+            }
+
+            characters.Add(character);
+        }
+
+        return characters.Count == 0 ? string.Empty : new string(characters.ToArray());
+    }
+
+    private static bool TmpFontAssetCanRenderText(object? fontAsset, string text, bool includeFallbacks = true)
+    {
+        var probeText = BuildFontProbeText(text);
+        if (probeText.Length == 0)
+        {
+            return true;
+        }
+
+        if (fontAsset == null)
+        {
+            return false;
+        }
+
+        foreach (var character in probeText)
+        {
+            if (!TmpFontAssetCanRenderCharacter(fontAsset, character, includeFallbacks, new HashSet<int>()))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static bool TmpFontAssetCanRenderCharacter(
+        object fontAsset,
+        char character,
+        bool includeFallbacks,
+        HashSet<int> visited)
+    {
+        var assetId = fontAsset is UnityEngine.Object unityObject
+            ? unityObject.GetInstanceID()
+            : RuntimeHelpers.GetHashCode(fontAsset);
+        if (!visited.Add(assetId))
+        {
+            return false;
+        }
+
+        if (TryTmpFontAssetHasCharacter(fontAsset, character, includeFallbacks, out var hasCharacter) && hasCharacter)
+        {
+            return true;
+        }
+
+        if (!includeFallbacks)
+        {
+            return false;
+        }
+
+        foreach (var fallback in EnumerateTmpFallbacks(fontAsset).Concat(EnumerateGlobalTmpFallbacks()))
+        {
+            if (fallback != null && TmpFontAssetCanRenderCharacter(fallback, character, includeFallbacks: true, visited))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private static bool TryTmpFontAssetHasCharacter(
+        object fontAsset,
+        char character,
+        bool includeFallbacks,
+        out bool hasCharacter)
+    {
+        hasCharacter = false;
+        var methods = fontAsset
+            .GetType()
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(method => method.Name == "HasCharacter" && method.ReturnType == typeof(bool))
+            .OrderByDescending(method => method.GetParameters().Length);
+        foreach (var method in methods)
+        {
+            var arguments = BuildTmpHasCharacterArguments(method, character, includeFallbacks);
+            if (arguments == null)
+            {
+                continue;
+            }
+
+            try
+            {
+                if (method.Invoke(fontAsset, arguments) is bool result)
+                {
+                    hasCharacter = result;
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        return false;
+    }
+
+    private static object?[]? BuildTmpHasCharacterArguments(MethodInfo method, char character, bool includeFallbacks)
+    {
+        var parameters = method.GetParameters();
+        if (parameters.Length == 0)
+        {
+            return null;
+        }
+
+        var arguments = new object?[parameters.Length];
+        for (var i = 0; i < parameters.Length; i++)
+        {
+            var parameter = parameters[i];
+            if (i == 0)
+            {
+                if (parameter.ParameterType == typeof(char))
+                {
+                    arguments[i] = character;
+                }
+                else if (parameter.ParameterType == typeof(int))
+                {
+                    arguments[i] = (int)character;
+                }
+                else if (parameter.ParameterType == typeof(uint))
+                {
+                    arguments[i] = (uint)character;
+                }
+                else if (parameter.ParameterType == typeof(string))
+                {
+                    arguments[i] = character.ToString();
+                }
+                else
+                {
+                    return null;
+                }
+
+                continue;
+            }
+
+            if (parameter.ParameterType == typeof(bool))
+            {
+                arguments[i] = includeFallbacks;
+                continue;
+            }
+
+            if (parameter.HasDefaultValue)
+            {
+                arguments[i] = parameter.DefaultValue;
+                continue;
+            }
+
+            arguments[i] = parameter.ParameterType.IsValueType
+                ? Activator.CreateInstance(parameter.ParameterType)
+                : null;
+        }
+
+        return arguments;
+    }
+
+    private static IEnumerable<object?> EnumerateTmpFallbacks(object fontAsset)
+    {
+        var fallbackTable =
+            GetProperty(fontAsset, "fallbackFontAssetTable") ??
+            GetField(fontAsset, "m_FallbackFontAssetTable");
+        return EnumerateCollectionItems(fallbackTable);
+    }
+
+    private static IEnumerable<object?> EnumerateGlobalTmpFallbacks()
+    {
+        var settingsType = ResolveType(TmpSettingsTypeNames);
+        var fallbackProperty = settingsType?.GetProperty("fallbackFontAssets", BindingFlags.Public | BindingFlags.Static);
+        return EnumerateCollectionItems(fallbackProperty?.GetValue(null, null));
+    }
+
+    private static IEnumerable<object?> EnumerateCollectionItems(object? collection)
+    {
+        if (collection is not IEnumerable enumerable)
+        {
+            yield break;
+        }
+
+        foreach (var item in enumerable)
+        {
+            yield return item;
+        }
+    }
+
     private object? ResolveTmpFontAsset(
         RuntimeConfig config,
         TranslationCacheKey? key,
         TranslationCacheContext? context,
+        out ResolvedFont? resolvedFont)
+    {
+        return ResolveTmpFontAsset(config, key, context, config.FontSamplingPointSize, out resolvedFont);
+    }
+
+    private object? ResolveTmpFontAsset(
+        RuntimeConfig config,
+        TranslationCacheKey? key,
+        TranslationCacheContext? context,
+        int samplingPointSize,
         out ResolvedFont? resolvedFont)
     {
         resolvedFont = null;
@@ -657,14 +979,14 @@ internal sealed class UnityTextFontReplacementService
         string? lastError = null;
         foreach (var candidate in EnumerateTmpFontCandidates(config, key, context))
         {
-            var resolved = ResolveExplicitFont(candidate, config.FontSamplingPointSize);
+            var resolved = ResolveExplicitFont(candidate, samplingPointSize);
             if (resolved == null)
             {
                 continue;
             }
 
             attemptedCandidates.Add(resolved.DisplayName);
-            var cacheKey = $"{resolved.CacheKey}:tmp:{config.FontSamplingPointSize}";
+            var cacheKey = $"{resolved.CacheKey}:tmp:{samplingPointSize}";
             if (_tmpFontAssets.TryGetValue(cacheKey, out var cached))
             {
                 resolvedFont = resolved;
@@ -677,7 +999,7 @@ internal sealed class UnityTextFontReplacementService
                 continue;
             }
 
-            var fontAsset = CreateTmpFontAsset(fontAssetType, resolved.Font, config.FontSamplingPointSize, out var createError);
+            var fontAsset = CreateTmpFontAsset(fontAssetType, resolved.Font, samplingPointSize, out var createError);
             if (fontAsset == null)
             {
                 lastError = createError ?? "none";
@@ -1062,7 +1384,7 @@ internal sealed class UnityTextFontReplacementService
 
     private static bool AddTmpFallbackToComponentFont(object component, object fontAsset)
     {
-        var currentFontAsset = GetProperty(component, "font");
+        var currentFontAsset = GetCurrentTmpFontAsset(component);
         if (currentFontAsset == null || ReferenceEquals(currentFontAsset, fontAsset))
         {
             return false;
@@ -1073,9 +1395,7 @@ internal sealed class UnityTextFontReplacementService
 
     private static bool AddTmpFallbackToFontAsset(object targetFontAsset, object fallbackFontAsset)
     {
-        var fallbackTable =
-            GetProperty(targetFontAsset, "fallbackFontAssetTable") ??
-            GetField(targetFontAsset, "m_FallbackFontAssetTable");
+        var fallbackTable = EnsureTmpFallbackTable(targetFontAsset);
         if (fallbackTable == null)
         {
             return false;
@@ -1087,6 +1407,53 @@ internal sealed class UnityTextFontReplacementService
         }
 
         return CollectionAdd(fallbackTable, fallbackFontAsset);
+    }
+
+    private static object? EnsureTmpFallbackTable(object targetFontAsset)
+    {
+        var fallbackTable =
+            GetProperty(targetFontAsset, "fallbackFontAssetTable") ??
+            GetField(targetFontAsset, "m_FallbackFontAssetTable");
+        if (fallbackTable != null)
+        {
+            return fallbackTable;
+        }
+
+        var createdTable = CreateTmpFallbackTable(targetFontAsset);
+        if (createdTable == null)
+        {
+            return null;
+        }
+
+        var propertyChanged = SetProperty(targetFontAsset, "fallbackFontAssetTable", createdTable);
+        var fieldChanged = SetField(targetFontAsset, "m_FallbackFontAssetTable", createdTable);
+        return propertyChanged || fieldChanged ? createdTable : null;
+    }
+
+    private static object? CreateTmpFallbackTable(object targetFontAsset)
+    {
+        var tableType =
+            targetFontAsset.GetType().GetProperty("fallbackFontAssetTable", BindingFlags.Public | BindingFlags.Instance)?.PropertyType ??
+            targetFontAsset.GetType().GetField("m_FallbackFontAssetTable", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)?.FieldType;
+        if (tableType != null && !tableType.IsInterface && !tableType.IsAbstract)
+        {
+            try
+            {
+                return Activator.CreateInstance(tableType);
+            }
+            catch
+            {
+            }
+        }
+
+        try
+        {
+            return Activator.CreateInstance(typeof(List<>).MakeGenericType(targetFontAsset.GetType()));
+        }
+        catch
+        {
+            return null;
+        }
     }
 
     private static Type? ResolveType(IEnumerable<string> typeNames)
@@ -1318,6 +1685,16 @@ internal sealed class UnityTextFontReplacementService
     private static void PopulateTmpFontAsset(object fontAsset, object component)
     {
         if (GetProperty(component, "text") is not string text || string.IsNullOrEmpty(text))
+        {
+            return;
+        }
+
+        PopulateTmpFontAsset(fontAsset, text);
+    }
+
+    private static void PopulateTmpFontAsset(object fontAsset, string? text)
+    {
+        if (string.IsNullOrEmpty(text))
         {
             return;
         }

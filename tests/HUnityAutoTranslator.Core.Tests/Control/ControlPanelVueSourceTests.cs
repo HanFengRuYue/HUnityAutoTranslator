@@ -1452,6 +1452,20 @@ public sealed class ControlPanelVueSourceTests
         CssBlock(cssSource, @"\.texture-summary").Should().Contain("margin-bottom: 0;");
     }
 
+    [Fact]
+    public void Vue_and_cfg_describe_font_controls_as_on_demand_assistance()
+    {
+        var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
+        var cfgSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Core", "Control", "CfgControlPanelSettingsStore.cs"));
+
+        pluginPageSource.Should().Contain("按需字体辅助");
+        pluginPageSource.Should().Contain("优先保留原字体，只有缺字时才启用替换或 fallback。");
+        pluginPageSource.Should().NotContain("开启后插件会尝试把文本组件换成能显示中文的字体。");
+        pluginPageSource.Should().NotContain(">启用字体替换</label>");
+        cfgSource.Should().Contain("是否启用按需字体辅助。");
+        cfgSource.Should().Contain("优先保留原字体，只有缺字时才使用替换字体或 TMP fallback。");
+    }
+
     private static string FindRepositoryFile(params string[] relativeSegments)
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);
