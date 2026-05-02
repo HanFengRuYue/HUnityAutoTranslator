@@ -12,6 +12,7 @@ internal sealed class RuntimeHotkeyController
     private readonly UnityMainThreadResultApplier _resultApplier;
     private readonly UnityTextFontReplacementService _fontReplacement;
     private readonly ManualLogSource _logger;
+    private readonly Action<Action> _textWriteScope;
     private bool _useTranslatedText = true;
     private bool _useReplacementFonts = true;
 
@@ -20,13 +21,15 @@ internal sealed class RuntimeHotkeyController
         TextCaptureCoordinator captureCoordinator,
         UnityMainThreadResultApplier resultApplier,
         UnityTextFontReplacementService fontReplacement,
-        ManualLogSource logger)
+        ManualLogSource logger,
+        Action<Action>? textWriteScope = null)
     {
         _httpServer = httpServer;
         _captureCoordinator = captureCoordinator;
         _resultApplier = resultApplier;
         _fontReplacement = fontReplacement;
         _logger = logger;
+        _textWriteScope = textWriteScope ?? RunUnsuppressed;
     }
 
     public void Tick(RuntimeConfig config)
@@ -57,7 +60,8 @@ internal sealed class RuntimeHotkeyController
     private void ToggleTranslatedTextMode()
     {
         _useTranslatedText = !_useTranslatedText;
-        var changed = _resultApplier.SetTranslatedTextMode(_useTranslatedText, int.MaxValue);
+        var changed = 0;
+        _textWriteScope(() => changed = _resultApplier.SetTranslatedTextMode(_useTranslatedText, int.MaxValue));
         _logger.LogInfo(_useTranslatedText
             ? $"热键已切换为显示翻译文本（已更新 {changed} 个目标）。"
             : $"热键已切换为显示原文（已更新 {changed} 个目标）。");
@@ -66,7 +70,8 @@ internal sealed class RuntimeHotkeyController
     private void ForceScanAndUpdate()
     {
         _captureCoordinator.Tick(forceFullScan: true);
-        var changed = _resultApplier.ReapplyRemembered(int.MaxValue);
+        var changed = 0;
+        _textWriteScope(() => changed = _resultApplier.ReapplyRemembered(int.MaxValue));
         _logger.LogInfo($"热键已执行全量文本扫描，并刷新 {changed} 个已记住的目标。");
     }
 
@@ -82,5 +87,10 @@ internal sealed class RuntimeHotkeyController
     private static bool IsPressed(string binding)
     {
         return RuntimeHotkey.TryParse(binding, out var hotkey) && hotkey.IsPressed();
+    }
+
+    private static void RunUnsuppressed(Action action)
+    {
+        action();
     }
 }

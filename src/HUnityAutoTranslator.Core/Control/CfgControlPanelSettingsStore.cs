@@ -250,7 +250,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "在线服务商同时进行的翻译请求数量。llama.cpp 使用 ParallelSlots。", "4", "范围：1 到 100。", "MaxConcurrentRequests", Int(config.MaxConcurrentRequests ?? defaults.MaxConcurrentRequests));
         Option(builder, "每分钟最多发送多少次请求。", "60", "范围：1 到 600。", "RequestsPerMinute", Int(config.RequestsPerMinute ?? defaults.RequestsPerMinute));
         Option(builder, "单批次最多包含多少字符。", "1800", "范围：256 到 8000。", "MaxBatchCharacters", Int(config.MaxBatchCharacters ?? defaults.MaxBatchCharacters));
-        Option(builder, "扫描画面文字的间隔，单位毫秒。", "750", "范围：100 到 5000。", "ScanIntervalMilliseconds", Int(config.ScanIntervalMilliseconds ?? (int)defaults.ScanInterval.TotalMilliseconds));
+        Option(builder, "扫描画面文字的间隔，单位毫秒。", "100", "范围：100 到 5000。", "ScanIntervalMilliseconds", Int(config.ScanIntervalMilliseconds ?? (int)defaults.ScanInterval.TotalMilliseconds));
         Option(builder, "每次扫描最多处理多少个文字目标。", "256", "范围：1 到 4096。", "MaxScanTargetsPerTick", Int(config.MaxScanTargetsPerTick ?? defaults.MaxScanTargetsPerTick));
         Option(builder, "每帧最多写回多少条翻译。", "32", "范围：1 到 512。", "MaxWritebacksPerFrame", Int(config.MaxWritebacksPerFrame ?? defaults.MaxWritebacksPerFrame));
         Option(builder, "单条源文本最大长度，超过会跳过。", "2000", "范围：20 到 10000。", "MaxSourceTextLength", Int(config.MaxSourceTextLength ?? defaults.MaxSourceTextLength));

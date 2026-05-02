@@ -9,6 +9,7 @@ namespace HUnityAutoTranslator.Core.Caching;
 public sealed class SqliteTranslationCache : ITranslationCache, IDisposable
 {
     private const int SchemaVersion = 5;
+    private const int MaxReadCacheEntries = 4096;
     private static int s_sqliteInitialized;
     private static readonly Dictionary<string, string> SortColumns = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -41,6 +42,10 @@ public sealed class SqliteTranslationCache : ITranslationCache, IDisposable
 
     private readonly string _filePath;
     private readonly string _connectionString;
+    private readonly object _readCacheGate = new();
+    private readonly Dictionary<TranslationLookupReadCacheKey, string?> _translationLookupCache = new();
+    private readonly Dictionary<ReplacementFontReadCacheKey, string?> _replacementFontLookupCache = new();
+    private readonly Dictionary<CompletedBySourceReadCacheKey, IReadOnlyList<TranslationCacheEntry>> _completedBySourceCache = new();
     private bool _disposed;
 
     public SqliteTranslationCache(string filePath)
@@ -70,6 +75,16 @@ public sealed class SqliteTranslationCache : ITranslationCache, IDisposable
     public bool TryGet(TranslationCacheKey key, TranslationCacheContext? context, out string translatedText)
     {
         context ??= TranslationCacheContext.Empty;
+        var cacheKey = TranslationLookupReadCacheKey.Create(key, context);
+        lock (_readCacheGate)
+        {
+            if (_translationLookupCache.TryGetValue(cacheKey, out var cached))
+            {
+                translatedText = cached ?? string.Empty;
+                return cached != null;
+            }
+        }
+
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -87,16 +102,28 @@ WHERE source_text = $source_text
         var result = command.ExecuteScalar();
         if (result is string value)
         {
+            CacheTranslationLookup(cacheKey, value);
             translatedText = value;
             return true;
         }
 
+        CacheTranslationLookup(cacheKey, null);
         translatedText = string.Empty;
         return false;
     }
 
     public bool TryGetReplacementFont(TranslationCacheKey key, TranslationCacheContext context, out string replacementFont)
     {
+        var cacheKey = ReplacementFontReadCacheKey.Create(key, context);
+        lock (_readCacheGate)
+        {
+            if (_replacementFontLookupCache.TryGetValue(cacheKey, out var cached))
+            {
+                replacementFont = cached ?? string.Empty;
+                return cached != null;
+            }
+        }
+
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -116,10 +143,12 @@ WHERE source_text = $source_text
         var result = command.ExecuteScalar();
         if (result is string value)
         {
+            CacheReplacementFontLookup(cacheKey, value);
             replacementFont = value;
             return true;
         }
 
+        CacheReplacementFontLookup(cacheKey, null);
         replacementFont = string.Empty;
         return false;
     }
@@ -129,6 +158,15 @@ WHERE source_text = $source_text
         int limit)
     {
         var take = Math.Min(500, Math.Max(1, limit));
+        var cacheKey = CompletedBySourceReadCacheKey.Create(key, take);
+        lock (_readCacheGate)
+        {
+            if (_completedBySourceCache.TryGetValue(cacheKey, out var cached))
+            {
+                return cached;
+            }
+        }
+
         using var connection = OpenConnection();
         using var command = connection.CreateCommand();
         command.CommandText = """
@@ -167,7 +205,9 @@ LIMIT $limit;
             rows.Add(ReadEntry(reader));
         }
 
-        return rows;
+        var result = rows.ToArray();
+        CacheCompletedBySource(cacheKey, result);
+        return result;
     }
 
     public void RecordCaptured(TranslationCacheKey key, TranslationCacheContext? context = null)
@@ -294,6 +334,7 @@ DO UPDATE SET
         command.Parameters.AddWithValue("$component_type", ToDbValue(context.ComponentType));
         command.Parameters.AddWithValue("$now_utc", nowUtc);
         command.ExecuteNonQuery();
+        InvalidateReadCaches();
     }
 
     public IReadOnlyList<TranslationCacheEntry> GetPendingTranslations(
@@ -589,6 +630,7 @@ DO UPDATE SET
 """;
         AddEntryParameters(command, entry, created, now);
         command.ExecuteNonQuery();
+        InvalidateReadCaches();
     }
 
     public void Delete(TranslationCacheEntry entry)
@@ -604,6 +646,7 @@ WHERE source_text = $source_text
 """;
         AddEntryKeyParameters(command, entry);
         command.ExecuteNonQuery();
+        InvalidateReadCaches();
     }
 
     public string Export(string format)
@@ -701,7 +744,7 @@ WHERE source_text = $source_text
     {
         using var command = connection.CreateCommand();
         command.CommandText = $"""
-CREATE INDEX IF NOT EXISTS ix_translations_updated_utc ON translations (updated_utc);
+{CurrentIndexesSql()}
 PRAGMA user_version={SchemaVersion};
 """;
         command.ExecuteNonQuery();
@@ -779,7 +822,7 @@ SELECT
     updated_utc
 FROM translations_old;
 DROP TABLE translations_old;
-CREATE INDEX IF NOT EXISTS ix_translations_updated_utc ON translations (updated_utc);
+{CurrentIndexesSql()}
 PRAGMA user_version={SchemaVersion};
 COMMIT;
 """;
@@ -810,9 +853,67 @@ CREATE TABLE IF NOT EXISTS translations (
         scene_name,
         component_hierarchy)
 );
-CREATE INDEX IF NOT EXISTS ix_translations_updated_utc ON translations (updated_utc);
+{CurrentIndexesSql()}
 PRAGMA user_version={SchemaVersion};
 """;
+    }
+
+    private static string CurrentIndexesSql()
+    {
+        return """
+CREATE INDEX IF NOT EXISTS ix_translations_updated_utc ON translations (updated_utc);
+CREATE INDEX IF NOT EXISTS ix_translations_source_policy_updated ON translations (source_text, target_language, prompt_policy_version, updated_utc);
+CREATE INDEX IF NOT EXISTS ix_translations_pending_resume ON translations (target_language, prompt_policy_version, translated_text, created_utc);
+CREATE INDEX IF NOT EXISTS ix_translations_context_examples ON translations (target_language, scene_name, component_hierarchy, translated_text, updated_utc);
+""";
+    }
+
+    private void CacheTranslationLookup(TranslationLookupReadCacheKey key, string? value)
+    {
+        lock (_readCacheGate)
+        {
+            TrimCacheIfNeeded(_translationLookupCache);
+            _translationLookupCache[key] = value;
+        }
+    }
+
+    private void CacheReplacementFontLookup(ReplacementFontReadCacheKey key, string? value)
+    {
+        lock (_readCacheGate)
+        {
+            TrimCacheIfNeeded(_replacementFontLookupCache);
+            _replacementFontLookupCache[key] = value;
+        }
+    }
+
+    private void CacheCompletedBySource(CompletedBySourceReadCacheKey key, IReadOnlyList<TranslationCacheEntry> value)
+    {
+        lock (_readCacheGate)
+        {
+            TrimCacheIfNeeded(_completedBySourceCache);
+            _completedBySourceCache[key] = value;
+        }
+    }
+
+    private void InvalidateReadCaches()
+    {
+        lock (_readCacheGate)
+        {
+            _translationLookupCache.Clear();
+            _replacementFontLookupCache.Clear();
+            _completedBySourceCache.Clear();
+        }
+    }
+
+    private static void TrimCacheIfNeeded<TKey, TValue>(Dictionary<TKey, TValue> cache)
+        where TKey : notnull
+    {
+        if (cache.Count < MaxReadCacheEntries)
+        {
+            return;
+        }
+
+        cache.Clear();
     }
 
     private static bool TableExists(SqliteConnection connection, string tableName)
@@ -1089,6 +1190,58 @@ PRAGMA user_version={SchemaVersion};
     private static object ToDbValue(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? DBNull.Value : value.Trim();
+    }
+
+    private sealed record TranslationLookupReadCacheKey(
+        string SourceText,
+        string TargetLanguage,
+        string PromptPolicyVersion,
+        string SceneName,
+        string ComponentHierarchy)
+    {
+        public static TranslationLookupReadCacheKey Create(TranslationCacheKey key, TranslationCacheContext context)
+        {
+            return new TranslationLookupReadCacheKey(
+                key.SourceText,
+                key.TargetLanguage,
+                key.PromptPolicyVersion,
+                TranslationCacheLookupKey.NormalizeContextPart(context.SceneName),
+                TranslationCacheLookupKey.NormalizeContextPart(context.ComponentHierarchy));
+        }
+    }
+
+    private sealed record ReplacementFontReadCacheKey(
+        string SourceText,
+        string TargetLanguage,
+        string SceneName,
+        string ComponentHierarchy,
+        string ComponentType)
+    {
+        public static ReplacementFontReadCacheKey Create(TranslationCacheKey key, TranslationCacheContext context)
+        {
+            return new ReplacementFontReadCacheKey(
+                key.SourceText,
+                key.TargetLanguage,
+                TranslationCacheLookupKey.NormalizeContextPart(context.SceneName),
+                TranslationCacheLookupKey.NormalizeContextPart(context.ComponentHierarchy),
+                context.ComponentType?.Trim() ?? string.Empty);
+        }
+    }
+
+    private sealed record CompletedBySourceReadCacheKey(
+        string SourceText,
+        string TargetLanguage,
+        string PromptPolicyVersion,
+        int Limit)
+    {
+        public static CompletedBySourceReadCacheKey Create(TranslationCacheKey key, int limit)
+        {
+            return new CompletedBySourceReadCacheKey(
+                key.SourceText,
+                key.TargetLanguage,
+                key.PromptPolicyVersion,
+                limit);
+        }
     }
 
     private static void EnsureSqliteInitialized()

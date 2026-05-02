@@ -271,6 +271,86 @@ public sealed class TranslationCacheTests
     }
 
     [Fact]
+    public void SqliteCache_installs_low_latency_lookup_indexes()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        using var cache = new SqliteTranslationCache(path);
+        using var connection = new SqliteConnection($"Data Source={path}");
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'ix_translations_%';";
+
+        var indexes = new List<string>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            indexes.Add(reader.GetString(0));
+        }
+
+        indexes.Should().Contain(new[]
+        {
+            "ix_translations_updated_utc",
+            "ix_translations_source_policy_updated",
+            "ix_translations_pending_resume",
+            "ix_translations_context_examples"
+        });
+    }
+
+    [Fact]
+    public void SqliteCache_invalidates_read_caches_after_mutations()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        using var cache = new SqliteTranslationCache(path);
+        var key = TranslationCacheKey.Create("Fast Cache", "zh-Hans", ProviderProfile.DefaultOpenAi(), "prompt-v1");
+        var context = new TranslationCacheContext("Menu", "Canvas/Fast", "Text");
+
+        cache.TryGet(key, context, out _).Should().BeFalse();
+        cache.Set(key, "first", context);
+        cache.TryGet(key, context, out var translated).Should().BeTrue();
+        translated.Should().Be("first");
+
+        cache.GetCompletedTranslationsBySource(key, 10).Should().ContainSingle();
+        cache.Update(SampleRow("Fast Cache", "Menu", "Canvas/Fast/Alt", "Text", "second", DateTimeOffset.UtcNow));
+        cache.GetCompletedTranslationsBySource(key, 10).Should().HaveCount(2);
+
+        cache.TryGetReplacementFont(key, context, out _).Should().BeFalse();
+        cache.Update(SampleRow("Fast Cache", "Menu", "Canvas/Fast", "Text", "third", DateTimeOffset.UtcNow) with
+        {
+            ReplacementFont = "FastFont"
+        });
+        cache.TryGetReplacementFont(key, context, out var replacementFont).Should().BeTrue();
+        replacementFont.Should().Be("FastFont");
+
+        var row = cache.Query(new TranslationCacheQuery("Fast Cache", "source_text", false, 0, 10))
+            .Items.Single(item => item.ComponentHierarchy == "Canvas/Fast");
+        cache.Delete(row);
+        cache.TryGet(key, context, out _).Should().BeFalse();
+
+        var importJson = """
+[
+  {
+    "source_text": "Fast Cache",
+    "target_language": "zh-Hans",
+    "provider_kind": "OpenAI",
+    "provider_base_url": "https://api.openai.com",
+    "provider_endpoint": "/v1/responses",
+    "provider_model": "gpt-5.5",
+    "prompt_policy_version": "prompt-v1",
+    "translated_text": "imported",
+    "scene_name": "Menu",
+    "component_hierarchy": "Canvas/Fast",
+    "component_type": "Text",
+    "created_utc": "2026-05-02T00:00:00+00:00",
+    "updated_utc": "2026-05-02T00:00:00+00:00"
+  }
+]
+""";
+        cache.Import(importJson, "json").ImportedCount.Should().Be(1);
+        cache.TryGet(key, context, out translated).Should().BeTrue();
+        translated.Should().Be("imported");
+    }
+
+    [Fact]
     public void SqliteCache_keeps_context_specific_translations_for_same_source_text()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");

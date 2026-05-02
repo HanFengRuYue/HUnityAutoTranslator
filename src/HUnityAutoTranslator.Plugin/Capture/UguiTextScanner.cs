@@ -1,6 +1,5 @@
 using System.Reflection;
 using BepInEx.Logging;
-using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Runtime;
@@ -11,11 +10,9 @@ namespace HUnityAutoTranslator.Plugin.Capture;
 
 internal sealed class UguiTextScanner : ITextCaptureModule
 {
-    private readonly TextPipeline _pipeline;
-    private readonly UnityMainThreadResultApplier _applier;
     private readonly ManualLogSource _logger;
     private readonly Func<RuntimeConfig> _configProvider;
-    private readonly UnityTextFontReplacementService? _fontReplacement;
+    private readonly UnityTextTargetProcessor _processor;
     private readonly RoundRobinCursor _scanCursor = new();
     private Type? _textType;
     private PropertyInfo? _textProperty;
@@ -34,11 +31,9 @@ internal sealed class UguiTextScanner : ITextCaptureModule
         Func<RuntimeConfig> configProvider,
         UnityTextFontReplacementService? fontReplacement = null)
     {
-        _pipeline = pipeline;
-        _applier = applier;
         _logger = logger;
         _configProvider = configProvider;
-        _fontReplacement = fontReplacement;
+        _processor = new UnityTextTargetProcessor(pipeline, applier, configProvider, fontReplacement);
     }
 
     public string Name => "UGUI";
@@ -87,60 +82,7 @@ internal sealed class UguiTextScanner : ITextCaptureModule
 
     private void Process(UnityEngine.Object component)
     {
-        var target = new ReflectionTextTarget(component, _textProperty!);
-        var text = target.GetText();
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            _fontReplacement?.RestoreUgui(component);
-            return;
-        }
-
-        _applier.Register(target);
-        text = target.GetText();
-        if (string.IsNullOrWhiteSpace(text))
-        {
-            _fontReplacement?.RestoreUgui(component);
-            return;
-        }
-
-        var context = new TranslationCacheContext(target.SceneName, target.HierarchyPath, target.ComponentType);
-        var config = _configProvider();
-        var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, TextPipeline.GetPromptPolicyVersion(config));
-        if (_applier.IsRememberedTranslation(target.Id, text))
-        {
-            if (_applier.TryGetRememberedSourceText(target.Id, text, out var sourceText))
-            {
-                var rememberedKey = TranslationCacheKey.Create(
-                    sourceText,
-                    config.TargetLanguage,
-                    config.Provider,
-                    TextPipeline.GetPromptPolicyVersion(config));
-                _fontReplacement?.ApplyToUgui(component, rememberedKey, context);
-            }
-            else
-            {
-                _fontReplacement?.RestoreUgui(component);
-            }
-
-            return;
-        }
-
-        var decision = _pipeline.Process(new CapturedText(target.Id, text, target.IsVisible, context));
-        if (decision.Kind == PipelineDecisionKind.UseCachedTranslation && decision.TranslatedText != null)
-        {
-            if (_applier.RememberAndApply(target, text, decision.TranslatedText))
-            {
-                _fontReplacement?.ApplyToUgui(component, key, context);
-            }
-            else
-            {
-                _fontReplacement?.RestoreUgui(component);
-            }
-        }
-        else
-        {
-            _fontReplacement?.RestoreUgui(component);
-        }
+        _processor.Process(component, _textProperty!, UnityTextTargetKind.Ugui);
     }
 
     private void WarnOnce(string message)

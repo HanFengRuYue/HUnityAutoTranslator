@@ -55,7 +55,6 @@ public sealed class TextPipeline
 
         var key = TranslationCacheKey.Create(capturedText.SourceText, config.TargetLanguage, config.Provider, GetPromptPolicyVersion(config));
         _metrics?.RecordCaptured(key);
-        _cache.RecordCaptured(key, capturedText.Context);
         if (config.EnableCacheLookup &&
             _cache.TryGet(key, capturedText.Context, out var translatedText))
         {
@@ -93,6 +92,7 @@ public sealed class TextPipeline
             publishResult: capturedText.PublishResult));
         if (enqueued)
         {
+            _cache.RecordCaptured(key, capturedText.Context);
             _metrics?.RecordQueued();
         }
 

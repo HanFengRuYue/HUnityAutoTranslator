@@ -42,13 +42,41 @@ public sealed class BoundedRuntimeLoopSourceTests
     }
 
     [Fact]
-    public void Plugin_honors_reapply_remembered_translations_setting()
+    public void Plugin_honors_reapply_remembered_translations_setting_without_full_per_frame_reapply()
     {
         var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
 
         pluginSource.Should().Contain("if (config.ReapplyRememberedTranslations)");
-        pluginSource.Should().Contain("_resultApplier.ReapplyRemembered(int.MaxValue)");
-        pluginSource.Should().NotContain("_resultApplier.ReapplyRemembered(config.MaxWritebacksPerFrame)");
+        pluginSource.Should().Contain("_resultApplier.ReapplyRemembered(config.MaxWritebacksPerFrame)");
+        pluginSource.Should().NotContain("_resultApplier.ReapplyRemembered(int.MaxValue)");
+    }
+
+    [Fact]
+    public void Plugin_throttles_highlighter_snapshots_instead_of_copying_targets_every_frame()
+    {
+        var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+
+        pluginSource.Should().Contain("MaybeRefreshHighlighterSnapshot(");
+        pluginSource.Should().Contain("HighlighterSnapshotIntervalSeconds");
+        pluginSource.Should().NotContain("_highlighter.RefreshTargetSnapshot(_resultApplier.SnapshotTargets());");
+    }
+
+    [Fact]
+    public void Unity_text_change_hook_is_wired_for_low_latency_ugui_tmp_updates()
+    {
+        var hookSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextChangeHookInstaller.cs"));
+        var runtimeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+        var processorSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs"));
+
+        hookSource.Should().Contain("HarmonyId");
+        hookSource.Should().Contain("PatchUguiTextSetter");
+        hookSource.Should().Contain("PatchTmpTextEntryPoints");
+        hookSource.Should().Contain("PostfixTextChanged");
+        hookSource.Should().Contain("IsSuppressed");
+        hookSource.Should().Contain("UnityTextTargetProcessor");
+        processorSource.Should().Contain("RunSuppressed");
+        runtimeSource.Should().Contain("UnityTextChangeHookInstaller");
+        runtimeSource.Should().Contain("_textChangeHook?.Start();");
     }
 
     [Fact]

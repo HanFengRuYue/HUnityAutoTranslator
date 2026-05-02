@@ -80,7 +80,7 @@ public sealed record RuntimeConfig(
             MaxConcurrentRequests: RuntimeConfigLimits.DefaultMaxConcurrentRequests,
             RequestsPerMinute: 60,
             MaxBatchCharacters: 1800,
-            ScanInterval: TimeSpan.FromMilliseconds(750),
+            ScanInterval: TimeSpan.FromMilliseconds(100),
             MaxScanTargetsPerTick: 256,
             MaxWritebacksPerFrame: 32,
             RequestTimeoutSeconds: 30,

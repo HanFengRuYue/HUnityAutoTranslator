@@ -76,6 +76,26 @@ public sealed class GlossaryStoreTests
     }
 
     [Fact]
+    public void Sqlite_store_invalidates_enabled_term_cache_after_mutations()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-glossary.sqlite");
+        using var store = new SqliteGlossaryStore(path);
+
+        store.GetEnabledTerms("zh-Hans").Should().BeEmpty();
+
+        var manual = GlossaryTerm.CreateManual("Freddy", "Freddy CN", "zh-Hans", null);
+        store.UpsertManual(manual);
+        store.GetEnabledTerms("zh-Hans").Should().ContainSingle(term => term.SourceTerm == "Freddy");
+
+        store.UpsertAutomatic(GlossaryTerm.CreateAutomatic("Bonnie", "Bonnie CN", "zh-Hans", null))
+            .Should().Be(GlossaryUpsertResult.Created);
+        store.GetEnabledTerms("zh-Hans").Select(term => term.SourceTerm).Should().BeEquivalentTo("Freddy", "Bonnie");
+
+        store.Delete(manual);
+        store.GetEnabledTerms("zh-Hans").Select(term => term.SourceTerm).Should().Equal("Bonnie");
+    }
+
+    [Fact]
     public void Memory_store_filters_and_counts_glossary_columns()
     {
         var store = new MemoryGlossaryStore();

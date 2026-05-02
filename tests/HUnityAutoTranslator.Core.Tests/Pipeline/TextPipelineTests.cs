@@ -29,6 +29,39 @@ public sealed class TextPipelineTests
     }
 
     [Fact]
+    public void Process_returns_cached_translation_without_recording_pending_capture()
+    {
+        var cache = new CountingTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var key = TranslationCacheKey.Create("Start Game", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.Set(key, "开始游戏");
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.Process(new CapturedText("ui-1", "Start Game", isVisible: true));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.UseCachedTranslation);
+        cache.RecordCapturedCallCount.Should().Be(0);
+        queue.PendingCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void Process_records_pending_capture_only_when_new_job_is_enqueued()
+    {
+        var cache = new CountingTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var pipeline = new TextPipeline(cache, queue, config);
+        var context = new TranslationCacheContext("MainMenu", "Canvas/Menu/Options", "UnityEngine.UI.Text");
+
+        pipeline.Process(new CapturedText("ui-1", "Options", isVisible: true, context));
+        pipeline.Process(new CapturedText("ui-2", "Options", isVisible: true, context));
+
+        cache.RecordCapturedCallCount.Should().Be(1);
+        queue.PendingCount.Should().Be(1);
+    }
+
+    [Fact]
     public void Process_uses_custom_prompt_template_hash_in_cache_key()
     {
         var cache = new MemoryTranslationCache();
@@ -323,5 +356,85 @@ public sealed class TextPipelineTests
         pipeline.Process(new CapturedText("target", "12345", true, TranslationCacheContext.Empty));
 
         metrics.Snapshot().CapturedTextCount.Should().Be(0);
+    }
+
+    private sealed class CountingTranslationCache : ITranslationCache
+    {
+        private readonly MemoryTranslationCache _inner = new();
+
+        public int RecordCapturedCallCount { get; private set; }
+
+        public bool TryGet(TranslationCacheKey key, TranslationCacheContext? context, out string translatedText)
+        {
+            return _inner.TryGet(key, context, out translatedText);
+        }
+
+        public bool TryGetReplacementFont(TranslationCacheKey key, TranslationCacheContext context, out string replacementFont)
+        {
+            return _inner.TryGetReplacementFont(key, context, out replacementFont);
+        }
+
+        public IReadOnlyList<TranslationCacheEntry> GetCompletedTranslationsBySource(TranslationCacheKey key, int limit)
+        {
+            return _inner.GetCompletedTranslationsBySource(key, limit);
+        }
+
+        public void RecordCaptured(TranslationCacheKey key, TranslationCacheContext? context = null)
+        {
+            RecordCapturedCallCount++;
+            _inner.RecordCaptured(key, context);
+        }
+
+        public void Set(TranslationCacheKey key, string translatedText, TranslationCacheContext? context = null)
+        {
+            _inner.Set(key, translatedText, context);
+        }
+
+        public IReadOnlyList<TranslationCacheEntry> GetPendingTranslations(string targetLanguage, string promptPolicyVersion, int limit)
+        {
+            return _inner.GetPendingTranslations(targetLanguage, promptPolicyVersion, limit);
+        }
+
+        public IReadOnlyList<TranslationContextExample> GetTranslationContextExamples(
+            string currentSourceText,
+            string targetLanguage,
+            TranslationCacheContext? context,
+            int maxExamples,
+            int maxCharacters)
+        {
+            return _inner.GetTranslationContextExamples(currentSourceText, targetLanguage, context, maxExamples, maxCharacters);
+        }
+
+        public int Count => _inner.Count;
+
+        public TranslationCachePage Query(TranslationCacheQuery query)
+        {
+            return _inner.Query(query);
+        }
+
+        public TranslationCacheFilterOptionPage GetFilterOptions(TranslationCacheFilterOptionsQuery query)
+        {
+            return _inner.GetFilterOptions(query);
+        }
+
+        public void Update(TranslationCacheEntry entry)
+        {
+            _inner.Update(entry);
+        }
+
+        public void Delete(TranslationCacheEntry entry)
+        {
+            _inner.Delete(entry);
+        }
+
+        public string Export(string format)
+        {
+            return _inner.Export(format);
+        }
+
+        public TranslationCacheImportResult Import(string content, string format)
+        {
+            return _inner.Import(content, format);
+        }
     }
 }
