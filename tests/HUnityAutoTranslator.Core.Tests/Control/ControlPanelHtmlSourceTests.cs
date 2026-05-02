@@ -503,7 +503,7 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
-    public void Tmp_automatic_fallbacks_use_light_weight_and_debug_mesh_refresh_is_once_only()
+    public void Tmp_automatic_fallbacks_use_adaptive_style_profiles_and_preserve_source_by_default()
     {
         var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
         var applyToTmpBlock = serviceSource[
@@ -512,39 +512,50 @@ public sealed class ControlPanelHtmlSourceTests
         var prepareBlock = serviceSource[
             serviceSource.IndexOf("private static void PrepareTmpFallbackMaterial", StringComparison.Ordinal)..
             serviceSource.IndexOf("private static object? GetTmpComponentMaterial", StringComparison.Ordinal)];
-        var subDiagnosticBlock = serviceSource[
-            serviceSource.IndexOf("private void LogTmpSubTextDiagnosticsIfNeeded", StringComparison.Ordinal)..
-            serviceSource.IndexOf("private static bool ShouldLogTmpMaterialDiagnostics", StringComparison.Ordinal)];
+        var copyPresetBlock = serviceSource[
+            serviceSource.IndexOf("private static void CopyTmpMaterialPresetProperties", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private static void ApplyTmpComponentColorToMaterial", StringComparison.Ordinal)];
 
         applyToTmpBlock.Should().Contain("ResolveTmpFontAsset(config, key, context, samplingPointSize, out var resolved)");
         applyToTmpBlock.Should().Contain("PrepareTmpFallbackMaterial(component, fontAsset, resolved)");
-        prepareBlock.Should().Contain("SetTmpAutomaticFallbackWeight(fontAsset, fontAssetMaterial, resolved)");
-        prepareBlock.Should().Contain("SetTmpAutomaticFallbackWeight(fontAsset, matchedMaterial, resolved)");
-        serviceSource.Should().Contain("private static void SetTmpAutomaticFallbackWeight(object fontAsset, object? material, ResolvedFont? resolved)");
+        prepareBlock.Should().Contain("var styleProfile = ResolveTmpFallbackStyleProfile(componentMaterial, resolved);");
+        prepareBlock.Should().Contain("ApplyTmpAutomaticFallbackStyle(fontAssetMaterial, resolved, styleProfile)");
+        prepareBlock.Should().Contain("ApplyTmpAutomaticFallbackStyle(matchedMaterial, resolved, styleProfile)");
+        serviceSource.Should().Contain("private enum TmpFallbackStyleProfile");
+        serviceSource.Should().Contain("TmpFallbackStyleProfile.PreserveSource");
+        serviceSource.Should().Contain("TmpFallbackStyleProfile.ConstrainOutline");
+        serviceSource.Should().Contain("private static TmpFallbackStyleProfile ResolveTmpFallbackStyleProfile(object? sourceMaterial, ResolvedFont? resolved)");
         serviceSource.Should().Contain("if (resolved == null || !IsAutomaticFontSource(resolved.Source))");
-        serviceSource.Should().Contain("SetTmpFontStyle(fontAsset, \"normalStyle\", \"m_NormalStyle\", 0f)");
-        serviceSource.Should().Contain("SetTmpFontStyle(fontAsset, \"boldStyle\", \"m_BoldStyle\", 0f)");
-        serviceSource.Should().Contain("SetTmpMaterialFloat(material, \"_WeightNormal\", 0f)");
-        serviceSource.Should().Contain("SetTmpMaterialFloat(material, \"_WeightBold\", 0f)");
-        serviceSource.Should().Contain("SetTmpMaterialFloat(material, \"_FaceDilate\", 0.04f)");
-        serviceSource.Should().Contain("SetTmpMaterialFloat(material, \"_OutlineWidth\", 0.015f)");
-        serviceSource.Should().Contain("SetTmpMaterialFloat(material, \"_OutlineSoftness\", 0f)");
-        serviceSource.Should().Contain("_loggedTmpSubTextMaterialDiagnostics");
-        subDiagnosticBlock.Should().Contain("_loggedTmpSubTextMaterialDiagnostics.Add(key)");
-        subDiagnosticBlock.IndexOf("_loggedTmpSubTextMaterialDiagnostics.Add(key)", StringComparison.Ordinal)
-            .Should().BeLessThan(subDiagnosticBlock.IndexOf("InvokeMethodIfAvailable(component, \"ForceMeshUpdate\")", StringComparison.Ordinal));
+        serviceSource.Should().Contain("SourceTmpMaterialNeedsOutlineConstraint(sourceMaterial)");
+        serviceSource.Should().NotContain("SetTmpFontStyle(fontAsset, \"boldStyle\", \"m_BoldStyle\", 0f)");
+        serviceSource.Should().NotContain("SetTmpMaterialFloat(material, \"_WeightBold\", 0f)");
+        serviceSource.Should().NotContain("SetTmpMaterialFloat(material, \"_OutlineWidth\", 0.015f)");
+        copyPresetBlock.Should().NotContain("RestoreMaterialFloat(target, \"_WeightNormal\"");
+        copyPresetBlock.Should().NotContain("RestoreMaterialFloat(target, \"_WeightBold\"");
+        copyPresetBlock.Should().Contain("\"_OutlineWidth\"");
+        copyPresetBlock.Should().Contain("\"_FaceDilate\"");
     }
 
     [Fact]
-    public void Tmp_font_replacement_has_targeted_material_diagnostics_for_debug_logs()
+    public void Tmp_font_replacement_has_bounded_generic_material_diagnostics_for_debug_logs()
     {
         var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+        var materialDiagnosticBlock = serviceSource[
+            serviceSource.IndexOf("private void LogTmpMaterialDiagnosticsIfNeeded", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private void LogTmpSubTextDiagnosticsIfNeeded", StringComparison.Ordinal)];
+        var subDiagnosticBlock = serviceSource[
+            serviceSource.IndexOf("private void LogTmpSubTextDiagnosticsIfNeeded", StringComparison.Ordinal)..
+            serviceSource.IndexOf("private static string FormatTmpMaterial", StringComparison.Ordinal)];
 
-        serviceSource.Should().Contain("LogTmpMaterialDiagnosticsIfNeeded(config, component, context, translatedText, fontAsset)");
+        serviceSource.Should().Contain("LogTmpMaterialDiagnosticsIfNeeded(config, component, context, translatedText, fontAsset, resolved)");
         serviceSource.Should().Contain("LogTmpSubTextDiagnosticsIfNeeded(config, component, context, translatedText)");
-        serviceSource.Should().Contain("if (!config.EnableTranslationDebugLogs)");
-        serviceSource.Should().Contain("ShouldLogTmpMaterialDiagnostics(context, text)");
-        serviceSource.Should().Contain("ControlTip");
+        serviceSource.Should().Contain("if (!config.EnableTranslationDebugLogs ||");
+        serviceSource.Should().Contain("MaxTmpMaterialDiagnostics");
+        serviceSource.Should().Contain("MaxTmpSubTextMaterialDiagnostics");
+        materialDiagnosticBlock.Should().Contain("_loggedTmpMaterialDiagnostics.Count >= MaxTmpMaterialDiagnostics");
+        subDiagnosticBlock.Should().Contain("_loggedTmpSubTextMaterialDiagnostics.Count >= MaxTmpSubTextMaterialDiagnostics");
+        serviceSource.Should().NotContain("ShouldLogTmpMaterialDiagnostics(context, text)");
+        materialDiagnosticBlock.Should().Contain("fallbackStyleProfile=");
         serviceSource.Should().Contain("FormatTmpMaterial(componentMaterial)");
         serviceSource.Should().Contain("FormatTmpMaterial(fontAssetMaterial)");
         serviceSource.Should().Contain("FormatTmpColor(GetProperty(component, \"color\"))");
@@ -552,6 +563,9 @@ public sealed class ControlPanelHtmlSourceTests
         serviceSource.Should().Contain("\"_Color\"");
         serviceSource.Should().Contain("\"_GradientScale\"");
         serviceSource.Should().Contain("_loggedTmpMaterialDiagnostics");
+        subDiagnosticBlock.Should().Contain("_loggedTmpSubTextMaterialDiagnostics.Add(key)");
+        subDiagnosticBlock.IndexOf("_loggedTmpSubTextMaterialDiagnostics.Add(key)", StringComparison.Ordinal)
+            .Should().BeLessThan(subDiagnosticBlock.IndexOf("InvokeMethodIfAvailable(component, \"ForceMeshUpdate\")", StringComparison.Ordinal));
     }
 
     [Fact]

@@ -12,6 +12,16 @@ internal sealed class UnityTextFontReplacementService
 {
     private const string PreferredAutomaticFontName = "Noto Sans SC";
     private const string PreferredAutomaticFontFile = @"C:\Windows\Fonts\NotoSansSC-VF.ttf";
+    private const int MaxTmpMaterialDiagnostics = 32;
+    private const int MaxTmpSubTextMaterialDiagnostics = 8;
+    private const float TmpOutlineConstraintThreshold = 0.3f;
+    private const float TmpFaceDilateConstraintThreshold = 0.2f;
+    private const float TmpNameHintOutlineConstraintThreshold = 0.05f;
+    private const float TmpConstrainedWeightNormal = 0f;
+    private const float TmpConstrainedWeightBold = 0f;
+    private const float TmpConstrainedFaceDilate = 0.04f;
+    private const float TmpConstrainedOutlineWidth = 0.015f;
+    private const float TmpConstrainedOutlineSoftness = 0f;
 
     private static readonly string[] CandidateFontNames =
     {
@@ -73,6 +83,12 @@ internal sealed class UnityTextFontReplacementService
         "TMPro.TMP_MaterialManager, Assembly-CSharp",
         "TMPro.TMP_MaterialManager, Unity.TextMeshProModule"
     };
+
+    private enum TmpFallbackStyleProfile
+    {
+        PreserveSource,
+        ConstrainOutline
+    }
 
     private readonly ITranslationCache _cache;
     private readonly ManualLogSource _logger;
@@ -231,7 +247,7 @@ internal sealed class UnityTextFontReplacementService
 
         PopulateTmpFontAsset(fontAsset, translatedText);
         PrepareTmpFallbackMaterial(component, fontAsset, resolved);
-        LogTmpMaterialDiagnosticsIfNeeded(config, component, context, translatedText, fontAsset);
+        LogTmpMaterialDiagnosticsIfNeeded(config, component, context, translatedText, fontAsset, resolved);
         var componentFallbackInstalled = AddTmpFallbackToComponentFont(component, fontAsset);
         var globalFallbackInstalled = AddTmpFallback(fontAsset);
         if (componentFallbackInstalled)
@@ -1209,7 +1225,6 @@ internal sealed class UnityTextFontReplacementService
             }
 
             EnableDynamicAtlas(fontAsset);
-            SetTmpAutomaticFallbackWeight(fontAsset, GetTmpFontAssetMaterial(fontAsset), resolved);
             RegisterTmpFontAsset(fontAsset);
             _tmpFontAssets[cacheKey] = fontAsset;
             resolvedFont = resolved;
@@ -1913,12 +1928,13 @@ internal sealed class UnityTextFontReplacementService
 
         if (fontAsset != null)
         {
+            var styleProfile = ResolveTmpFallbackStyleProfile(componentMaterial, resolved);
             var fontAssetMaterial = EnsureTmpFontAssetMaterial(fontAsset, componentMaterial);
-            SetTmpAutomaticFallbackWeight(fontAsset, fontAssetMaterial, resolved);
+            ApplyTmpAutomaticFallbackStyle(fontAssetMaterial, resolved, styleProfile);
             var matchedMaterial = ResolveTmpFallbackMaterial(fontAsset, componentMaterial, fontAssetMaterial);
             if (matchedMaterial != null)
             {
-                SetTmpAutomaticFallbackWeight(fontAsset, matchedMaterial, resolved);
+                ApplyTmpAutomaticFallbackStyle(matchedMaterial, resolved, styleProfile);
                 ApplyTmpComponentColorToMaterial(component, matchedMaterial);
                 changed |= SetTmpMaterial(component, matchedMaterial);
             }
@@ -1936,16 +1952,17 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
+        var styleProfile = ResolveTmpFallbackStyleProfile(componentMaterial, resolved);
         var fontAssetMaterial = EnsureTmpFontAssetMaterial(fontAsset, componentMaterial);
         if (fontAssetMaterial != null)
         {
             CopyTmpMaterialPresetProperties(componentMaterial, fontAssetMaterial);
-            SetTmpAutomaticFallbackWeight(fontAsset, fontAssetMaterial, resolved);
+            ApplyTmpAutomaticFallbackStyle(fontAssetMaterial, resolved, styleProfile);
             ApplyTmpComponentColorToMaterial(component, fontAssetMaterial);
         }
 
         var matchedMaterial = ResolveTmpFallbackMaterial(fontAsset, componentMaterial, fontAssetMaterial);
-        SetTmpAutomaticFallbackWeight(fontAsset, matchedMaterial, resolved);
+        ApplyTmpAutomaticFallbackStyle(matchedMaterial, resolved, styleProfile);
         ApplyTmpComponentColorToMaterial(component, matchedMaterial);
     }
 
@@ -2024,8 +2041,6 @@ internal sealed class UnityTextFontReplacementService
         CopyMaterialFloat(source, target, "_TextureWidth");
         CopyMaterialFloat(source, target, "_TextureHeight");
         CopyMaterialFloat(source, target, "_GradientScale");
-        CopyMaterialFloat(source, target, "_WeightNormal");
-        CopyMaterialFloat(source, target, "_WeightBold");
     }
 
     private static void CopyMaterialFloat(Material source, Material target, string name)
@@ -2042,30 +2057,99 @@ internal sealed class UnityTextFontReplacementService
         }
     }
 
-    private static void SetTmpAutomaticFallbackWeight(object fontAsset, object? material, ResolvedFont? resolved)
+    private static void ApplyTmpAutomaticFallbackStyle(object? material, ResolvedFont? resolved, TmpFallbackStyleProfile styleProfile)
     {
-        if (resolved == null || !IsAutomaticFontSource(resolved.Source))
+        if (resolved == null ||
+            !IsAutomaticFontSource(resolved.Source) ||
+            styleProfile != TmpFallbackStyleProfile.ConstrainOutline)
         {
             return;
         }
 
-        SetTmpFontStyle(fontAsset, "normalStyle", "m_NormalStyle", 0f);
-        SetTmpFontStyle(fontAsset, "boldStyle", "m_BoldStyle", 0f);
-        SetTmpMaterialFloat(material, "_WeightNormal", 0f);
-        SetTmpMaterialFloat(material, "_WeightBold", 0f);
-        SetTmpMaterialFloat(material, "_FaceDilate", 0.04f);
-        SetTmpMaterialFloat(material, "_OutlineWidth", 0.015f);
-        SetTmpMaterialFloat(material, "_OutlineSoftness", 0f);
+        SetTmpMaterialFloatAtMost(material, "_WeightNormal", TmpConstrainedWeightNormal);
+        SetTmpMaterialFloatAtMost(material, "_WeightBold", TmpConstrainedWeightBold);
+        SetTmpMaterialFloatAtMost(material, "_FaceDilate", TmpConstrainedFaceDilate);
+        SetTmpMaterialFloatAtMost(material, "_OutlineWidth", TmpConstrainedOutlineWidth);
+        SetTmpMaterialFloatAtMost(material, "_OutlineSoftness", TmpConstrainedOutlineSoftness);
     }
 
-    private static void SetTmpFontStyle(object fontAsset, string propertyName, string fieldName, float value)
+    private static TmpFallbackStyleProfile ResolveTmpFallbackStyleProfile(object? sourceMaterial, ResolvedFont? resolved)
     {
-        SetProperty(fontAsset, propertyName, value);
-        SetField(fontAsset, propertyName, value);
-        SetField(fontAsset, fieldName, value);
+        if (resolved == null || !IsAutomaticFontSource(resolved.Source))
+        {
+            return TmpFallbackStyleProfile.PreserveSource;
+        }
+
+        return SourceTmpMaterialNeedsOutlineConstraint(sourceMaterial)
+            ? TmpFallbackStyleProfile.ConstrainOutline
+            : TmpFallbackStyleProfile.PreserveSource;
     }
 
-    private static void SetTmpMaterialFloat(object? material, string name, float value)
+    private static bool SourceTmpMaterialNeedsOutlineConstraint(object? sourceMaterial)
+    {
+        if (sourceMaterial is not Material material)
+        {
+            return false;
+        }
+
+        if (TryGetMaterialFloat(material, "_OutlineWidth", out var outlineWidth) &&
+            outlineWidth >= TmpOutlineConstraintThreshold)
+        {
+            return true;
+        }
+
+        if (TryGetMaterialFloat(material, "_FaceDilate", out var faceDilate) &&
+            faceDilate >= TmpFaceDilateConstraintThreshold)
+        {
+            return true;
+        }
+
+        return TryGetMaterialFloat(material, "_OutlineWidth", out outlineWidth) &&
+            outlineWidth >= TmpNameHintOutlineConstraintThreshold &&
+            TmpMaterialNameSuggestsPixelOutline(material);
+    }
+
+    private static bool TmpMaterialNameSuggestsPixelOutline(Material material)
+    {
+        var materialName = SafeUnityObjectName(material);
+        var shaderName = SafeShaderName(material);
+        return ContainsStyleHint(materialName, "3270") ||
+            ContainsStyleHint(materialName, "pixel") ||
+            ContainsStyleHint(materialName, "bitmap") ||
+            ContainsStyleHint(shaderName, "pixel") ||
+            ContainsStyleHint(shaderName, "bitmap");
+    }
+
+    private static bool ContainsStyleHint(string value, string hint)
+    {
+        return value.IndexOf(hint, StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static string SafeUnityObjectName(UnityEngine.Object instance)
+    {
+        try
+        {
+            return instance.name ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static string SafeShaderName(Material material)
+    {
+        try
+        {
+            return material.shader?.name ?? string.Empty;
+        }
+        catch
+        {
+            return string.Empty;
+        }
+    }
+
+    private static void SetTmpMaterialFloatAtMost(object? material, string name, float maxValue)
     {
         if (material is not Material target)
         {
@@ -2076,7 +2160,11 @@ internal sealed class UnityTextFontReplacementService
         {
             if (target.HasProperty(name))
             {
-                target.SetFloat(name, value);
+                var current = target.GetFloat(name);
+                if (current > maxValue)
+                {
+                    target.SetFloat(name, maxValue);
+                }
             }
         }
         catch
@@ -2188,8 +2276,6 @@ internal sealed class UnityTextFontReplacementService
         var hasGradientScale = TryGetMaterialFloat(target, "_GradientScale", out var gradientScale);
         var hasTextureWidth = TryGetMaterialFloat(target, "_TextureWidth", out var textureWidth);
         var hasTextureHeight = TryGetMaterialFloat(target, "_TextureHeight", out var textureHeight);
-        var hasWeightNormal = TryGetMaterialFloat(target, "_WeightNormal", out var weightNormal);
-        var hasWeightBold = TryGetMaterialFloat(target, "_WeightBold", out var weightBold);
 
         try
         {
@@ -2209,8 +2295,11 @@ internal sealed class UnityTextFontReplacementService
         RestoreMaterialFloat(target, "_GradientScale", hasGradientScale, gradientScale);
         RestoreMaterialFloat(target, "_TextureWidth", hasTextureWidth, textureWidth);
         RestoreMaterialFloat(target, "_TextureHeight", hasTextureHeight, textureHeight);
-        RestoreMaterialFloat(target, "_WeightNormal", hasWeightNormal, weightNormal);
-        RestoreMaterialFloat(target, "_WeightBold", hasWeightBold, weightBold);
+        CopyMaterialFloat(source, target, "_WeightNormal");
+        CopyMaterialFloat(source, target, "_WeightBold");
+        CopyMaterialFloat(source, target, "_FaceDilate");
+        CopyMaterialFloat(source, target, "_OutlineWidth");
+        CopyMaterialFloat(source, target, "_OutlineSoftness");
     }
 
     private static void ApplyTmpComponentColorToMaterial(object component, object? targetMaterial)
@@ -2244,19 +2333,16 @@ internal sealed class UnityTextFontReplacementService
         object component,
         TranslationCacheContext context,
         string translatedText,
-        object fontAsset)
+        object fontAsset,
+        ResolvedFont? resolved)
     {
-        if (!config.EnableTranslationDebugLogs)
+        if (!config.EnableTranslationDebugLogs ||
+            _loggedTmpMaterialDiagnostics.Count >= MaxTmpMaterialDiagnostics)
         {
             return;
         }
 
         var text = GetProperty(component, "text") as string ?? translatedText;
-        if (!ShouldLogTmpMaterialDiagnostics(context, text))
-        {
-            return;
-        }
-
         var key = string.Join(
             "|",
             context.SceneName ?? string.Empty,
@@ -2270,11 +2356,13 @@ internal sealed class UnityTextFontReplacementService
 
         var componentMaterial = GetTmpComponentMaterial(component);
         var fontAssetMaterial = GetTmpFontAssetMaterial(fontAsset);
+        var styleProfile = ResolveTmpFallbackStyleProfile(componentMaterial, resolved);
         _logger.LogInfo(
             "TMP 材质诊断：" +
             $"层级={context.ComponentHierarchy ?? "未知"}；" +
             $"组件={component.GetType().FullName}；" +
             $"文本={TrimDiagnosticText(text)}；" +
+            $"fallbackStyleProfile={styleProfile}；" +
             $"组件颜色={FormatTmpColor(GetProperty(component, "color"))}；" +
             $"组件材质={FormatTmpMaterial(componentMaterial)}；" +
             $"后备字体材质={FormatTmpMaterial(fontAssetMaterial)}。");
@@ -2286,17 +2374,13 @@ internal sealed class UnityTextFontReplacementService
         TranslationCacheContext context,
         string translatedText)
     {
-        if (!config.EnableTranslationDebugLogs)
+        if (!config.EnableTranslationDebugLogs ||
+            _loggedTmpSubTextMaterialDiagnostics.Count >= MaxTmpSubTextMaterialDiagnostics)
         {
             return;
         }
 
         var text = GetProperty(component, "text") as string ?? translatedText;
-        if (!ShouldLogTmpMaterialDiagnostics(context, text))
-        {
-            return;
-        }
-
         var key = string.Join(
             "|",
             context.SceneName ?? string.Empty,
@@ -2332,18 +2416,6 @@ internal sealed class UnityTextFontReplacementService
                 $"fallback={FormatTmpMaterial(GetProperty(subText, "fallbackMaterial"))}；" +
                 $"fallbackSource={FormatTmpMaterial(GetProperty(subText, "fallbackSourceMaterial"))}。");
         }
-    }
-
-    private static bool ShouldLogTmpMaterialDiagnostics(TranslationCacheContext context, string text)
-    {
-        var hierarchy = context.ComponentHierarchy ?? string.Empty;
-        return hierarchy.Contains("ControlTip", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("[W/A/S/D]", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("[Shift]", StringComparison.OrdinalIgnoreCase) ||
-            text.Contains("鼠标右键", StringComparison.Ordinal) ||
-            text.Contains("行走", StringComparison.Ordinal) ||
-            text.Contains("冲刺", StringComparison.Ordinal) ||
-            text.Contains("扫描", StringComparison.Ordinal);
     }
 
     private static string FormatTmpMaterial(object? material)
