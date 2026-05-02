@@ -63,13 +63,13 @@ internal sealed class UnityTextFontReplacementService
     private static readonly string[] OutlineConstrainedTmpAutomaticFontFiles =
     {
         PreferredAutomaticFontFile,
+        @"C:\Windows\Fonts\simhei.ttf",
         @"C:\Windows\Fonts\Dengl.ttf",
         @"C:\Windows\Fonts\Deng.ttf",
         @"C:\Windows\Fonts\simfang.ttf",
         @"C:\Windows\Fonts\simkai.ttf",
         @"C:\Windows\Fonts\simsunb.ttf",
-        @"C:\Windows\Fonts\NotoSerifSC-VF.ttf",
-        @"C:\Windows\Fonts\simhei.ttf"
+        @"C:\Windows\Fonts\NotoSerifSC-VF.ttf"
     };
 
     private static readonly char[] FontProbeCharacters = { '测', '试', '汉', '語' };

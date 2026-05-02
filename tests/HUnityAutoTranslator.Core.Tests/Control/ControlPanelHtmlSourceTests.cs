@@ -879,7 +879,7 @@ public sealed class ControlPanelHtmlSourceTests
     }
 
     [Fact]
-    public void Tmp_automatic_candidates_use_light_font_only_for_outline_constrained_materials()
+    public void Tmp_automatic_candidates_prefer_simhei_before_light_font_for_all_material_profiles()
     {
         var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
         var resolveBlock = serviceSource[
@@ -904,8 +904,8 @@ public sealed class ControlPanelHtmlSourceTests
             serviceSource.IndexOf("private static readonly string[] TmpFontAssetTypeNames", StringComparison.Ordinal)];
         standardBlock.IndexOf(@"C:\Windows\Fonts\simhei.ttf", StringComparison.Ordinal)
             .Should().BeLessThan(standardBlock.IndexOf(@"C:\Windows\Fonts\Dengl.ttf", StringComparison.Ordinal));
-        outlineBlock.IndexOf(@"C:\Windows\Fonts\Dengl.ttf", StringComparison.Ordinal)
-            .Should().BeLessThan(outlineBlock.IndexOf(@"C:\Windows\Fonts\simhei.ttf", StringComparison.Ordinal));
+        outlineBlock.IndexOf(@"C:\Windows\Fonts\simhei.ttf", StringComparison.Ordinal)
+            .Should().BeLessThan(outlineBlock.IndexOf(@"C:\Windows\Fonts\Dengl.ttf", StringComparison.Ordinal));
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)
