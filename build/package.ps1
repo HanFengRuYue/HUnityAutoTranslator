@@ -1,5 +1,6 @@
 param(
     [string]$Configuration = "Release",
+    [string]$PackageVersion = "0.1.0",
     [ValidateSet("BepInEx5", "Mono", "IL2CPP", "All")]
     [string]$Runtime = "All",
     [ValidateSet("None", "Cuda13", "Vulkan", "All")]
@@ -21,9 +22,9 @@ $pluginRoot = Join-Path $packageRoot "BepInEx\plugins\HUnityAutoTranslator"
 $il2CppPackageRoot = Join-Path $outputRoot "HUnityAutoTranslator-il2cpp"
 $il2CppPluginRoot = Join-Path $il2CppPackageRoot "BepInEx\plugins\HUnityAutoTranslator"
 $buildOutput = Join-Path $root "src\HUnityAutoTranslator.Plugin\bin\$Configuration\netstandard2.1"
-$bepInEx5ZipPath = Join-Path $outputRoot "HUnityAutoTranslator-0.1.0-bepinex5.zip"
-$zipPath = Join-Path $outputRoot "HUnityAutoTranslator-0.1.0.zip"
-$il2CppZipPath = Join-Path $outputRoot "HUnityAutoTranslator-0.1.0-il2cpp.zip"
+$bepInEx5ZipPath = Join-Path $outputRoot "HUnityAutoTranslator-$PackageVersion-bepinex5.zip"
+$zipPath = Join-Path $outputRoot "HUnityAutoTranslator-$PackageVersion.zip"
+$il2CppZipPath = Join-Path $outputRoot "HUnityAutoTranslator-$PackageVersion-il2cpp.zip"
 $controlPanelRoot = Join-Path $root "src\HUnityAutoTranslator.ControlPanel"
 $controlPanelBuildRoot = Join-Path $outputRoot ".control-panel-build"
 $LlamaCppReleaseTag = "b8943"
@@ -301,11 +302,11 @@ function Remove-BuildSubdirectory([string]$Path) {
 
 function Get-LlamaCppPackageZipName([string]$Variant) {
     if ($Variant -eq "Cuda13") {
-        return "HUnityAutoTranslator-0.1.0-llamacpp-cuda13.zip"
+        return "HUnityAutoTranslator-$PackageVersion-llamacpp-cuda13.zip"
     }
 
     if ($Variant -eq "Vulkan") {
-        return "HUnityAutoTranslator-0.1.0-llamacpp-vulkan.zip"
+        return "HUnityAutoTranslator-$PackageVersion-llamacpp-vulkan.zip"
     }
 
     throw "Unknown llama.cpp package variant: $Variant"
@@ -395,7 +396,19 @@ function Build-PluginPackage([hashtable]$Build) {
         $runtimeProject = $project
     }
 
-    Invoke-CheckedNative "dotnet" @("build", $runtimeProject, "-c", $Configuration, "-f", $Build.TargetFramework)
+    Invoke-CheckedNative "dotnet" @(
+        "build",
+        $runtimeProject,
+        "-c",
+        $Configuration,
+        "-f",
+        $Build.TargetFramework,
+        "-p:Version=$PackageVersion",
+        "-p:PackageVersion=$PackageVersion",
+        "-p:BepInExPluginVersion=$PackageVersion",
+        "-p:FileVersion=$PackageVersion",
+        "-p:InformationalVersion=$PackageVersion"
+    )
 
     $runtimePackageRoot = $Build.PackageRoot
     $runtimePluginRoot = $Build.PluginRoot

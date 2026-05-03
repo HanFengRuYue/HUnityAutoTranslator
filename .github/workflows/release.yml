@@ -1,0 +1,88 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      DOTNET_CLI_TELEMETRY_OPTOUT: '1'
+      DOTNET_NOLOGO: '1'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate release tag
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -notmatch '^v\d+\.\d+\.\d+$') {
+            throw "Release tag must match vx.x.x. Received: $tag"
+          }
+
+          $version = $tag.Substring(1)
+          "PACKAGE_TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "PACKAGE_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24.x
+          cache: npm
+          cache-dependency-path: src/HUnityAutoTranslator.ControlPanel/package-lock.json
+
+      - name: Test
+        run: dotnet test HUnityAutoTranslator.sln --configuration Release
+
+      - name: Build release packages
+        run: .\build\package.ps1 -PackageVersion $env:PACKAGE_VERSION -Runtime All -LlamaCppVariant All
+
+      - name: Validate release packages
+        run: |
+          $assets = @(
+            "build/HUnityAutoTranslator-$env:PACKAGE_VERSION-bepinex5.zip",
+            "build/HUnityAutoTranslator-$env:PACKAGE_VERSION.zip",
+            "build/HUnityAutoTranslator-$env:PACKAGE_VERSION-il2cpp.zip",
+            "build/HUnityAutoTranslator-$env:PACKAGE_VERSION-llamacpp-cuda13.zip",
+            "build/HUnityAutoTranslator-$env:PACKAGE_VERSION-llamacpp-vulkan.zip"
+          )
+
+          foreach ($asset in $assets) {
+            if (-not (Test-Path -LiteralPath $asset)) {
+              throw "Missing release package: $asset"
+            }
+          }
+
+          $assets | Set-Content -LiteralPath "$env:RUNNER_TEMP\release-assets.txt" -Encoding utf8
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $assets = Get-Content -LiteralPath "$env:RUNNER_TEMP\release-assets.txt"
+          gh release view $env:PACKAGE_TAG *> $null
+          $releaseExists = $LASTEXITCODE -eq 0
+
+          if ($releaseExists) {
+            gh release upload $env:PACKAGE_TAG $assets --clobber
+          }
+          else {
+            gh release create $env:PACKAGE_TAG $assets --verify-tag --generate-notes --title $env:PACKAGE_TAG
+          }

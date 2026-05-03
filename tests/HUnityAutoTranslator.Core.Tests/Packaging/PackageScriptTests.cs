@@ -10,13 +10,14 @@ public sealed class PackageScriptTests
     {
         var script = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "build", "package.ps1"));
 
+        script.Should().Contain("[string]$PackageVersion = \"0.1.0\"");
         script.Should().Contain("$outputRoot = Resolve-Path -LiteralPath $PSScriptRoot");
         script.Should().Contain("$packageRoot = Join-Path $outputRoot \"HUnityAutoTranslator\"");
         script.Should().Contain("$bepInEx5PackageRoot = Join-Path $outputRoot \"HUnityAutoTranslator-bepinex5\"");
         script.Should().Contain("$bepInEx5Project = Join-Path $root \"src\\HUnityAutoTranslator.Plugin.BepInEx5\\HUnityAutoTranslator.Plugin.BepInEx5.csproj\"");
-        script.Should().Contain("$zipPath = Join-Path $outputRoot \"HUnityAutoTranslator-0.1.0.zip\"");
-        script.Should().Contain("$bepInEx5ZipPath = Join-Path $outputRoot \"HUnityAutoTranslator-0.1.0-bepinex5.zip\"");
-        script.Should().Contain("$il2CppZipPath = Join-Path $outputRoot \"HUnityAutoTranslator-0.1.0-il2cpp.zip\"");
+        script.Should().Contain("$zipPath = Join-Path $outputRoot \"HUnityAutoTranslator-$PackageVersion.zip\"");
+        script.Should().Contain("$bepInEx5ZipPath = Join-Path $outputRoot \"HUnityAutoTranslator-$PackageVersion-bepinex5.zip\"");
+        script.Should().Contain("$il2CppZipPath = Join-Path $outputRoot \"HUnityAutoTranslator-$PackageVersion-il2cpp.zip\"");
         script.Should().NotContain("Join-Path $root \"artifacts\"");
     }
 
@@ -34,11 +35,23 @@ public sealed class PackageScriptTests
         script.Should().Contain("TargetFramework = \"net6.0\"");
         script.Should().Contain("HUnityAutoTranslator.Plugin.BepInEx5.dll");
         script.Should().Contain("HUnityAutoTranslator.Plugin.IL2CPP.dll");
-        script.Should().Contain("HUnityAutoTranslator-0.1.0-bepinex5.zip");
-        script.Should().Contain("HUnityAutoTranslator-0.1.0-il2cpp.zip");
+        script.Should().Contain("HUnityAutoTranslator-$PackageVersion-bepinex5.zip");
+        script.Should().Contain("HUnityAutoTranslator-$PackageVersion-il2cpp.zip");
         script.Should().Contain("$runtimeProject = $Build.Project");
         script.Should().Contain("$runtimeProjectDirectory = Split-Path -Parent $runtimeProject");
         script.Should().Contain("$_.Name -ne \"BepInEx.dll\"");
+    }
+
+    [Fact]
+    public void Package_script_passes_release_version_to_msbuild()
+    {
+        var script = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "build", "package.ps1"));
+
+        script.Should().Contain("\"-p:Version=$PackageVersion\"");
+        script.Should().Contain("\"-p:PackageVersion=$PackageVersion\"");
+        script.Should().Contain("\"-p:BepInExPluginVersion=$PackageVersion\"");
+        script.Should().Contain("\"-p:FileVersion=$PackageVersion\"");
+        script.Should().Contain("\"-p:InformationalVersion=$PackageVersion\"");
     }
 
     [Fact]
@@ -67,7 +80,8 @@ public sealed class PackageScriptTests
         script.Should().Contain("if ($LASTEXITCODE -ne 0)");
         script.Should().Contain("Invoke-CheckedNative \"npm\" @(\"ci\")");
         script.Should().Contain("Invoke-CheckedNative \"npm\" @(\"run\", \"build\")");
-        script.Should().Contain("Invoke-CheckedNative \"dotnet\" @(\"build\"");
+        script.Should().Contain("Invoke-CheckedNative \"dotnet\" @(");
+        script.Should().Contain("\"build\",");
         script.Should().Contain("if (-not $SkipNpmInstall)");
     }
 
@@ -98,8 +112,8 @@ public sealed class PackageScriptTests
         script.Should().Contain("b4a53f4fe822320357bc45b14d46bde1beadf6cc912a148d33b09b78482f20d7");
         script.Should().Contain("f96935e7e385e3b2d0189239077c10fe8fd7e95690fea4afec455b1b6c7e3f18");
         script.Should().Contain("cb7bf6f828afd15885f5a0d9e279f6d6a988662e6ca2296308b31818a91d1534");
-        script.Should().Contain("HUnityAutoTranslator-0.1.0-llamacpp-cuda13.zip");
-        script.Should().Contain("HUnityAutoTranslator-0.1.0-llamacpp-vulkan.zip");
+        script.Should().Contain("HUnityAutoTranslator-$PackageVersion-llamacpp-cuda13.zip");
+        script.Should().Contain("HUnityAutoTranslator-$PackageVersion-llamacpp-vulkan.zip");
         script.Should().Contain("function Build-LlamaCppPackage");
         script.Should().Contain("$llamaTargetRoot = Join-Path $llamaPackageRoot \"BepInEx\\plugins\\HUnityAutoTranslator\"");
         script.Should().Contain("Add-LlamaCppBackend -Variant $Variant -TargetRoot $llamaTargetRoot");
@@ -122,6 +136,7 @@ public sealed class PackageScriptTests
         script.Should().Contain("$packageScript = Join-Path $PSScriptRoot \"package.ps1\"");
         script.Should().Contain("$parameters = @{");
         script.Should().Contain("Configuration = $Configuration");
+        script.Should().Contain("PackageVersion = $PackageVersion");
         script.Should().Contain("Runtime = $Runtime");
         script.Should().Contain("LlamaCppVariant = \"None\"");
         script.Should().Contain("& $packageScript @parameters");
@@ -154,6 +169,7 @@ public sealed class PackageScriptTests
                 """
                 param(
                     [string]$Configuration = "Release",
+                    [string]$PackageVersion = "0.1.0",
                     [ValidateSet("BepInEx5", "Mono", "IL2CPP", "All")]
                     [string]$Runtime = "All",
                     [ValidateSet("None", "Cuda13", "Vulkan", "All")]
@@ -161,7 +177,7 @@ public sealed class PackageScriptTests
                     [switch]$SkipNpmInstall
                 )
 
-                Write-Output "$Configuration|$Runtime|$LlamaCppVariant|$($SkipNpmInstall.IsPresent)"
+                Write-Output "$Configuration|$PackageVersion|$Runtime|$LlamaCppVariant|$($SkipNpmInstall.IsPresent)"
                 """);
 
             var result = RunPowerShell(
@@ -169,16 +185,52 @@ public sealed class PackageScriptTests
                 "-NoProfile",
                 "-ExecutionPolicy", "Bypass",
                 "-File", "package-plugin.ps1",
+                "-PackageVersion", "1.2.3",
                 "-Runtime", "Mono",
                 "-SkipNpmInstall");
 
             result.ExitCode.Should().Be(0, result.StandardError);
-            result.StandardOutput.Trim().Should().Be("Release|Mono|None|True");
+            result.StandardOutput.Trim().Should().Be("Release|1.2.3|Mono|None|True");
         }
         finally
         {
             Directory.Delete(tempRoot, recursive: true);
         }
+    }
+
+    [Fact]
+    public void Release_workflow_publishes_semver_tagged_packages()
+    {
+        var root = FindRepositoryRoot();
+        var workflowPath = Path.Combine(root, ".github", "workflows", "release.yml");
+
+        File.Exists(workflowPath).Should().BeTrue();
+        var workflow = File.ReadAllText(workflowPath);
+
+        workflow.Should().Contain("tags:");
+        workflow.Should().Contain("- 'v*.*.*'");
+        workflow.Should().Contain(@"^v\d+\.\d+\.\d+$");
+        workflow.Should().Contain("contents: write");
+        workflow.Should().Contain("runs-on: windows-latest");
+        workflow.Should().Contain("uses: actions/checkout@v6");
+        workflow.Should().Contain("uses: actions/setup-dotnet@v5");
+        workflow.Should().Contain("global-json-file: global.json");
+        workflow.Should().Contain("uses: actions/setup-node@v6");
+        workflow.Should().Contain("node-version: 24.x");
+        workflow.Should().Contain("cache-dependency-path: src/HUnityAutoTranslator.ControlPanel/package-lock.json");
+        workflow.Should().Contain("dotnet test");
+        workflow.Should().Contain(".\\build\\package.ps1 -PackageVersion $env:PACKAGE_VERSION -Runtime All -LlamaCppVariant All");
+        workflow.Should().Contain("gh release create");
+        workflow.Should().Contain("$LASTEXITCODE -eq 0");
+        workflow.Should().Contain("--verify-tag");
+        workflow.Should().Contain("--generate-notes");
+        workflow.Should().Contain("gh release upload");
+        workflow.Should().Contain("--clobber");
+        workflow.Should().Contain("HUnityAutoTranslator-$env:PACKAGE_VERSION-bepinex5.zip");
+        workflow.Should().Contain("HUnityAutoTranslator-$env:PACKAGE_VERSION.zip");
+        workflow.Should().Contain("HUnityAutoTranslator-$env:PACKAGE_VERSION-il2cpp.zip");
+        workflow.Should().Contain("HUnityAutoTranslator-$env:PACKAGE_VERSION-llamacpp-cuda13.zip");
+        workflow.Should().Contain("HUnityAutoTranslator-$env:PACKAGE_VERSION-llamacpp-vulkan.zip");
     }
 
     private static string FindRepositoryRoot()
