@@ -84,6 +84,12 @@ internal sealed class UnityTextFontReplacementService
         [@"C:\Windows\Fonts\NotoSerifSC-VF.ttf"] = new[] { "Noto Serif SC Regular", "Noto Serif SC" }
     };
 
+    private static readonly Lazy<MethodInfo?> GetOsInstalledFontNamesMethod = new(() =>
+        GetOptionalFontStaticMethod("GetOSInstalledFontNames", Type.EmptyTypes));
+
+    private static readonly Lazy<MethodInfo?> CreateDynamicFontFromOsFontMethod = new(() =>
+        GetOptionalFontStaticMethod("CreateDynamicFontFromOSFont", typeof(string), typeof(int)));
+
     private static readonly string[] TmpFontAssetTypeNames =
     {
         "TMPro.TMP_FontAsset, Unity.TextMeshPro",
@@ -1464,9 +1470,15 @@ internal sealed class UnityTextFontReplacementService
             return null;
         }
 
+        var method = CreateDynamicFontFromOsFontMethod.Value;
+        if (method == null)
+        {
+            return null;
+        }
+
         try
         {
-            return Font.CreateDynamicFontFromOSFont(value, size);
+            return method.Invoke(null, new object[] { value, size }) as Font;
         }
         catch
         {
@@ -1493,14 +1505,38 @@ internal sealed class UnityTextFontReplacementService
 
     private static bool IsInstalledOsFontName(string value)
     {
+        var method = GetOsInstalledFontNamesMethod.Value;
+        if (method == null)
+        {
+            return true;
+        }
+
         try
         {
-            return Font.GetOSInstalledFontNames()
-                .Any(fontName => string.Equals(fontName, value, StringComparison.OrdinalIgnoreCase));
+            return method.Invoke(null, null) is IEnumerable<string> fontNames
+                ? fontNames.Any(fontName => string.Equals(fontName, value, StringComparison.OrdinalIgnoreCase))
+                : true;
         }
         catch
         {
-            return false;
+            return true;
+        }
+    }
+
+    private static MethodInfo? GetOptionalFontStaticMethod(string methodName, params Type[] parameterTypes)
+    {
+        try
+        {
+            return typeof(Font).GetMethod(
+                methodName,
+                BindingFlags.Public | BindingFlags.Static,
+                binder: null,
+                types: parameterTypes,
+                modifiers: null);
+        }
+        catch
+        {
+            return null;
         }
     }
 

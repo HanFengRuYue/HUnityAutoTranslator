@@ -694,7 +694,10 @@ public sealed class ControlPanelHtmlSourceTests
             serviceSource.IndexOf("private IEnumerable<FontCandidate> EnumerateTmpFontCandidates", StringComparison.Ordinal)];
         uguiCandidateBlock.IndexOf("FontCandidate.Create(\"file\", config.ReplacementFontFile", StringComparison.Ordinal)
             .Should().BeLessThan(uguiCandidateBlock.IndexOf("FontCandidate.Create(\"name\", config.ReplacementFontName", StringComparison.Ordinal));
-        serviceSource.Should().Contain("Font.GetOSInstalledFontNames()");
+        serviceSource.Should().Contain("GetOptionalFontStaticMethod(\"GetOSInstalledFontNames\", Type.EmptyTypes)");
+        serviceSource.Should().Contain("GetOptionalFontStaticMethod(\"CreateDynamicFontFromOSFont\", typeof(string), typeof(int))");
+        serviceSource.Should().NotContain("Font.GetOSInstalledFontNames()");
+        serviceSource.Should().NotContain("Font.CreateDynamicFontFromOSFont(value, size)");
 
         var createUnityFontBlock = serviceSource[
             serviceSource.IndexOf("private static Font? CreateUnityFont(FontCandidate candidate, int size)", StringComparison.Ordinal)..
