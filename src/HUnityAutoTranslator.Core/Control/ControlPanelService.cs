@@ -173,6 +173,7 @@ public sealed class ControlPanelService
                 config.FontSamplingPointSize,
                 config.FontSizeAdjustmentMode,
                 config.FontSizeAdjustmentValue,
+                config.EnableTmpOverflowAutoShrink,
                 _lastError,
                 config.TextureImageTranslation,
                 activeTextureProfile != null || !string.IsNullOrWhiteSpace(_textureImageApiKey),
@@ -1425,6 +1426,7 @@ public sealed class ControlPanelService
             FontSamplingPointSize = fontSamplingPointSize,
             FontSizeAdjustmentMode = request.FontSizeAdjustmentMode ?? _config.FontSizeAdjustmentMode,
             FontSizeAdjustmentValue = fontSizeAdjustmentValue,
+            EnableTmpOverflowAutoShrink = request.EnableTmpOverflowAutoShrink ?? _config.EnableTmpOverflowAutoShrink,
             TextureImageTranslation = textureImageTranslation,
             LlamaCpp = llamaCpp
         };
@@ -1497,6 +1499,7 @@ public sealed class ControlPanelService
                 FontSamplingPointSize: _config.FontSamplingPointSize,
                 FontSizeAdjustmentMode: _config.FontSizeAdjustmentMode,
                 FontSizeAdjustmentValue: _config.FontSizeAdjustmentValue,
+                EnableTmpOverflowAutoShrink: _config.EnableTmpOverflowAutoShrink,
                 TextureImageTranslation: _config.TextureImageTranslation,
                 LlamaCpp: _config.LlamaCpp)
             ,

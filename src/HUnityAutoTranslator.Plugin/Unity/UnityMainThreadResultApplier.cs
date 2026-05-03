@@ -543,7 +543,10 @@ internal sealed class UnityMainThreadResultApplier
             target.TrySetFontSize(originalSize);
         }
 
-        TryAutoShrinkTmpOverflowingTranslatedText(target, originalSize);
+        if (config.EnableTmpOverflowAutoShrink)
+        {
+            TryAutoShrinkTmpOverflowingTranslatedText(target, originalSize);
+        }
     }
 
     private bool TryAutoShrinkTmpOverflowingTranslatedText(IUnityTextTarget target, float originalSize)

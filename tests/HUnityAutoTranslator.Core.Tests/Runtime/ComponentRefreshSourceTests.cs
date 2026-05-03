@@ -220,7 +220,10 @@ public sealed class ComponentRefreshSourceTests
 
         applyResultBlock.Should().Contain("if (appliedFont)");
         applyResultBlock.Should().Contain("ApplyFontSizeState(target, translatedTextIsActive: _useTranslatedText);");
+        fontStateBlock.Should().Contain("if (config.EnableTmpOverflowAutoShrink)");
         fontStateBlock.Should().Contain("TryAutoShrinkTmpOverflowingTranslatedText(target, originalSize);");
+        fontStateBlock.IndexOf("if (config.EnableTmpOverflowAutoShrink)", StringComparison.Ordinal)
+            .Should().BeLessThan(fontStateBlock.IndexOf("TryAutoShrinkTmpOverflowingTranslatedText(target, originalSize);", StringComparison.Ordinal));
         source.Should().Contain("private bool TryAutoShrinkTmpOverflowingTranslatedText");
         source.Should().Contain("IsTmpTarget(target.ComponentType)");
         source.Should().Contain("IsTmpTruncateOverflowMode(target.Component)");

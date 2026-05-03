@@ -80,6 +80,7 @@ public sealed record ControlPanelState(
     int FontSamplingPointSize,
     FontSizeAdjustmentMode FontSizeAdjustmentMode,
     double FontSizeAdjustmentValue,
+    bool EnableTmpOverflowAutoShrink,
     string? LastError,
     TextureImageTranslationConfig TextureImageTranslation,
     bool TextureImageApiKeyConfigured,

@@ -49,7 +49,8 @@ const form = reactive({
   ReplacementFontFile: "",
   FontSamplingPointSize: 90,
   FontSizeAdjustmentMode: 0,
-  FontSizeAdjustmentValue: 0
+  FontSizeAdjustmentValue: 0,
+  EnableTmpOverflowAutoShrink: false
 });
 
 const formDirty = computed(() => controlPanelStore.dirtyForms.has(formKey));
@@ -238,6 +239,7 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.FontSamplingPointSize = state.FontSamplingPointSize;
   form.FontSizeAdjustmentMode = numberValue(state.FontSizeAdjustmentMode);
   form.FontSizeAdjustmentValue = state.FontSizeAdjustmentValue;
+  form.EnableTmpOverflowAutoShrink = state.EnableTmpOverflowAutoShrink;
   setDirtyForm(formKey, false);
 }
 
@@ -271,7 +273,8 @@ function readConfig(): UpdateConfigRequest {
     ReplacementFontFile: form.ReplacementFontFile,
     FontSamplingPointSize: numberValue(form.FontSamplingPointSize),
     FontSizeAdjustmentMode: numberValue(form.FontSizeAdjustmentMode),
-    FontSizeAdjustmentValue: numberValue(form.FontSizeAdjustmentValue)
+    FontSizeAdjustmentValue: numberValue(form.FontSizeAdjustmentValue),
+    EnableTmpOverflowAutoShrink: form.EnableTmpOverflowAutoShrink
   };
 }
 
@@ -403,6 +406,11 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
             <input id="fontSizeAdjustmentEnabled" v-model="fontSizeAdjustmentEnabled" type="checkbox">
             <Wand2 class="field-label-icon" />
             启用字号调整
+          </label>
+          <label class="check font-size-adjustment-toggle help-target" data-help="默认关闭；开启后只有 TMP 译文在截断模式下溢出时，才会尝试临时缩小字号以避免裁切。">
+            <input id="enableTmpOverflowAutoShrink" v-model="form.EnableTmpOverflowAutoShrink" type="checkbox">
+            <Maximize2 class="field-label-icon" />
+            TMP 溢出自动缩小
           </label>
           <label v-if="fontSizeAdjustmentEnabled" class="field font-size-value-field help-target" data-help="按比例时填百分比增减；固定增减时填字号点数增减，负数会缩小译文。">
             <span class="field-label"><Maximize2 class="field-label-icon" />字号调整值</span>

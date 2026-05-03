@@ -517,6 +517,9 @@ public sealed class ControlPanelVueSourceTests
         pluginPageSource.Should().Contain("id=\"fontSizeAdjustmentValue\"");
         pluginPageSource.Should().Contain("id=\"fontSizeAdjustmentModePercent\"");
         pluginPageSource.Should().Contain("id=\"fontSizeAdjustmentModePoints\"");
+        pluginPageSource.Should().Contain("id=\"enableTmpOverflowAutoShrink\"");
+        pluginPageSource.Should().Contain("EnableTmpOverflowAutoShrink: form.EnableTmpOverflowAutoShrink");
+        pluginPageSource.Should().Contain("form.EnableTmpOverflowAutoShrink = state.EnableTmpOverflowAutoShrink;");
         pluginPageSource.Should().NotContain("<select id=\"fontSizeAdjustmentMode\"");
         pluginPageSource.Should().NotContain("class=\"font-size-adjustment-row\"");
         cssSource.Should().NotContain(".font-size-adjustment-row");

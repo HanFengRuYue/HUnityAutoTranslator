@@ -63,6 +63,7 @@ public sealed class CfgControlPanelSettingsStoreTests
                 CustomPrompt: null,
                 FontSizeAdjustmentMode: FontSizeAdjustmentMode.Percent,
                 FontSizeAdjustmentValue: -10,
+                EnableTmpOverflowAutoShrink: true,
                 TranslationQuality: TranslationQualityConfig.Default() with
                 {
                     Mode = "custom",
@@ -89,6 +90,7 @@ public sealed class CfgControlPanelSettingsStoreTests
         cfg.Should().NotContain("OpenAICompatibleExtraBodyJson =");
         cfg.Should().NotContain("ApiKey =");
         cfg.Should().Contain("FontSizeAdjustmentMode = Percent");
+        cfg.Should().Contain("EnableTmpOverflowAutoShrink = true");
         cfg.Should().Contain("BatchSize = 2048");
         cfg.Should().Contain("UBatchSize = 512");
         cfg.Should().Contain("FlashAttentionMode = auto");
@@ -197,6 +199,7 @@ public sealed class CfgControlPanelSettingsStoreTests
             FontSamplingPointSize = 220
             FontSizeAdjustmentMode = Points
             FontSizeAdjustmentValue = -200
+            EnableTmpOverflowAutoShrink = true
 
             [llama.cpp]
             ModelPath = D:\Models\game-ui.gguf
@@ -243,6 +246,7 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.FontSamplingPointSize.Should().Be(180);
         config.FontSizeAdjustmentMode.Should().Be(FontSizeAdjustmentMode.Points);
         config.FontSizeAdjustmentValue.Should().Be(-99);
+        config.EnableTmpOverflowAutoShrink.Should().BeTrue();
         config.CustomPrompt.Should().Be("System {TargetLanguage}");
         config.PromptTemplates.SystemPrompt.Should().Be("System {TargetLanguage}");
         config.PromptTemplates.BatchUserPrompt.Should().Be("Batch {InputJson}");
