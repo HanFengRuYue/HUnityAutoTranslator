@@ -365,6 +365,46 @@ public sealed class WorkerPoolTests
     }
 
     [Fact]
+    public async Task WorkerPool_batches_same_setting_group_switch_states_even_when_concurrency_is_higher_than_pending_count()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var provider = new CapturingProvider(new[]
+        {
+            "\u5f00\u542f",
+            "\u5173\u95ed",
+            "\u5f00\u542f",
+            "\u5173\u95ed",
+            "\u5f00\u542f",
+            "\u5173\u95ed"
+        });
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            MaxConcurrentRequests = 4,
+            MaxBatchCharacters = 1800,
+            GameTitle = "\u6c60\u888b\u30bb\u30af\u30b5\u30ed\u30a4\u30c9\u5973\u5b66\u5712"
+        };
+        var pool = new TranslationWorkerPool(queue, dispatcher, provider, new ProviderRateLimiter(600), config, cache);
+
+        queue.Enqueue(TranslationJob.Create("auto-on", "On", TranslationPriority.VisibleUi, new TranslationCacheContext("Top Vertical", "Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Auto Message Lady/Switch/Label On", "TMPro.TMP_Text")));
+        queue.Enqueue(TranslationJob.Create("auto-off", "Off", TranslationPriority.VisibleUi, new TranslationCacheContext("Top Vertical", "Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Auto Message Lady/Switch/Label Off", "TMPro.TMP_Text")));
+        queue.Enqueue(TranslationJob.Create("emotion-on", "On", TranslationPriority.VisibleUi, new TranslationCacheContext("Top Vertical", "Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Emotion Effect Enable/Switch/Label On", "TMPro.TMP_Text")));
+        queue.Enqueue(TranslationJob.Create("emotion-off", "Off", TranslationPriority.VisibleUi, new TranslationCacheContext("Top Vertical", "Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Emotion Effect Enable/Switch/Label Off", "TMPro.TMP_Text")));
+        queue.Enqueue(TranslationJob.Create("particle-on", "On", TranslationPriority.VisibleUi, new TranslationCacheContext("Top Vertical", "Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Particle Effect Enable/Switch/Label On", "TMPro.TMP_Text")));
+        queue.Enqueue(TranslationJob.Create("particle-off", "Off", TranslationPriority.VisibleUi, new TranslationCacheContext("Top Vertical", "Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Particle Effect Enable/Switch/Label Off", "TMPro.TMP_Text")));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        provider.Requests.Should().ContainSingle();
+        var request = provider.Requests[0];
+        request.ProtectedTexts.Should().Equal("On", "Off", "On", "Off", "On", "Off");
+        request.UserPrompt.Should().Contain("\"component_hierarchy\":\"Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Auto Message Lady/Switch/Label On\"");
+        request.UserPrompt.Should().Contain("\"option_container_hierarchy\":\"Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Auto Message Lady\"");
+        request.UserPrompt.Should().Contain("\"setting_group_hierarchy\":\"Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group\"");
+    }
+
+    [Fact]
     public async Task WorkerPool_emits_debug_snapshot_for_quality_context()
     {
         var queue = new TranslationJobQueue();
@@ -403,7 +443,7 @@ public sealed class WorkerPoolTests
         snapshots.Should().ContainSingle();
         var snapshot = snapshots[0];
         snapshot.Phase.Should().Be("translate");
-        snapshot.PromptPolicyVersion.Should().Be("prompt-v5");
+        snapshot.PromptPolicyVersion.Should().Be("prompt-v6");
         snapshot.GameTitle.Should().Be("The Glitched Attraction");
         snapshot.Items.Should().HaveCount(2);
         snapshot.Items[0].SourceText.Should().Be("Ultra");

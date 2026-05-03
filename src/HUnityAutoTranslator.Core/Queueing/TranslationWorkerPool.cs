@@ -431,6 +431,8 @@ public sealed class TranslationWorkerPool
                 jobs[i].SourceText,
                 effectiveContext.SceneName,
                 effectiveContext.ComponentHierarchy,
+                PromptItemClassifier.GetOptionContainerHierarchy(effectiveContext.ComponentHierarchy),
+                PromptItemClassifier.GetSettingGroupHierarchy(effectiveContext.ComponentHierarchy),
                 effectiveContext.ComponentType,
                 PromptItemClassifier.BuildHints(jobs[i].SourceText, effectiveContext, _config.GameTitle),
                 candidateTranslations != null && i < candidateTranslations.Count ? candidateTranslations[i] : null,

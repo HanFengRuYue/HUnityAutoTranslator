@@ -1,9 +1,12 @@
+using HUnityAutoTranslator.Core.Prompts;
 using HUnityAutoTranslator.Core.Text;
 
 namespace HUnityAutoTranslator.Core.Queueing;
 
 public sealed class TranslationJobQueue
 {
+    private const int MaxRelatedBatchItems = 16;
+
     private readonly object _gate = new();
     private readonly Dictionary<string, TranslationJob> _pendingBySource = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TranslationJob> _deferredBySource = new(StringComparer.Ordinal);
@@ -158,12 +161,30 @@ public sealed class TranslationJobQueue
         {
             var selected = new List<(string Key, TranslationJob Job)>();
             var characters = 0;
+            string? relatedGroupKey = null;
+            var relatedBatchExpansion = false;
+            var effectiveMaxItems = Math.Max(1, maxItems);
 
             foreach (var item in _pendingBySource
                 .OrderByDescending(item => item.Value.Priority)
                 .ThenBy(item => _sequences[item.Key]))
             {
-                if (selected.Count >= maxItems)
+                if (selected.Count == 0)
+                {
+                    relatedGroupKey = CreateRelatedBatchGroupKey(item.Value);
+                    relatedBatchExpansion = !string.IsNullOrEmpty(relatedGroupKey);
+                    if (relatedBatchExpansion)
+                    {
+                        effectiveMaxItems = Math.Max(effectiveMaxItems, MaxRelatedBatchItems);
+                    }
+                }
+                else if (relatedBatchExpansion &&
+                    !string.Equals(relatedGroupKey, CreateRelatedBatchGroupKey(item.Value), StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (selected.Count >= effectiveMaxItems)
                 {
                     break;
                 }
@@ -214,5 +235,30 @@ public sealed class TranslationJobQueue
             source,
             job.Context.SceneName ?? string.Empty,
             job.Context.ComponentHierarchy ?? string.Empty);
+    }
+
+    private static string CreateRelatedBatchGroupKey(TranslationJob job)
+    {
+        var settingGroup = PromptItemClassifier.GetSettingGroupHierarchy(job.Context.ComponentHierarchy);
+        if (string.IsNullOrWhiteSpace(settingGroup))
+        {
+            return string.Empty;
+        }
+
+        if (!PromptItemClassifier.IsToggleStateText(job.SourceText))
+        {
+            return string.Empty;
+        }
+
+        var source = TextNormalizer.NormalizeForCache(job.SourceText);
+        if (source.Length == 0 || source.Length > 32)
+        {
+            return string.Empty;
+        }
+
+        return string.Join(
+            "\u001f",
+            job.Context.SceneName ?? string.Empty,
+            settingGroup);
     }
 }

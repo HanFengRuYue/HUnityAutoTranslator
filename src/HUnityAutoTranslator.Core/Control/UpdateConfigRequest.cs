@@ -62,6 +62,6 @@ public sealed record UpdateConfigRequest(
     int? FontSamplingPointSize = null,
     FontSizeAdjustmentMode? FontSizeAdjustmentMode = null,
     double? FontSizeAdjustmentValue = null,
-    bool? EnableTmpOverflowAutoShrink = null,
+    bool? EnableTmpNativeAutoSize = null,
     TextureImageTranslationConfig? TextureImageTranslation = null,
     LlamaCppConfig? LlamaCpp = null);

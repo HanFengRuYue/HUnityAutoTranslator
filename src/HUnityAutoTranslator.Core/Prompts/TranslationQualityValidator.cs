@@ -87,6 +87,7 @@ public static class TranslationQualityValidator
         }
 
         AddSameParentCollisions(visibleSourceTexts, visibleTranslatedTexts, contextByIndex, isSimplifiedChinese, config, gameTitle, failures);
+        AddSameSettingGroupSourceVariants(visibleSourceTexts, visibleTranslatedTexts, contextByIndex, isSimplifiedChinese, config, gameTitle, failures);
         return failures;
     }
 
@@ -145,6 +146,11 @@ public static class TranslationQualityValidator
         if (config.RejectLiteralStateTranslation && IsLiteralStateTranslation(sourceText, translatedText, hints))
         {
             return new TranslationQualityFailure(index, "state text is too literal for a game UI setting");
+        }
+
+        if (config.RejectShortSettingValue && IsSuspiciousShortSwitchStateTranslation(sourceText, translatedText, hints))
+        {
+            return new TranslationQualityFailure(index, "switch state translation is too short or inconsistent");
         }
 
         return null;
@@ -212,6 +218,68 @@ public static class TranslationQualityValidator
                     j,
                     "different option texts under the same parent produced the same translation"));
                 failedIndexes.Add(j);
+            }
+        }
+    }
+
+    private static void AddSameSettingGroupSourceVariants(
+        IReadOnlyList<string> sourceTexts,
+        IReadOnlyList<string> translatedTexts,
+        IReadOnlyDictionary<int, PromptItemContext> contextByIndex,
+        bool isSimplifiedChinese,
+        TranslationQualityConfig config,
+        string? gameTitle,
+        List<TranslationQualityFailure> failures)
+    {
+        if (!isSimplifiedChinese || !config.RejectSameParentOptionCollision)
+        {
+            return;
+        }
+
+        var rows = new List<(int Index, string SourceKey, string TranslationKey, string PreferredTranslation, string GroupKey, bool OptionLike)>();
+        for (var i = 0; i < sourceTexts.Count; i++)
+        {
+            if (!contextByIndex.TryGetValue(i, out var context))
+            {
+                continue;
+            }
+
+            var settingGroup = PromptItemClassifier.GetSettingGroupHierarchy(context.ComponentHierarchy);
+            if (string.IsNullOrWhiteSpace(settingGroup))
+            {
+                continue;
+            }
+
+            var hints = PromptItemClassifier.BuildHints(sourceTexts[i], context, gameTitle);
+            var sourceKey = PromptItemClassifier.NormalizeForMatch(sourceTexts[i]).ToLowerInvariant();
+            rows.Add((
+                i,
+                sourceKey,
+                PromptItemClassifier.NormalizeForMatch(translatedTexts[i]),
+                PreferredSwitchTranslation(sourceKey),
+                string.Join("\u001f", context.SceneName ?? string.Empty, settingGroup),
+                IsOptionLike(hints)));
+        }
+
+        foreach (var group in rows
+            .Where(row => row.OptionLike && row.SourceKey.Length > 0)
+            .GroupBy(row => string.Join("\u001f", row.GroupKey, row.SourceKey)))
+        {
+            var translations = group.Select(row => row.TranslationKey).Where(value => value.Length > 0).Distinct(StringComparer.Ordinal).ToArray();
+            if (translations.Length <= 1)
+            {
+                continue;
+            }
+
+            var preferred = group.Select(row => row.PreferredTranslation).FirstOrDefault(value => value.Length > 0);
+            var baseline = string.IsNullOrEmpty(preferred) || !translations.Contains(preferred, StringComparer.Ordinal)
+                ? group.First().TranslationKey
+                : preferred;
+            foreach (var row in group.Where(row => !string.Equals(row.TranslationKey, baseline, StringComparison.Ordinal)))
+            {
+                failures.Add(new TranslationQualityFailure(
+                    row.Index,
+                    "same source switch states under the same setting group produced different translations"));
             }
         }
     }
@@ -285,6 +353,32 @@ public static class TranslationQualityValidator
         var source = PromptItemClassifier.NormalizeForMatch(sourceText).ToLowerInvariant();
         return source is "activated" or "active" or "enabled" &&
             (translatedText ?? string.Empty).Contains("\u6fc0\u6d3b", StringComparison.Ordinal);
+    }
+
+    private static bool IsSuspiciousShortSwitchStateTranslation(
+        string sourceText,
+        string translatedText,
+        IReadOnlyList<string> hints)
+    {
+        if (!hints.Contains("toggle_state") && !hints.Contains("settings_value"))
+        {
+            return false;
+        }
+
+        var source = PromptItemClassifier.NormalizeForMatch(sourceText).ToLowerInvariant();
+        var translation = PromptItemClassifier.NormalizeForMatch(translatedText);
+        return (source == "on" && translation == "\u5f00") ||
+            (source == "off" && translation == "\u5173");
+    }
+
+    private static string PreferredSwitchTranslation(string sourceKey)
+    {
+        return sourceKey switch
+        {
+            "on" => "\u5f00\u542f",
+            "off" => "\u5173\u95ed",
+            _ => string.Empty
+        };
     }
 
     private static bool HasGeneratedOuterSymbols(string sourceText, string translatedText)

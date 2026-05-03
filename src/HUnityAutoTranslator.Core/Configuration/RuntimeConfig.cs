@@ -58,7 +58,7 @@ public sealed record RuntimeConfig(
     int FontSamplingPointSize,
     FontSizeAdjustmentMode FontSizeAdjustmentMode,
     double FontSizeAdjustmentValue,
-    bool EnableTmpOverflowAutoShrink,
+    bool EnableTmpNativeAutoSize,
     TextureImageTranslationConfig TextureImageTranslation,
     LlamaCppConfig LlamaCpp)
 {
@@ -122,7 +122,7 @@ public sealed record RuntimeConfig(
             FontSamplingPointSize: 90,
             FontSizeAdjustmentMode: FontSizeAdjustmentMode.Disabled,
             FontSizeAdjustmentValue: 0,
-            EnableTmpOverflowAutoShrink: false,
+            EnableTmpNativeAutoSize: false,
             TextureImageTranslation: TextureImageTranslationConfig.Default(),
             LlamaCpp: LlamaCppConfig.Default());
     }

@@ -197,4 +197,48 @@ public sealed class TranslationQualityValidatorTests
 
         result.IsValid.Should().BeTrue();
     }
+
+    [Theory]
+    [InlineData("On", "\u5f00")]
+    [InlineData("Off", "\u5173")]
+    public void Quality_validator_rejects_single_character_switch_state_translations(string sourceText, string translatedText)
+    {
+        var result = TranslationQualityValidator.ValidateBatch(
+            new[] { sourceText },
+            new[] { translatedText },
+            new[] { new PromptItemContext(
+                0,
+                "Top Vertical",
+                "Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Auto Message Lady/Switch/Label On",
+                "TMPro.TMP_Text") },
+            "zh-Hans",
+            gameTitle: "\u6c60\u888b\u30bb\u30af\u30b5\u30ed\u30a4\u30c9\u5973\u5b66\u5712");
+
+        result.IsValid.Should().BeFalse();
+        result.Reason.Should().Be("switch state translation is too short or inconsistent");
+    }
+
+    [Fact]
+    public void Quality_validator_rejects_same_source_switch_state_variants_in_same_setting_group()
+    {
+        var failures = TranslationQualityValidator.FindFailures(
+            new[] { "On", "On", "Off", "Off" },
+            new[] { "\u5f00\u542f", "\u5f00", "\u5173\u95ed", "\u5173" },
+            new[]
+            {
+                new PromptItemContext(0, "Top Vertical", "Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Auto Message Lady/Switch/Label On", "TMPro.TMP_Text"),
+                new PromptItemContext(1, "Top Vertical", "Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Particle Effect Enable/Switch/Label On", "TMPro.TMP_Text"),
+                new PromptItemContext(2, "Top Vertical", "Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Auto Message Lady/Switch/Label Off", "TMPro.TMP_Text"),
+                new PromptItemContext(3, "Top Vertical", "Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Particle Effect Enable/Switch/Label Off", "TMPro.TMP_Text")
+            },
+            "zh-Hans",
+            "\u6c60\u888b\u30bb\u30af\u30b5\u30ed\u30a4\u30c9\u5973\u5b66\u5712");
+
+        failures.Should().Contain(failure =>
+            failure.TextIndex == 1 &&
+            failure.Reason == "same source switch states under the same setting group produced different translations");
+        failures.Should().Contain(failure =>
+            failure.TextIndex == 3 &&
+            failure.Reason == "same source switch states under the same setting group produced different translations");
+    }
 }

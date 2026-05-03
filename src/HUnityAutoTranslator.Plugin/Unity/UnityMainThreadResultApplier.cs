@@ -12,6 +12,7 @@ internal sealed class UnityMainThreadResultApplier
 {
     private const int MaxPendingComponentRefreshes = 512;
     private const int MaxFontSizeAdjustmentLogCount = 20;
+    private const float TmpNativeAutoSizeMinRatio = 0.75f;
     private const float TmpOverflowAutoShrinkFitRatio = 0.92f;
     private const float TmpOverflowAutoShrinkStepRatio = 0.9f;
     private const float TmpOverflowAutoShrinkMinimumScale = 0.45f;
@@ -23,6 +24,7 @@ internal sealed class UnityMainThreadResultApplier
     private readonly Func<RuntimeConfig> _configProvider;
     private readonly Action<string>? _fontSizeAdjustmentLogger;
     private readonly Dictionary<string, float> _originalFontSizes = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TmpAutoSizeState> _originalTmpAutoSizeStates = new(StringComparer.Ordinal);
     private readonly HashSet<string> _loggedFontSizeAdjustmentTargets = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TranslationResult> _pendingComponentRefreshes = new(StringComparer.Ordinal);
     private readonly RoundRobinCursor _reapplyCursor = new();
@@ -292,6 +294,7 @@ internal sealed class UnityMainThreadResultApplier
             target.SetText(replacement);
         }
 
+        RestoreTmpAutoSizeState(target);
         RestoreOriginalFontSize(target);
         _loggedFontSizeAdjustmentTargets.Remove(target.Id);
         return true;
@@ -523,30 +526,112 @@ internal sealed class UnityMainThreadResultApplier
         var config = _configProvider();
         if (!translatedTextIsActive)
         {
+            RestoreTmpAutoSizeState(target);
             RestoreOriginalFontSize(target);
             return;
         }
 
+        if (config.EnableTmpNativeAutoSize)
+        {
+            RememberOriginalTmpAutoSizeState(target);
+        }
+        else
+        {
+            RestoreTmpAutoSizeState(target);
+        }
+
+        var desiredSize = originalSize;
         if (FontSizeAdjustment.IsEnabled(config.FontSizeAdjustmentMode, config.FontSizeAdjustmentValue))
         {
-            var adjustedSize = FontSizeAdjustment.Calculate(
+            desiredSize = FontSizeAdjustment.Calculate(
                 originalSize,
                 config.FontSizeAdjustmentMode,
                 config.FontSizeAdjustmentValue);
-            if (target.TrySetFontSize(adjustedSize))
+            if (target.TrySetFontSize(desiredSize))
             {
-                LogFontSizeAdjustment(target, originalSize, adjustedSize, config);
+                LogFontSizeAdjustment(target, originalSize, desiredSize, config);
             }
         }
         else
         {
-            target.TrySetFontSize(originalSize);
+            target.TrySetFontSize(desiredSize);
         }
 
-        if (config.EnableTmpOverflowAutoShrink)
+        if (config.EnableTmpNativeAutoSize &&
+            !TryApplyTmpNativeAutoSize(target, desiredSize))
         {
+            target.TrySetFontSize(desiredSize);
             TryAutoShrinkTmpOverflowingTranslatedText(target, originalSize);
         }
+    }
+
+    private bool TryApplyTmpNativeAutoSize(IUnityTextTarget target, float desiredSize)
+    {
+        if (!IsTmpTarget(target.ComponentType) ||
+            target.Component == null ||
+            desiredSize <= 0 ||
+            !RememberOriginalTmpAutoSizeState(target))
+        {
+            return false;
+        }
+
+        var maxSize = Math.Max(1f, desiredSize);
+        var minSize = Math.Min(maxSize, Math.Max(1f, maxSize * TmpNativeAutoSizeMinRatio));
+        if (!target.TrySetFontSize(maxSize) ||
+            !TrySetTmpValue(target.Component, "fontSizeMax", maxSize) ||
+            !TrySetTmpValue(target.Component, "fontSizeMin", minSize) ||
+            !TrySetTmpValue(target.Component, "enableAutoSizing", true))
+        {
+            RestoreTmpAutoSizeState(target);
+            return false;
+        }
+
+        TrySetTmpValue(target.Component, "havePropertiesChanged", true);
+        RefreshTmpLayout(target.Component);
+        return true;
+    }
+
+    private bool RememberOriginalTmpAutoSizeState(IUnityTextTarget target)
+    {
+        if (_originalTmpAutoSizeStates.ContainsKey(target.Id))
+        {
+            return true;
+        }
+
+        if (!IsTmpTarget(target.ComponentType) ||
+            target.Component == null ||
+            !target.TryGetFontSize(out var fontSize) ||
+            fontSize <= 0 ||
+            ReadTmpBool(target.Component, "enableAutoSizing") is not { } enableAutoSizing ||
+            !ReadTmpFloatValue(target.Component, "fontSizeMin", out var fontSizeMin) ||
+            !ReadTmpFloatValue(target.Component, "fontSizeMax", out var fontSizeMax))
+        {
+            return false;
+        }
+
+        _originalTmpAutoSizeStates[target.Id] = new TmpAutoSizeState(
+            enableAutoSizing,
+            fontSize,
+            fontSizeMin,
+            fontSizeMax);
+        return true;
+    }
+
+    private void RestoreTmpAutoSizeState(IUnityTextTarget target)
+    {
+        if (!_originalTmpAutoSizeStates.TryGetValue(target.Id, out var state) ||
+            target.Component == null)
+        {
+            return;
+        }
+
+        TrySetTmpValue(target.Component, "enableAutoSizing", false);
+        TrySetTmpValue(target.Component, "fontSizeMin", state.FontSizeMin);
+        TrySetTmpValue(target.Component, "fontSizeMax", state.FontSizeMax);
+        target.TrySetFontSize(state.FontSize);
+        TrySetTmpValue(target.Component, "enableAutoSizing", state.EnableAutoSizing);
+        TrySetTmpValue(target.Component, "havePropertiesChanged", true);
+        RefreshTmpLayout(target.Component);
     }
 
     private bool TryAutoShrinkTmpOverflowingTranslatedText(IUnityTextTarget target, float originalSize)
@@ -615,19 +700,24 @@ internal sealed class UnityMainThreadResultApplier
 
     private static bool ReadTmpFloat(UnityEngine.Object component, string name, out float value)
     {
+        return ReadTmpFloatValue(component, name, out value) && value > 0;
+    }
+
+    private static bool ReadTmpFloatValue(UnityEngine.Object component, string name, out float value)
+    {
         value = 0;
         var rawValue = ReadTmpValue(component, name);
         switch (rawValue)
         {
             case float floatValue:
                 value = floatValue;
-                return value > 0;
+                return !float.IsNaN(value) && !float.IsInfinity(value);
             case double doubleValue:
                 value = (float)doubleValue;
-                return value > 0;
+                return !float.IsNaN(value) && !float.IsInfinity(value);
             case int intValue:
                 value = intValue;
-                return value > 0;
+                return true;
             default:
                 return false;
         }
@@ -702,6 +792,11 @@ internal sealed class UnityMainThreadResultApplier
 
     private static void SetTmpValue(UnityEngine.Object component, string name, object value)
     {
+        _ = TrySetTmpValue(component, name, value);
+    }
+
+    private static bool TrySetTmpValue(UnityEngine.Object component, string name, object value)
+    {
         var type = component.GetType();
         var property = type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
         if (property is { CanWrite: true })
@@ -709,7 +804,7 @@ internal sealed class UnityMainThreadResultApplier
             try
             {
                 property.SetValue(component, value, null);
-                return;
+                return true;
             }
             catch
             {
@@ -719,15 +814,17 @@ internal sealed class UnityMainThreadResultApplier
         var field = type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
         if (field == null)
         {
-            return;
+            return false;
         }
 
         try
         {
             field.SetValue(component, value);
+            return true;
         }
         catch
         {
+            return false;
         }
     }
 
@@ -789,6 +886,7 @@ internal sealed class UnityMainThreadResultApplier
         _targets.Remove(targetId);
         _writebacks.Forget(targetId);
         _originalFontSizes.Remove(targetId);
+        _originalTmpAutoSizeStates.Remove(targetId);
         _loggedFontSizeAdjustmentTargets.Remove(targetId);
     }
 
@@ -835,4 +933,10 @@ internal sealed class UnityMainThreadResultApplier
         _fontSizeAdjustmentLogger(
             $"TMP 译文字号已自动缩小以避免裁切：{target.ComponentType} {originalSize:0.##} -> {adjustedSize:0.##}。");
     }
+
+    private sealed record TmpAutoSizeState(
+        bool EnableAutoSizing,
+        float FontSize,
+        float FontSizeMin,
+        float FontSizeMax);
 }

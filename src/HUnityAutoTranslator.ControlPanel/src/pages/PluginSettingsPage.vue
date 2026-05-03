@@ -50,7 +50,7 @@ const form = reactive({
   FontSamplingPointSize: 90,
   FontSizeAdjustmentMode: 0,
   FontSizeAdjustmentValue: 0,
-  EnableTmpOverflowAutoShrink: false
+  EnableTmpNativeAutoSize: false
 });
 
 const formDirty = computed(() => controlPanelStore.dirtyForms.has(formKey));
@@ -239,7 +239,7 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.FontSamplingPointSize = state.FontSamplingPointSize;
   form.FontSizeAdjustmentMode = numberValue(state.FontSizeAdjustmentMode);
   form.FontSizeAdjustmentValue = state.FontSizeAdjustmentValue;
-  form.EnableTmpOverflowAutoShrink = state.EnableTmpOverflowAutoShrink;
+  form.EnableTmpNativeAutoSize = state.EnableTmpNativeAutoSize;
   setDirtyForm(formKey, false);
 }
 
@@ -274,7 +274,7 @@ function readConfig(): UpdateConfigRequest {
     FontSamplingPointSize: numberValue(form.FontSamplingPointSize),
     FontSizeAdjustmentMode: numberValue(form.FontSizeAdjustmentMode),
     FontSizeAdjustmentValue: numberValue(form.FontSizeAdjustmentValue),
-    EnableTmpOverflowAutoShrink: form.EnableTmpOverflowAutoShrink
+    EnableTmpNativeAutoSize: form.EnableTmpNativeAutoSize
   };
 }
 
@@ -407,10 +407,10 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
             <Wand2 class="field-label-icon" />
             启用字号调整
           </label>
-          <label class="check font-size-adjustment-toggle help-target" data-help="默认关闭；开启后只有 TMP 译文在截断模式下溢出时，才会尝试临时缩小字号以避免裁切。">
-            <input id="enableTmpOverflowAutoShrink" v-model="form.EnableTmpOverflowAutoShrink" type="checkbox">
+          <label class="check font-size-adjustment-toggle help-target" data-help="默认关闭；使用 TextMeshPro 自带 Auto Size，最大不超过原字号，最小为原字号的 75%。">
+            <input id="enableTmpNativeAutoSize" v-model="form.EnableTmpNativeAutoSize" type="checkbox">
             <Maximize2 class="field-label-icon" />
-            TMP 溢出自动缩小
+            TMP 原生字号适配
           </label>
           <label v-if="fontSizeAdjustmentEnabled" class="field font-size-value-field help-target" data-help="按比例时填百分比增减；固定增减时填字号点数增减，负数会缩小译文。">
             <span class="field-label"><Maximize2 class="field-label-icon" />字号调整值</span>

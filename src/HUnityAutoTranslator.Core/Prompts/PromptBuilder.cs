@@ -83,7 +83,9 @@ public static class PromptBuilder
                     text_index = item.TextIndex,
                     scene = NullIfWhiteSpace(item.SceneName),
                     component_hierarchy = NullIfWhiteSpace(item.ComponentHierarchy),
-                    parent_hierarchy = GetParentHierarchy(item.ComponentHierarchy),
+                    parent_hierarchy = PromptItemClassifier.GetParentHierarchy(item.ComponentHierarchy),
+                    option_container_hierarchy = PromptItemClassifier.GetOptionContainerHierarchy(item.ComponentHierarchy),
+                    setting_group_hierarchy = PromptItemClassifier.GetSettingGroupHierarchy(item.ComponentHierarchy),
                     component_type = NullIfWhiteSpace(item.ComponentType)
                 }),
                 Formatting.None);
@@ -297,18 +299,6 @@ public static class PromptBuilder
     private static string? NullIfWhiteSpace(string? value)
     {
         return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
-    }
-
-    private static string? GetParentHierarchy(string? componentHierarchy)
-    {
-        var normalized = NullIfWhiteSpace(componentHierarchy);
-        if (normalized == null)
-        {
-            return null;
-        }
-
-        var index = normalized.LastIndexOf('/');
-        return index <= 0 ? null : normalized[..index];
     }
 
     private static string ResolveTargetLanguageName(string targetLanguage)

@@ -93,6 +93,35 @@ public static class PromptItemClassifier
         return index <= 0 ? null : normalized[..index];
     }
 
+    public static string? GetOptionContainerHierarchy(string? componentHierarchy)
+    {
+        var normalized = string.IsNullOrWhiteSpace(componentHierarchy) ? null : componentHierarchy.Trim();
+        if (normalized == null)
+        {
+            return null;
+        }
+
+        var segments = normalized.Split(new[] { '/' }, StringSplitOptions.RemoveEmptyEntries);
+        if (segments.Length <= 1)
+        {
+            return null;
+        }
+
+        var switchIndex = Array.FindIndex(segments, segment => string.Equals(segment.Trim(), "Switch", StringComparison.OrdinalIgnoreCase));
+        if (switchIndex > 0)
+        {
+            return JoinSegments(segments, switchIndex);
+        }
+
+        return JoinSegments(segments, segments.Length - 1);
+    }
+
+    public static string? GetSettingGroupHierarchy(string? componentHierarchy)
+    {
+        var optionContainer = GetOptionContainerHierarchy(componentHierarchy);
+        return GetParentHierarchy(optionContainer);
+    }
+
     public static bool IsSimplifiedChineseTarget(string targetLanguage)
     {
         var normalized = (targetLanguage ?? string.Empty).Trim().ToLowerInvariant();
@@ -126,6 +155,16 @@ public static class PromptItemClassifier
     {
         var normalized = NormalizeForMatch(value).ToLowerInvariant();
         return normalized is "on" or "off" or "activated" or "active" or "inactive" or "enabled" or "disabled";
+    }
+
+    internal static bool IsToggleStateText(string value)
+    {
+        return IsToggleStateSource(value);
+    }
+
+    private static string JoinSegments(IReadOnlyList<string> segments, int count)
+    {
+        return count <= 0 ? string.Empty : string.Join("/", segments.Take(count).Select(segment => segment.Trim()));
     }
 
     private static bool ContainsAny(string value, params string[] needles)

@@ -24,9 +24,9 @@ public sealed class PromptPolicyTests
     }
 
     [Fact]
-    public void Prompt_policy_version_is_v5_after_per_character_rich_text_rebuild()
+    public void Prompt_policy_version_is_v6_after_short_state_consistency_rules()
     {
-        TextPipeline.PromptPolicyVersion.Should().Be("prompt-v5");
+        TextPipeline.PromptPolicyVersion.Should().Be("prompt-v6");
     }
 
     [Fact]
@@ -169,6 +169,8 @@ public sealed class PromptPolicyTests
         prompt.Should().Contain("\"component_hierarchy\":\"Canvas/Settings/Textures/Quality\"");
         prompt.Should().Contain("\"text_index\":1");
         prompt.Should().Contain("\"scene\":\"MainMenu\"");
+        prompt.Should().Contain("\"option_container_hierarchy\":\"Canvas/Settings/Toggles\"");
+        prompt.Should().Contain("\"setting_group_hierarchy\":\"Canvas/Settings\"");
         prompt.Should().Contain("Item translation hints");
         prompt.Should().Contain("\"settings_value\"");
         prompt.Should().Contain("\"toggle_state\"");

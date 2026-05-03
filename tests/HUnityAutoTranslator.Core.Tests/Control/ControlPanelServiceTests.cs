@@ -1015,22 +1015,22 @@ public sealed class ControlPanelServiceTests
     }
 
     [Fact]
-    public void CreateDefault_loads_tmp_overflow_auto_shrink_setting_and_defaults_off()
+    public void CreateDefault_loads_tmp_native_auto_size_setting_and_defaults_off()
     {
         var defaults = ControlPanelService.CreateDefault();
 
-        defaults.GetState().EnableTmpOverflowAutoShrink.Should().BeFalse();
-        defaults.GetConfig().EnableTmpOverflowAutoShrink.Should().BeFalse();
+        defaults.GetState().EnableTmpNativeAutoSize.Should().BeFalse();
+        defaults.GetConfig().EnableTmpNativeAutoSize.Should().BeFalse();
 
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
         var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
 
-        first.UpdateConfig(new UpdateConfigRequest(EnableTmpOverflowAutoShrink: true));
+        first.UpdateConfig(new UpdateConfigRequest(EnableTmpNativeAutoSize: true));
 
         var second = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
 
-        second.GetState().EnableTmpOverflowAutoShrink.Should().BeTrue();
-        second.GetConfig().EnableTmpOverflowAutoShrink.Should().BeTrue();
+        second.GetState().EnableTmpNativeAutoSize.Should().BeTrue();
+        second.GetConfig().EnableTmpNativeAutoSize.Should().BeTrue();
     }
 
     [Fact]

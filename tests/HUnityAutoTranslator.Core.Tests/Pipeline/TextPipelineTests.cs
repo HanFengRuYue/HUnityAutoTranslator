@@ -312,6 +312,30 @@ public sealed class TextPipelineTests
     }
 
     [Fact]
+    public void Process_reuses_same_setting_group_switch_translation_and_rejects_short_variant()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            GameTitle = "\u6c60\u888b\u30bb\u30af\u30b5\u30ed\u30a4\u30c9\u5973\u5b66\u5712"
+        };
+        var key = TranslationCacheKey.Create("On", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.Set(key, "\u5f00", new TranslationCacheContext("Top Vertical", "Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Auto Message Lady/Switch/Label On", "TMPro.TMP_Text"));
+        cache.Set(key, "\u5f00\u542f", new TranslationCacheContext("Top Vertical", "Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Emotion Effect Enable/Switch/Label On", "TMPro.TMP_Text"));
+        var captureContext = new TranslationCacheContext("Top Vertical", "Canvas - Main Menu/Main Content/Settings (1)/Content/Panel Content/Panels/General/Content/List/Layout Group/Particle Effect Enable/Switch/Label On", "TMPro.TMP_Text");
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.Process(new CapturedText("particle-on", "On", isVisible: true, captureContext));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.UseCachedTranslation);
+        decision.TranslatedText.Should().Be("\u5f00\u542f");
+        queue.PendingCount.Should().Be(0);
+        cache.TryGet(key, captureContext, out var materialized).Should().BeTrue();
+        materialized.Should().Be("\u5f00\u542f");
+    }
+
+    [Fact]
     public void ResolveCachedTranslationOnly_uses_exact_cache_without_queueing_or_recording_pending()
     {
         var cache = new CountingTranslationCache();

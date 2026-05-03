@@ -105,6 +105,12 @@ public static class TranslationCacheReuse
             score += 80;
         }
         else if (Same(
+            PromptItemClassifier.GetSettingGroupHierarchy(candidate.ComponentHierarchy),
+            PromptItemClassifier.GetSettingGroupHierarchy(context.ComponentHierarchy)))
+        {
+            score += 60;
+        }
+        else if (Same(
             PromptItemClassifier.GetParentHierarchy(candidate.ComponentHierarchy),
             PromptItemClassifier.GetParentHierarchy(context.ComponentHierarchy)))
         {

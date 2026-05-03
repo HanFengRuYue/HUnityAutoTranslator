@@ -28,6 +28,8 @@ public sealed record TranslationRequestDebugItem(
     string SourceText,
     string? SceneName,
     string? ComponentHierarchy,
+    string? OptionContainerHierarchy,
+    string? SettingGroupHierarchy,
     string? ComponentType,
     IReadOnlyList<string> Hints,
     string? CandidateTranslation = null,

@@ -114,7 +114,8 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             FontSamplingPointSize: ReadInt(values, FontSection, "FontSamplingPointSize"),
             FontSizeAdjustmentMode: ReadEnum<FontSizeAdjustmentMode>(values, FontSection, "FontSizeAdjustmentMode"),
             FontSizeAdjustmentValue: ReadDouble(values, FontSection, "FontSizeAdjustmentValue"),
-            EnableTmpOverflowAutoShrink: ReadBool(values, FontSection, "EnableTmpOverflowAutoShrink"),
+            EnableTmpNativeAutoSize: ReadBool(values, FontSection, "EnableTmpNativeAutoSize") ??
+                ReadBool(values, FontSection, "EnableTmpOverflowAutoShrink"),
             TextureImageTranslation: BuildTextureImageTranslationConfig(values),
             LlamaCpp: BuildLlamaCppConfig(values));
     }
@@ -346,7 +347,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "构建 TMP 字体资产时使用的采样字号。", "90", "范围：16 到 180。", "FontSamplingPointSize", Int(config.FontSamplingPointSize ?? defaults.FontSamplingPointSize));
         Option(builder, "译文字号调整方式。", "Disabled", "可选：Disabled 不调整、Points 加减点数、Percent 按百分比。", "FontSizeAdjustmentMode", EnumText(config.FontSizeAdjustmentMode ?? defaults.FontSizeAdjustmentMode));
         Option(builder, "译文字号调整值。Points 表示点数，Percent 表示百分比。", "0", "范围：-99 到 300。", "FontSizeAdjustmentValue", Double(config.FontSizeAdjustmentValue ?? defaults.FontSizeAdjustmentValue));
-        Option(builder, "TMP 译文溢出时是否自动缩小字号。", "false", "默认关闭，避免 TMP 自动缩小让译文显示过小；只有确认需要防止裁切时再开启。", "EnableTmpOverflowAutoShrink", Bool(config.EnableTmpOverflowAutoShrink ?? defaults.EnableTmpOverflowAutoShrink));
+        Option(builder, "TMP 译文是否使用 TextMeshPro 原生 Auto Size。", "false", "默认关闭；开启后最大字号不超过原字号，最小字号为原字号的 75%。", "EnableTmpNativeAutoSize", Bool(config.EnableTmpNativeAutoSize ?? defaults.EnableTmpNativeAutoSize));
 
         Section(builder, TextureImageSection);
         builder.AppendLine("# 贴图图片服务配置已迁移到控制面板中的加密配置列表。");

@@ -390,7 +390,7 @@ export interface ControlPanelState {
   FontSamplingPointSize: number;
   FontSizeAdjustmentMode: number | string;
   FontSizeAdjustmentValue: number;
-  EnableTmpOverflowAutoShrink: boolean;
+  EnableTmpNativeAutoSize: boolean;
   LastError: string | null;
   TextureImageTranslation: TextureImageTranslationConfig;
   TextureImageApiKeyConfigured: boolean;
@@ -468,7 +468,7 @@ export interface UpdateConfigRequest {
   FontSamplingPointSize?: number;
   FontSizeAdjustmentMode?: number;
   FontSizeAdjustmentValue?: number;
-  EnableTmpOverflowAutoShrink?: boolean;
+  EnableTmpNativeAutoSize?: boolean;
   TextureImageTranslation?: TextureImageTranslationConfig;
   LlamaCpp?: LlamaCppConfig;
 }

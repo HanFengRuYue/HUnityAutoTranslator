@@ -208,7 +208,7 @@ public sealed class ComponentRefreshSourceTests
     }
 
     [Fact]
-    public void Unity_applier_auto_shrinks_translated_tmp_when_truncate_overflows_after_font_replacement()
+    public void Unity_applier_uses_tmp_native_auto_size_before_manual_overflow_fallback()
     {
         var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));
         var applyResultBlock = source[
@@ -220,10 +220,16 @@ public sealed class ComponentRefreshSourceTests
 
         applyResultBlock.Should().Contain("if (appliedFont)");
         applyResultBlock.Should().Contain("ApplyFontSizeState(target, translatedTextIsActive: _useTranslatedText);");
-        fontStateBlock.Should().Contain("if (config.EnableTmpOverflowAutoShrink)");
+        fontStateBlock.Should().Contain("if (config.EnableTmpNativeAutoSize)");
+        fontStateBlock.Should().Contain("TryApplyTmpNativeAutoSize(target, desiredSize)");
         fontStateBlock.Should().Contain("TryAutoShrinkTmpOverflowingTranslatedText(target, originalSize);");
-        fontStateBlock.IndexOf("if (config.EnableTmpOverflowAutoShrink)", StringComparison.Ordinal)
+        fontStateBlock.IndexOf("TryApplyTmpNativeAutoSize(target, desiredSize)", StringComparison.Ordinal)
             .Should().BeLessThan(fontStateBlock.IndexOf("TryAutoShrinkTmpOverflowingTranslatedText(target, originalSize);", StringComparison.Ordinal));
+        source.Should().Contain("_originalTmpAutoSizeStates");
+        source.Should().Contain("fontSizeMax");
+        source.Should().Contain("fontSizeMin");
+        source.Should().Contain("enableAutoSizing");
+        source.Should().Contain("ForceMeshUpdate");
         source.Should().Contain("private bool TryAutoShrinkTmpOverflowingTranslatedText");
         source.Should().Contain("IsTmpTarget(target.ComponentType)");
         source.Should().Contain("IsTmpTruncateOverflowMode(target.Component)");

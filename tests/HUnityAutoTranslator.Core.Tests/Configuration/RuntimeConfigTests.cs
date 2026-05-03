@@ -49,7 +49,7 @@ public sealed class RuntimeConfigTests
         config.FontSamplingPointSize.Should().Be(90);
         config.FontSizeAdjustmentMode.Should().Be(FontSizeAdjustmentMode.Disabled);
         config.FontSizeAdjustmentValue.Should().Be(0);
-        config.EnableTmpOverflowAutoShrink.Should().BeFalse();
+        config.EnableTmpNativeAutoSize.Should().BeFalse();
     }
 
     [Theory]
