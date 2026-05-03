@@ -208,6 +208,32 @@ public sealed class ComponentRefreshSourceTests
     }
 
     [Fact]
+    public void Unity_applier_auto_shrinks_translated_tmp_when_truncate_overflows_after_font_replacement()
+    {
+        var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));
+        var applyResultBlock = source[
+            source.IndexOf("private bool ApplyResultToTarget", StringComparison.Ordinal)..
+            source.IndexOf("private bool ApplyRestoreSourceToTarget", StringComparison.Ordinal)];
+        var fontStateBlock = source[
+            source.IndexOf("private void ApplyFontSizeState", StringComparison.Ordinal)..
+            source.IndexOf("private void RestoreOriginalFontSize", StringComparison.Ordinal)];
+
+        applyResultBlock.Should().Contain("if (appliedFont)");
+        applyResultBlock.Should().Contain("ApplyFontSizeState(target, translatedTextIsActive: _useTranslatedText);");
+        fontStateBlock.Should().Contain("TryAutoShrinkTmpOverflowingTranslatedText(target, originalSize);");
+        source.Should().Contain("private bool TryAutoShrinkTmpOverflowingTranslatedText");
+        source.Should().Contain("IsTmpTarget(target.ComponentType)");
+        source.Should().Contain("IsTmpTruncateOverflowMode(target.Component)");
+        source.Should().Contain("ReadTmpBool(target.Component, \"isTextOverflowing\")");
+        source.Should().Contain("ReadTmpBool(target.Component, \"isTextTruncated\")");
+        source.Should().Contain("ReadTmpFloat(target.Component, \"preferredHeight\", out var preferredHeight)");
+        source.Should().Contain("TryGetTmpRectHeight(target.Component, out var rectHeight)");
+        source.Should().Contain("target.TrySetFontSize(shrunkSize)");
+        source.Should().Contain("RefreshTmpLayout(target.Component);");
+        source.Should().Contain("RestoreOriginalFontSize(target)");
+    }
+
+    [Fact]
     public void Translation_import_publishes_refreshes_for_rows_modified_since_import_start()
     {
         var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));

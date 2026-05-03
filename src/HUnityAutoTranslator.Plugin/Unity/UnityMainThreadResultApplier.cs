@@ -1,3 +1,4 @@
+using System.Reflection;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Configuration;
@@ -11,6 +12,11 @@ internal sealed class UnityMainThreadResultApplier
 {
     private const int MaxPendingComponentRefreshes = 512;
     private const int MaxFontSizeAdjustmentLogCount = 20;
+    private const float TmpOverflowAutoShrinkFitRatio = 0.92f;
+    private const float TmpOverflowAutoShrinkStepRatio = 0.9f;
+    private const float TmpOverflowAutoShrinkMinimumScale = 0.45f;
+    private const float TmpOverflowAutoShrinkMinimumDelta = 0.25f;
+    private const float TmpOverflowHeightTolerance = 0.5f;
 
     private readonly Dictionary<string, IUnityTextTarget> _targets = new();
     private readonly TranslationWritebackTracker _writebacks = new();
@@ -259,6 +265,11 @@ internal sealed class UnityMainThreadResultApplier
         ForgetPendingComponentRefresh(result);
         var appliedText = TryApplyRemembered(target);
         var appliedFont = ApplyFontForResult(result, target);
+        if (appliedFont)
+        {
+            ApplyFontSizeState(target, translatedTextIsActive: _useTranslatedText);
+        }
+
         return appliedText || appliedFont;
     }
 
@@ -510,20 +521,255 @@ internal sealed class UnityMainThreadResultApplier
         }
 
         var config = _configProvider();
-        if (!translatedTextIsActive ||
-            !FontSizeAdjustment.IsEnabled(config.FontSizeAdjustmentMode, config.FontSizeAdjustmentValue))
+        if (!translatedTextIsActive)
         {
             RestoreOriginalFontSize(target);
             return;
         }
 
-        var adjustedSize = FontSizeAdjustment.Calculate(
-            originalSize,
-            config.FontSizeAdjustmentMode,
-            config.FontSizeAdjustmentValue);
-        if (target.TrySetFontSize(adjustedSize))
+        if (FontSizeAdjustment.IsEnabled(config.FontSizeAdjustmentMode, config.FontSizeAdjustmentValue))
         {
-            LogFontSizeAdjustment(target, originalSize, adjustedSize, config);
+            var adjustedSize = FontSizeAdjustment.Calculate(
+                originalSize,
+                config.FontSizeAdjustmentMode,
+                config.FontSizeAdjustmentValue);
+            if (target.TrySetFontSize(adjustedSize))
+            {
+                LogFontSizeAdjustment(target, originalSize, adjustedSize, config);
+            }
+        }
+        else
+        {
+            target.TrySetFontSize(originalSize);
+        }
+
+        TryAutoShrinkTmpOverflowingTranslatedText(target, originalSize);
+    }
+
+    private bool TryAutoShrinkTmpOverflowingTranslatedText(IUnityTextTarget target, float originalSize)
+    {
+        if (!IsTmpTarget(target.ComponentType) ||
+            target.Component == null ||
+            !target.TryGetFontSize(out var currentSize) ||
+            currentSize <= 0 ||
+            !IsTmpTruncateOverflowMode(target.Component))
+        {
+            return false;
+        }
+
+        RefreshTmpLayout(target.Component);
+        var isOverflowing = ReadTmpBool(target.Component, "isTextOverflowing") == true;
+        var isTruncated = ReadTmpBool(target.Component, "isTextTruncated") == true;
+        var hasPreferredHeight = ReadTmpFloat(target.Component, "preferredHeight", out var preferredHeight);
+        var hasRectHeight = TryGetTmpRectHeight(target.Component, out var rectHeight);
+        var heightOverflow = hasPreferredHeight &&
+            hasRectHeight &&
+            preferredHeight > rectHeight + TmpOverflowHeightTolerance;
+
+        if (!isOverflowing && !isTruncated && !heightOverflow)
+        {
+            return false;
+        }
+
+        var shrinkRatio = heightOverflow && rectHeight > 0 && preferredHeight > 0
+            ? Math.Min(TmpOverflowAutoShrinkStepRatio, (rectHeight * TmpOverflowAutoShrinkFitRatio) / preferredHeight)
+            : TmpOverflowAutoShrinkStepRatio;
+        if (shrinkRatio <= 0 || shrinkRatio >= 1)
+        {
+            shrinkRatio = TmpOverflowAutoShrinkStepRatio;
+        }
+
+        var minimumSize = Math.Max(1f, originalSize * TmpOverflowAutoShrinkMinimumScale);
+        var shrunkSize = Math.Max(minimumSize, currentSize * shrinkRatio);
+        if (currentSize - shrunkSize < TmpOverflowAutoShrinkMinimumDelta)
+        {
+            return false;
+        }
+
+        if (!target.TrySetFontSize(shrunkSize))
+        {
+            return false;
+        }
+
+        RefreshTmpLayout(target.Component);
+        LogTmpOverflowFontSizeAdjustment(target, currentSize, shrunkSize);
+        return true;
+    }
+
+    private static bool IsTmpTruncateOverflowMode(UnityEngine.Object component)
+    {
+        var overflowMode = ReadTmpValue(component, "overflowMode") ?? ReadTmpValue(component, "m_overflowMode");
+        var modeName = overflowMode?.ToString();
+        return !string.IsNullOrEmpty(modeName) &&
+            modeName.IndexOf("Truncate", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static bool? ReadTmpBool(UnityEngine.Object component, string name)
+    {
+        var value = ReadTmpValue(component, name);
+        return value is bool boolValue ? boolValue : null;
+    }
+
+    private static bool ReadTmpFloat(UnityEngine.Object component, string name, out float value)
+    {
+        value = 0;
+        var rawValue = ReadTmpValue(component, name);
+        switch (rawValue)
+        {
+            case float floatValue:
+                value = floatValue;
+                return value > 0;
+            case double doubleValue:
+                value = (float)doubleValue;
+                return value > 0;
+            case int intValue:
+                value = intValue;
+                return value > 0;
+            default:
+                return false;
+        }
+    }
+
+    private static bool TryGetTmpRectHeight(UnityEngine.Object component, out float rectHeight)
+    {
+        rectHeight = 0f;
+        var rectTransform = ReadTmpValue(component, "rectTransform") as UnityEngine.RectTransform;
+        if (rectTransform == null && component is UnityEngine.Component unityComponent)
+        {
+            rectTransform = unityComponent.transform as UnityEngine.RectTransform;
+        }
+
+        if (rectTransform == null)
+        {
+            return false;
+        }
+
+        try
+        {
+            rectHeight = Math.Abs(rectTransform.rect.height);
+            return rectHeight > 0;
+        }
+        catch
+        {
+            rectHeight = 0f;
+            return false;
+        }
+    }
+
+    private static object? ReadTmpValue(UnityEngine.Object component, string name)
+    {
+        var type = component.GetType();
+        var property = type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+        if (property is { CanRead: true })
+        {
+            try
+            {
+                return property.GetValue(component, null);
+            }
+            catch
+            {
+            }
+        }
+
+        var field = type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        if (field == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return field.GetValue(component);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static void RefreshTmpLayout(UnityEngine.Object component)
+    {
+        SetTmpValue(component, "havePropertiesChanged", true);
+        SetTmpValue(component, "m_havePropertiesChanged", true);
+        InvokeTmpMethodIfAvailable(component, "SetVerticesDirty");
+        InvokeTmpMethodIfAvailable(component, "SetLayoutDirty");
+        InvokeTmpMethodIfAvailable(component, "SetMaterialDirty");
+        InvokeTmpMethodIfAvailable(component, "ForceMeshUpdate", preferTrueForBool: true);
+    }
+
+    private static void SetTmpValue(UnityEngine.Object component, string name, object value)
+    {
+        var type = component.GetType();
+        var property = type.GetProperty(name, BindingFlags.Public | BindingFlags.Instance);
+        if (property is { CanWrite: true })
+        {
+            try
+            {
+                property.SetValue(component, value, null);
+                return;
+            }
+            catch
+            {
+            }
+        }
+
+        var field = type.GetField(name, BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance);
+        if (field == null)
+        {
+            return;
+        }
+
+        try
+        {
+            field.SetValue(component, value);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void InvokeTmpMethodIfAvailable(UnityEngine.Object component, string methodName, bool preferTrueForBool = false)
+    {
+        var methods = component
+            .GetType()
+            .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .Where(method => method.Name == methodName && !method.ContainsGenericParameters)
+            .OrderBy(method => method.GetParameters().Length);
+        foreach (var method in methods)
+        {
+            var parameters = method.GetParameters();
+            var arguments = new object?[parameters.Length];
+            var supported = true;
+            for (var i = 0; i < parameters.Length; i++)
+            {
+                if (parameters[i].HasDefaultValue)
+                {
+                    arguments[i] = parameters[i].DefaultValue;
+                }
+                else if (parameters[i].ParameterType == typeof(bool))
+                {
+                    arguments[i] = preferTrueForBool;
+                }
+                else
+                {
+                    supported = false;
+                    break;
+                }
+            }
+
+            if (!supported)
+            {
+                continue;
+            }
+
+            try
+            {
+                method.Invoke(component, arguments);
+                return;
+            }
+            catch
+            {
+            }
         }
     }
 
@@ -571,5 +817,19 @@ internal sealed class UnityMainThreadResultApplier
             FontSizeAdjustmentMode.Points => $"点数 {value:0.##}",
             _ => $"关闭 {value:0.##}"
         };
+    }
+
+    private void LogTmpOverflowFontSizeAdjustment(IUnityTextTarget target, float originalSize, float adjustedSize)
+    {
+        if (_fontSizeAdjustmentLogger == null ||
+            _fontSizeAdjustmentLogCount >= MaxFontSizeAdjustmentLogCount ||
+            !_loggedFontSizeAdjustmentTargets.Add(target.Id))
+        {
+            return;
+        }
+
+        _fontSizeAdjustmentLogCount++;
+        _fontSizeAdjustmentLogger(
+            $"TMP 译文字号已自动缩小以避免裁切：{target.ComponentType} {originalSize:0.##} -> {adjustedSize:0.##}。");
     }
 }

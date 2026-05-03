@@ -754,8 +754,47 @@ public sealed class ControlPanelHtmlSourceTests
         serviceSource.Should().Contain("SetProperty(component, \"faceColor\", visibleColor32)");
         serviceSource.Should().Contain("SetField(component, \"m_faceColor\", visibleColor32)");
         serviceSource.Should().Contain("SetField(component, \"m_htmlColor\", visibleColor32)");
-        serviceSource.Should().Contain("ForceTmpMeshUpdate(subText);");
+        serviceSource.Should().Contain("RefreshTmpFallbackSubTextObject(subText, component, visibleColor.Value);");
+        serviceSource.Should().NotContain("ForceTmpMeshUpdate(subText);");
         serviceSource.Should().Contain("SyncTmpCanvasRenderer(subText);");
+    }
+
+    [Fact]
+    public void Tmp_fallback_submesh_refresh_invokes_tmp_submesh_ui_refresh_pipeline()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+        var refreshStart = serviceSource.IndexOf("private static void RefreshTmpFallbackSubTextObject", StringComparison.Ordinal);
+        refreshStart.Should().BeGreaterThanOrEqualTo(0);
+        var refreshEnd = serviceSource.IndexOf("private static void RefreshTmpSubTextGeometry", refreshStart, StringComparison.Ordinal);
+        refreshEnd.Should().BeGreaterThan(refreshStart);
+        var refreshBlock = serviceSource[refreshStart..refreshEnd];
+
+        refreshBlock.Should().Contain("SetTmpComponentVisibleColor(subText, visibleColor);");
+        refreshBlock.Should().Contain("SyncTmpCanvasRenderer(subText);");
+        refreshBlock.Should().Contain("InvokeMethodIfAvailable(subText, \"RefreshMaterial\");");
+        refreshBlock.Should().Contain("UpdateTmpSubTextMeshPadding(subText, parentComponent);");
+        refreshBlock.Should().Contain("InvokeMethodIfAvailable(subText, \"SetAllDirty\");");
+        refreshBlock.Should().Contain("InvokeMethodIfAvailable(subText, \"SetVerticesDirty\");");
+        refreshBlock.Should().Contain("InvokeMethodIfAvailable(subText, \"SetMaterialDirty\");");
+        refreshBlock.Should().Contain("InvokeMethodIfAvailable(subText, \"RecalculateClipping\");");
+        refreshBlock.Should().Contain("InvokeMethodIfAvailable(subText, \"RecalculateMasking\");");
+        refreshBlock.Should().Contain("RefreshTmpSubTextGeometry(subText);");
+        refreshBlock.Should().Contain("InvokeMethodIfAvailable(subText, \"UpdateMaterial\");");
+    }
+
+    [Fact]
+    public void Tmp_diagnostics_report_overflow_and_empty_fallback_submesh_bounds()
+    {
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+
+        serviceSource.Should().Contain("GetProperty(component, \"isTextOverflowing\")");
+        serviceSource.Should().Contain("GetProperty(component, \"isTextTruncated\")");
+        serviceSource.Should().Contain("WarnTmpFallbackSubTextMeshEmpty(config, context, component, translatedText);");
+        serviceSource.Should().Contain("private void WarnTmpFallbackSubTextMeshEmpty");
+        serviceSource.Should().Contain("BuildFontProbeText(translatedText).Length == 0");
+        serviceSource.Should().Contain("HasEmptyRenderableTmpSubTextMesh(subText)");
+        serviceSource.Should().Contain("mesh.vertexCount > 0");
+        serviceSource.Should().Contain("mesh.bounds.extents.sqrMagnitude");
     }
 
     [Fact]

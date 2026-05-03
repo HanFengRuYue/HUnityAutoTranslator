@@ -139,6 +139,7 @@ internal sealed class UnityTextFontReplacementService
     private readonly HashSet<string> _loggedAutomaticTmpFontFallbacks = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _loggedTmpMaterialDiagnostics = new(StringComparer.Ordinal);
     private readonly HashSet<string> _loggedTmpSubTextMaterialDiagnostics = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _warnedTmpEmptySubTextMeshes = new(StringComparer.Ordinal);
     private Font? _originalImguiFont;
     private string? _automaticFontFallbackConfigKey;
     private string? _automaticFontFallbackName;
@@ -289,6 +290,7 @@ internal sealed class UnityTextFontReplacementService
         MarkTmpTextDirty(component);
         ForceTmpMeshUpdate(component);
         ApplyVisibleTmpColorToTmpSubTextMaterials(component, visibleColor);
+        WarnTmpFallbackSubTextMeshEmpty(config, context, component, translatedText);
         LogTmpSubTextDiagnosticsIfNeeded(config, component, context, translatedText);
     }
 
@@ -2619,23 +2621,97 @@ internal sealed class UnityTextFontReplacementService
                 continue;
             }
 
-            if (GetProperty(subText, "sharedMaterial") is Material sharedMaterial)
-            {
-                SetTmpMaterialVisibleColor(sharedMaterial, visibleColor.Value);
-            }
-
-            if (GetProperty(subText, "fallbackMaterial") is Material material)
-            {
-                SetTmpMaterialVisibleColor(material, visibleColor.Value);
-            }
-
-            SetTmpComponentVisibleColor(subText, visibleColor.Value);
-            ForceTmpMeshUpdate(subText);
-            SyncTmpCanvasRenderer(subText);
+            RefreshTmpFallbackSubTextObject(subText, component, visibleColor.Value);
         }
 
         ForceTmpMeshUpdate(component);
         SyncTmpCanvasRenderer(component);
+    }
+
+    private static void RefreshTmpFallbackSubTextObject(object subText, object parentComponent, Color visibleColor)
+    {
+        ApplyVisibleTmpColorToTmpSubTextMaterials(subText, visibleColor);
+        SetTmpComponentVisibleColor(subText, visibleColor);
+        InvokeMethodIfAvailable(subText, "RefreshMaterial");
+        ApplyVisibleTmpColorToTmpSubTextMaterials(subText, visibleColor);
+        SetTmpComponentVisibleColor(subText, visibleColor);
+        UpdateTmpSubTextMeshPadding(subText, parentComponent);
+        InvokeMethodIfAvailable(subText, "SetAllDirty");
+        InvokeMethodIfAvailable(subText, "SetVerticesDirty");
+        InvokeMethodIfAvailable(subText, "SetMaterialDirty");
+        InvokeMethodIfAvailable(subText, "RecalculateClipping");
+        InvokeMethodIfAvailable(subText, "RecalculateMasking");
+        RefreshTmpSubTextGeometry(subText);
+        InvokeMethodIfAvailable(subText, "UpdateMaterial");
+        SyncTmpCanvasRenderer(subText);
+    }
+
+    private static void RefreshTmpSubTextGeometry(object subText)
+    {
+        InvokeMethodIfAvailable(subText, "UpdateGeometry");
+    }
+
+    private static void UpdateTmpSubTextMeshPadding(object subText, object parentComponent)
+    {
+        var isExtraPadding = ReadTmpBool(parentComponent, "extraPadding") ??
+            ReadTmpBool(parentComponent, "enableExtraPadding") ??
+            ReadTmpBool(parentComponent, "m_enableExtraPadding") ??
+            false;
+        var isUsingBold = IsTmpFontStyleBold(parentComponent);
+
+        var methods = subText
+            .GetType()
+            .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .Where(method => method.Name == "UpdateMeshPadding" && !method.ContainsGenericParameters)
+            .OrderByDescending(method => method.GetParameters().Length);
+        foreach (var method in methods)
+        {
+            var parameters = method.GetParameters();
+            if (parameters.Length != 2 ||
+                parameters[0].ParameterType != typeof(bool) ||
+                parameters[1].ParameterType != typeof(bool))
+            {
+                continue;
+            }
+
+            try
+            {
+                method.Invoke(subText, new object[] { isExtraPadding, isUsingBold });
+                return;
+            }
+            catch
+            {
+            }
+        }
+
+        InvokeMethodIfAvailable(subText, "UpdateMeshPadding");
+    }
+
+    private static bool? ReadTmpBool(object component, string name)
+    {
+        var value = GetProperty(component, name) ?? GetField(component, name);
+        return value is bool boolValue ? boolValue : null;
+    }
+
+    private static bool IsTmpFontStyleBold(object component)
+    {
+        var fontStyle = GetProperty(component, "fontStyle") ?? GetField(component, "m_fontStyle");
+        var styleName = fontStyle?.ToString();
+        return !string.IsNullOrEmpty(styleName) &&
+            styleName.IndexOf("Bold", StringComparison.OrdinalIgnoreCase) >= 0;
+    }
+
+    private static void ApplyVisibleTmpColorToTmpSubTextMaterials(object subText, Color visibleColor)
+    {
+        if (GetProperty(subText, "sharedMaterial") is Material sharedMaterial)
+        {
+            SetTmpMaterialVisibleColor(sharedMaterial, visibleColor);
+        }
+
+        if (GetProperty(subText, "fallbackMaterial") is Material fallbackMaterial)
+        {
+            SetTmpMaterialVisibleColor(fallbackMaterial, visibleColor);
+        }
     }
 
     private static void SetTmpComponentVisibleColor(object component, Color visibleColor)
@@ -2924,6 +3000,75 @@ internal sealed class UnityTextFontReplacementService
         }
     }
 
+    private void WarnTmpFallbackSubTextMeshEmpty(
+        RuntimeConfig config,
+        TranslationCacheContext context,
+        object component,
+        string translatedText)
+    {
+        if (!config.EnableTranslationDebugLogs ||
+            BuildFontProbeText(translatedText).Length == 0 ||
+            GetField(component, "m_subTextObjects") is not Array subTextObjects)
+        {
+            return;
+        }
+
+        var text = GetProperty(component, "text") as string ?? translatedText;
+        var warningLimit = IsTmpPriorityDiagnosticContext(context, text)
+            ? MaxTmpSubTextMaterialDiagnostics + MaxTmpPrioritySubTextMaterialDiagnostics
+            : MaxTmpSubTextMaterialDiagnostics;
+        if (_warnedTmpEmptySubTextMeshes.Count >= warningLimit)
+        {
+            return;
+        }
+
+        for (var i = 1; i < subTextObjects.Length; i++)
+        {
+            var subText = subTextObjects.GetValue(i);
+            if (subText == null || !HasEmptyRenderableTmpSubTextMesh(subText))
+            {
+                continue;
+            }
+
+            var key = string.Join(
+                "|",
+                context.SceneName ?? string.Empty,
+                context.ComponentHierarchy ?? string.Empty,
+                component.GetType().FullName ?? string.Empty,
+                i.ToString(),
+                translatedText);
+            if (!_warnedTmpEmptySubTextMeshes.Add(key))
+            {
+                return;
+            }
+
+            _logger.LogWarning(
+                "TMP 后备字体子网格仍为空：" +
+                $"层级={context.ComponentHierarchy ?? "未知"}；" +
+                $"索引={i}；" +
+                $"文本={TrimDiagnosticText(translatedText)}。");
+            return;
+        }
+    }
+
+    private static bool HasEmptyRenderableTmpSubTextMesh(object subText)
+    {
+        if (GetProperty(subText, "mesh") is not Mesh mesh)
+        {
+            return false;
+        }
+
+        try
+        {
+            return mesh.vertexCount > 0 &&
+                mesh.bounds.extents.sqrMagnitude <= 0.000001f;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     private static string FormatTmpComponentState(object component)
     {
         return string.Join(
@@ -2939,6 +3084,8 @@ internal sealed class UnityTextFontReplacementService
             $"alignment={FormatTmpValue(GetProperty(component, "alignment"))}",
             $"overflow={FormatTmpValue(GetProperty(component, "overflowMode"))}",
             $"wrapping={FormatTmpValue(GetProperty(component, "enableWordWrapping"))}",
+            $"isOverflowing={FormatTmpValue(GetProperty(component, "isTextOverflowing"))}",
+            $"isTruncated={FormatTmpValue(GetProperty(component, "isTextTruncated"))}",
             $"maxChars={FormatTmpValue(GetProperty(component, "maxVisibleCharacters"))}",
             $"maxWords={FormatTmpValue(GetProperty(component, "maxVisibleWords"))}",
             $"maxLines={FormatTmpValue(GetProperty(component, "maxVisibleLines"))}",
