@@ -127,6 +127,16 @@ public static class TranslationQualityValidator
             return new TranslationQualityFailure(index, "ordinary English UI text was left untranslated");
         }
 
+        if (IsTranslatableSourceLeftUnchanged(sourceText, translatedText, gameTitle))
+        {
+            return new TranslationQualityFailure(index, "translatable source text was left untranslated");
+        }
+
+        if (ContainsDisallowedSourceLanguageLetters(translatedText, gameTitle))
+        {
+            return new TranslationQualityFailure(index, "translation still contains source-language kana or Hangul text");
+        }
+
         if (config.RejectShortSettingValue && IsSuspiciousShortSettingValue(sourceText, translatedText, hints, config))
         {
             return new TranslationQualityFailure(index, "settings value translation is too short or incomplete");
@@ -339,6 +349,68 @@ public static class TranslationQualityValidator
             .Replace(".", string.Empty, StringComparison.Ordinal);
         return compact.Length <= 4 &&
             compact.All(character => char.IsUpper(character) || char.IsDigit(character));
+    }
+
+    private static bool IsTranslatableSourceLeftUnchanged(string sourceText, string translatedText, string? gameTitle)
+    {
+        var normalizedSource = PromptItemClassifier.NormalizeForMatch(sourceText);
+        if (normalizedSource.Length == 0 ||
+            ContainsLatinLetter(normalizedSource) ||
+            PreservableTextClassifier.CanRemainUntranslated(normalizedSource) ||
+            IsExactGameTitle(normalizedSource, gameTitle))
+        {
+            return false;
+        }
+
+        return TextFilter.ShouldTranslate(normalizedSource) &&
+            string.Equals(
+                normalizedSource,
+                PromptItemClassifier.NormalizeForMatch(translatedText),
+                StringComparison.Ordinal);
+    }
+
+    private static bool ContainsDisallowedSourceLanguageLetters(string translatedText, string? gameTitle)
+    {
+        var withoutPreservedTitle = RemovePreservedGameTitle(
+            RichTextGuard.GetVisibleText(translatedText ?? string.Empty),
+            gameTitle);
+        return withoutPreservedTitle.Any(IsKanaOrHangulLetter);
+    }
+
+    private static string RemovePreservedGameTitle(string value, string? gameTitle)
+    {
+        var normalizedTitle = PromptItemClassifier.NormalizeForMatch(gameTitle);
+        if (normalizedTitle.Length == 0)
+        {
+            return value ?? string.Empty;
+        }
+
+        return (value ?? string.Empty).Replace(normalizedTitle, string.Empty, StringComparison.Ordinal);
+    }
+
+    private static bool IsExactGameTitle(string normalizedSource, string? gameTitle)
+    {
+        return string.Equals(
+            normalizedSource,
+            PromptItemClassifier.NormalizeForMatch(gameTitle),
+            StringComparison.Ordinal);
+    }
+
+    private static bool IsKanaOrHangulLetter(char character)
+    {
+        var inSourceLanguageBlock =
+            (character >= '\u3040' && character <= '\u30FF') ||
+            (character >= '\u31F0' && character <= '\u31FF') ||
+            (character >= '\u1100' && character <= '\u11FF') ||
+            (character >= '\u3130' && character <= '\u318F') ||
+            (character >= '\uAC00' && character <= '\uD7AF');
+        return inSourceLanguageBlock &&
+            char.GetUnicodeCategory(character) is
+                UnicodeCategory.UppercaseLetter or
+                UnicodeCategory.LowercaseLetter or
+                UnicodeCategory.TitlecaseLetter or
+                UnicodeCategory.ModifierLetter or
+                UnicodeCategory.OtherLetter;
     }
 
     private static bool ContainsLatinLetter(string value)

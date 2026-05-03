@@ -161,6 +161,30 @@ public sealed class TextPipelineTests
     }
 
     [Fact]
+    public void Process_marks_cached_source_language_translation_pending_and_requeues()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var context = new TranslationCacheContext("Top Vertical", "Canvas/Settings/Graphic Level/Text", "TMPro.TMP_Text");
+        var key = TranslationCacheKey.Create("\u753b\u8cea\u30ec\u30d9\u30eb", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.Set(key, "\u753b\u8cea\u30ec\u30d9\u30eb", context);
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.Process(new CapturedText("ui-1", "\u753b\u8cea\u30ec\u30d9\u30eb", isVisible: true, context));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.Queued);
+        queue.PendingCount.Should().Be(1);
+        cache.TryGet(key, context, out _).Should().BeFalse();
+        var pending = cache.GetPendingTranslations(config.TargetLanguage, TextPipeline.PromptPolicyVersion, limit: 10);
+        pending.Should().ContainSingle(row =>
+            row.SourceText == "\u753b\u8cea\u30ec\u30d9\u30eb" &&
+            row.TranslatedText == null &&
+            row.SceneName == context.SceneName &&
+            row.ComponentHierarchy == context.ComponentHierarchy);
+    }
+
+    [Fact]
     public void Process_skips_cached_translation_when_generated_outer_symbols_are_cached()
     {
         var cache = new MemoryTranslationCache();

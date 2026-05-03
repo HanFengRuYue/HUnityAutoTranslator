@@ -505,6 +505,8 @@ public sealed class TranslationWorkerPool
             "state text is too literal for a game UI setting" => "状态文本直译不适合游戏 UI",
             "different option texts under the same parent produced the same translation" => "同一父级下的不同选项被翻成了相同文本",
             "translation quality check could not match source and result counts" => "源文本和译文数量不一致",
+            "translatable source text was left untranslated" => "\u53ef\u7ffb\u8bd1\u6587\u672c\u672a\u7ffb\u8bd1",
+            "translation still contains source-language kana or Hangul text" => "\u8bd1\u6587\u4ecd\u5305\u542b\u65e5\u6587\u5047\u540d\u6216\u97e9\u6587\u5b57\u7b26",
             _ => reason
         };
     }

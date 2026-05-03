@@ -64,6 +64,63 @@ public sealed class TranslationQualityValidatorTests
     }
 
     [Fact]
+    public void Quality_validator_rejects_translatable_source_text_left_unchanged_for_simplified_chinese()
+    {
+        var result = TranslationQualityValidator.ValidateBatch(
+            new[] { "\u753b\u8cea\u30ec\u30d9\u30eb" },
+            new[] { "\u753b\u8cea\u30ec\u30d9\u30eb" },
+            new[] { new PromptItemContext(0, "Top Vertical", "Canvas/Settings/Graphic Level/Text", "TMPro.TMP_Text") },
+            "zh-Hans",
+            gameTitle: null);
+
+        result.IsValid.Should().BeFalse();
+        result.Reason.Should().Be("translatable source text was left untranslated");
+    }
+
+    [Theory]
+    [InlineData("\u3052\u30fc\u3080\u305b\u3063\u3066\u3044", "\u30b2\u30fc\u30e0\u8a2d\u5b9a")]
+    [InlineData("\u3050\u3089\u3075\u3043\u3063\u304f", "\u30b0\u30e9\u30d5\u30a3\u30c3\u30af")]
+    public void Quality_validator_rejects_kana_left_in_simplified_chinese_translation(string sourceText, string translatedText)
+    {
+        var result = TranslationQualityValidator.ValidateBatch(
+            new[] { sourceText },
+            new[] { translatedText },
+            new[] { new PromptItemContext(0, "Top Vertical", "Canvas/Settings/Visuals/Text", "TMPro.TMP_Text") },
+            "zh-Hans",
+            gameTitle: null);
+
+        result.IsValid.Should().BeFalse();
+        result.Reason.Should().Be("translation still contains source-language kana or Hangul text");
+    }
+
+    [Fact]
+    public void Quality_validator_allows_ui_marker_symbol_when_translation_is_simplified_chinese()
+    {
+        var result = TranslationQualityValidator.ValidateBatch(
+            new[] { "\u30fb\u30b7\u30fc\u30f3 Chapter1\u3092\u30af\u30ea\u30a2\r\n" },
+            new[] { "\u30fb\u901a\u5173\u7b2c1\u7ae0\r\n" },
+            new[] { new PromptItemContext(0, "Top Vertical", "Canvas/Story/Condition", "TMPro.TMP_Text") },
+            "zh-Hans",
+            gameTitle: null);
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Quality_validator_allows_game_title_to_remain_unchanged()
+    {
+        const string gameTitle = "\u6c60\u888b\u30bb\u30af\u30b5\u30ed\u30a4\u30c9\u5973\u5b66\u5712";
+        var result = TranslationQualityValidator.ValidateBatch(
+            new[] { gameTitle },
+            new[] { gameTitle },
+            new[] { new PromptItemContext(0, "Top Vertical", "Canvas/Splash/Start Text", "TMPro.TMP_Text") },
+            "zh-Hans",
+            gameTitle);
+
+        result.IsValid.Should().BeTrue();
+    }
+
+    [Fact]
     public void Quality_validator_allows_simplified_chinese_source_with_short_technical_tokens()
     {
         var result = TranslationQualityValidator.ValidateBatch(

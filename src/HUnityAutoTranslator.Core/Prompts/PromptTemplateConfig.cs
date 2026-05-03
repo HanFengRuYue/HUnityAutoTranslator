@@ -30,6 +30,7 @@ If the source text is or contains the game title, preserve the exact game title 
 Accessibility and technical settings must stay distinct; do not collapse different options into the same wording.
 Accessibility options must use established, specific accessibility terminology rather than broad labels such as generic color blindness.
 For Simplified Chinese, do not leave ordinary English UI text untranslated unless it is a brand name, acronym, placeholder, or technical token that should stay unchanged.
+For Simplified Chinese, output Simplified Chinese text; do not leave Japanese kana, Korean Hangul, or source-language rewrites in the translation unless they are part of a preserved game title or required proper noun.
 Detect the source language automatically. Translate it into the target language.
 Output only the translated text. Do not explain, greet, add quotes, add Markdown, or add prefixes such as "Translation:".
 Do not add indexes, item numbers, source labels, list markers, or any copied batch labels to the translation.
@@ -56,6 +57,7 @@ Invalid translation: {InvalidTranslation}
 The previous translation failed translation quality rules. Reason: {FailureReason}
 Translate the source again for game UI localization. Output only the repaired translation, with no explanation.
 Use the item context and same-parent source texts to keep short UI labels concise, natural, and distinct.
+For Simplified Chinese, repair the output into Simplified Chinese; do not rewrite hiragana as katakana, leave Japanese kana, leave Korean Hangul, or return the source text unchanged unless it is only the preserved game title.
 If the source text is or contains the game title, preserve the exact game title.
 Do not add outer quotes, brackets, book-title marks, corner brackets, or emphasis symbols unless the source text already has matching outer symbols.
 Preserve source UI marker symbols such as leading >, >>, -, *, bullet, or arrow prefixes and matching suffix markers exactly.
