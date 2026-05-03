@@ -111,7 +111,8 @@ public sealed class BoundedRuntimeLoopSourceTests
         hotkeySource.Should().Contain("_fontReplacement.SetReplacementFontsEnabledForRuntime(");
         var applierSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));
         applierSource.Should().Contain("_useTranslatedText = useTranslatedText;");
-        applierSource.Should().Contain("_writebacks.TryGetDisplayText(target.Id, target.GetText(), _useTranslatedText, out var replacement)");
+        applierSource.Should().Contain("var currentText = target.GetText();");
+        applierSource.Should().Contain("_writebacks.TryGetDisplayText(target.Id, currentText, _useTranslatedText, out var replacement)");
     }
 
     [Fact]

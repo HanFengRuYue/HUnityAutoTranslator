@@ -164,6 +164,34 @@ public sealed class ComponentRefreshSourceTests
     }
 
     [Fact]
+    public void Unity_applier_captures_tmp_visible_color_before_translated_writeback()
+    {
+        var applierSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));
+        var serviceSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+        var tryApplyBlock = applierSource[
+            applierSource.IndexOf("private bool TryApplyRemembered", StringComparison.Ordinal)..
+            applierSource.IndexOf("private void CaptureTmpVisibleColorBeforeWriteback", StringComparison.Ordinal)];
+        var toggleBlock = applierSource[
+            applierSource.IndexOf("public int SetTranslatedTextMode", StringComparison.Ordinal)..
+            applierSource.IndexOf("private bool TryFindTarget", StringComparison.Ordinal)];
+
+        serviceSource.Should().Contain("public void CaptureTmpVisibleColor(UnityEngine.Object component)");
+        applierSource.Should().Contain("private void CaptureTmpVisibleColorBeforeWriteback(IUnityTextTarget target)");
+        applierSource.Should().Contain("_fontReplacement.CaptureTmpVisibleColor(target.Component);");
+        applierSource.Should().Contain("_writebacks.IsRememberedSourceText(target.Id, currentText)");
+        tryApplyBlock.IndexOf("CaptureTmpVisibleColorBeforeWriteback(target);", StringComparison.Ordinal)
+            .Should().BeGreaterThan(tryApplyBlock.IndexOf("_writebacks.TryGetDisplayText(", StringComparison.Ordinal));
+        tryApplyBlock.IndexOf("_writebacks.IsRememberedSourceText(target.Id, currentText)", StringComparison.Ordinal)
+            .Should().BeLessThan(tryApplyBlock.IndexOf("CaptureTmpVisibleColorBeforeWriteback(target);", StringComparison.Ordinal));
+        tryApplyBlock.IndexOf("CaptureTmpVisibleColorBeforeWriteback(target);", StringComparison.Ordinal)
+            .Should().BeLessThan(tryApplyBlock.IndexOf("target.SetText(replacement);", StringComparison.Ordinal));
+        toggleBlock.IndexOf("_writebacks.IsRememberedSourceText(target.Id, currentText)", StringComparison.Ordinal)
+            .Should().BeLessThan(toggleBlock.IndexOf("CaptureTmpVisibleColorBeforeWriteback(target);", StringComparison.Ordinal));
+        toggleBlock.IndexOf("CaptureTmpVisibleColorBeforeWriteback(target);", StringComparison.Ordinal)
+            .Should().BeLessThan(toggleBlock.IndexOf("target.SetText(replacement);", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Unity_applier_adjusts_font_size_from_original_target_size()
     {
         var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));

@@ -14,14 +14,18 @@ internal sealed class UnityTextFontReplacementService
     private const string PreferredAutomaticFontFile = @"C:\Windows\Fonts\NotoSansSC-VF.ttf";
     private const int MaxTmpMaterialDiagnostics = 32;
     private const int MaxTmpSubTextMaterialDiagnostics = 8;
+    private const int MaxTmpPriorityMaterialDiagnostics = 24;
+    private const int MaxTmpPrioritySubTextMaterialDiagnostics = 16;
     private const float TmpOutlineConstraintThreshold = 0.3f;
     private const float TmpFaceDilateConstraintThreshold = 0.2f;
     private const float TmpNameHintOutlineConstraintThreshold = 0.05f;
     private const float TmpConstrainedWeightNormal = 0f;
     private const float TmpConstrainedWeightBold = 0f;
-    private const float TmpConstrainedFaceDilate = 0.04f;
-    private const float TmpConstrainedOutlineWidth = 0.015f;
-    private const float TmpConstrainedOutlineSoftness = 0f;
+    private const float TmpConstrainedFaceDilate = 0f;
+    private const float TmpConstrainedOutlineWidth = 0.02f;
+    private const float TmpConstrainedOutlineSoftness = 0.01f;
+    private const float TmpColorAlphaVisibilityThreshold = 0.01f;
+    private const int TmpMaxVisibleCount = int.MaxValue;
 
     private static readonly string[] CandidateFontNames =
     {
@@ -126,6 +130,7 @@ internal sealed class UnityTextFontReplacementService
     private readonly Dictionary<int, UnityEngine.Object> _tmpFontTargets = new();
     private readonly Dictionary<int, object?> _tmpOriginalFonts = new();
     private readonly Dictionary<int, object?> _tmpReplacementFonts = new();
+    private readonly Dictionary<int, Color> _tmpVisibleColors = new();
     private readonly Dictionary<string, string> _failedTmpFontAssetKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, ResolvedFont?> _imguiFontResolutions = new(StringComparer.Ordinal);
     private readonly HashSet<string> _imguiRequestedCharacters = new(StringComparer.Ordinal);
@@ -238,18 +243,25 @@ internal sealed class UnityTextFontReplacementService
         if (!_runtimeReplacementFontsEnabled)
         {
             RestoreKnownTmpFont(component);
+            ForgetTmpVisibleColor(component);
             return;
         }
 
+        RevealTmpTranslatedText(component, translatedText);
+        var componentMaterial = GetTmpComponentMaterial(component);
+        var visibleColor = ResolveTmpVisibleColor(component, componentMaterial);
         var hasComponentFontOverride = HasComponentFontOverride(key, context);
-        if (!hasComponentFontOverride && OriginalTmpFontCanRenderText(component, translatedText))
+        var requiresTmpFallbackGlyphs = BuildFontProbeText(translatedText).Length != 0;
+        if (!hasComponentFontOverride &&
+            !requiresTmpFallbackGlyphs &&
+            OriginalTmpFontCanRenderText(component, translatedText))
         {
             RestoreTmp(component);
+            ApplyVisibleTmpColorToTmpSubTextMaterials(component, visibleColor);
             return;
         }
 
         var samplingPointSize = ResolveComponentFontSamplingPointSize(component, config);
-        var componentMaterial = GetTmpComponentMaterial(component);
         var styleProfile = ResolveTmpFallbackStyleProfile(componentMaterial, ResolvedFont.AutomaticProbe);
         var fontAsset = ResolveTmpFontAsset(config, key, context, samplingPointSize, styleProfile, out var resolved);
         if (fontAsset == null)
@@ -258,22 +270,10 @@ internal sealed class UnityTextFontReplacementService
         }
 
         TryEnableTmpMatchMaterialPreset();
-        if (resolved?.Source == "row")
-        {
-            RememberFontTarget(component, _tmpFontTargets, _tmpOriginalFonts);
-            _tmpReplacementFonts[component.GetInstanceID()] = fontAsset;
-            if (SetTmpFont(component, fontAsset, populateCharacters: true, resolved))
-            {
-                LogTmpDirectAssignment(fontAsset);
-                return;
-            }
-
-            WarnTmpDirectAssignmentFailed(component, fontAsset);
-        }
-
         PopulateTmpFontAsset(fontAsset, translatedText);
         PrepareTmpFallbackMaterial(component, fontAsset, resolved);
         LogTmpMaterialDiagnosticsIfNeeded(config, component, context, translatedText, fontAsset, resolved);
+
         var componentFallbackInstalled = AddTmpFallbackToComponentFont(component, fontAsset);
         var globalFallbackInstalled = AddTmpFallback(fontAsset);
         if (componentFallbackInstalled)
@@ -283,33 +283,47 @@ internal sealed class UnityTextFontReplacementService
         else if (!globalFallbackInstalled)
         {
             WarnTmpInstanceFallbackFailed(component, fontAsset);
+            return;
         }
 
-        if (componentFallbackInstalled || globalFallbackInstalled)
-        {
-            MarkTmpTextDirty(component);
-            LogTmpSubTextDiagnosticsIfNeeded(config, component, context, translatedText);
-        }
-
-        if (!componentFallbackInstalled && !globalFallbackInstalled)
-        {
-            RememberFontTarget(component, _tmpFontTargets, _tmpOriginalFonts);
-            _tmpReplacementFonts[component.GetInstanceID()] = fontAsset;
-            if (SetTmpFont(component, fontAsset, populateCharacters: true, resolved))
-            {
-                LogTmpDirectAssignment(fontAsset);
-            }
-            else
-            {
-                WarnTmpDirectAssignmentFailed(component, fontAsset);
-            }
-        }
+        MarkTmpTextDirty(component);
+        ForceTmpMeshUpdate(component);
+        ApplyVisibleTmpColorToTmpSubTextMaterials(component, visibleColor);
+        LogTmpSubTextDiagnosticsIfNeeded(config, component, context, translatedText);
     }
 
     public void RestoreTmp(UnityEngine.Object component)
     {
         RestoreKnownTmpFont(component);
         ForgetFontTarget(component, _tmpFontTargets, _tmpOriginalFonts, _tmpReplacementFonts);
+        ForgetTmpVisibleColor(component);
+    }
+
+    private void ForgetTmpVisibleColor(UnityEngine.Object component)
+    {
+        _tmpVisibleColors.Remove(component.GetInstanceID());
+    }
+    public void CaptureTmpVisibleColor(UnityEngine.Object component)
+    {
+        var componentMaterial = GetTmpComponentMaterial(component);
+        var visibleColor = ResolveCurrentTmpVisibleColor(component, componentMaterial, allowDefaultWhiteFallback: false);
+        if (visibleColor.HasValue)
+        {
+            _tmpVisibleColors[component.GetInstanceID()] = visibleColor.Value;
+            return;
+        }
+
+        var componentId = component.GetInstanceID();
+        if (_tmpVisibleColors.ContainsKey(componentId))
+        {
+            return;
+        }
+
+        visibleColor = ResolveCurrentTmpVisibleColor(component, componentMaterial, allowDefaultWhiteFallback: true);
+        if (visibleColor.HasValue)
+        {
+            _tmpVisibleColors[componentId] = visibleColor.Value;
+        }
     }
 
     public ImguiFontScope? BeginImguiDrawFontScope(
@@ -1954,7 +1968,11 @@ internal sealed class UnityTextFontReplacementService
         return SetTmpFont(component, fontAsset, populateCharacters: false, resolved);
     }
 
-    private static bool SetTmpFont(object component, object? fontAsset, bool populateCharacters, ResolvedFont? resolved)
+    private static bool SetTmpFont(
+        object component,
+        object? fontAsset,
+        bool populateCharacters,
+        ResolvedFont? resolved)
     {
         var componentMaterial = GetTmpComponentMaterial(component);
         if (fontAsset != null && populateCharacters)
@@ -1970,13 +1988,13 @@ internal sealed class UnityTextFontReplacementService
         if (fontAsset != null)
         {
             var styleProfile = ResolveTmpFallbackStyleProfile(componentMaterial, resolved);
-            var fontAssetMaterial = EnsureTmpFontAssetMaterial(fontAsset, componentMaterial);
-            ApplyTmpAutomaticFallbackStyle(fontAssetMaterial, resolved, styleProfile);
+            var fontAssetMaterial = EnsureTmpFontAssetMaterial(fontAsset);
+            ApplyTmpFallbackStyleConstraints(fontAssetMaterial, styleProfile);
             var matchedMaterial = ResolveTmpFallbackMaterial(fontAsset, componentMaterial, fontAssetMaterial);
             if (matchedMaterial != null)
             {
-                ApplyTmpAutomaticFallbackStyle(matchedMaterial, resolved, styleProfile);
-                ApplyTmpComponentColorToMaterial(component, matchedMaterial);
+                ApplyVisibleTmpColorToMaterial(component, componentMaterial, matchedMaterial);
+                ApplyTmpFallbackStyleConstraints(matchedMaterial, styleProfile);
                 changed |= SetTmpMaterial(component, matchedMaterial);
             }
         }
@@ -1994,22 +2012,23 @@ internal sealed class UnityTextFontReplacementService
         }
 
         var styleProfile = ResolveTmpFallbackStyleProfile(componentMaterial, resolved);
-        var fontAssetMaterial = EnsureTmpFontAssetMaterial(fontAsset, componentMaterial);
+        var fontAssetMaterial = EnsureTmpFontAssetMaterial(fontAsset);
         if (fontAssetMaterial != null)
         {
-            CopyTmpMaterialPresetProperties(componentMaterial, fontAssetMaterial);
-            ApplyTmpAutomaticFallbackStyle(fontAssetMaterial, resolved, styleProfile);
-            ApplyTmpComponentColorToMaterial(component, fontAssetMaterial);
+            ApplyTmpFallbackStyleConstraints(fontAssetMaterial, styleProfile);
+            ApplyVisibleTmpColorToMaterial(component, componentMaterial, fontAssetMaterial);
         }
 
         var matchedMaterial = ResolveTmpFallbackMaterial(fontAsset, componentMaterial, fontAssetMaterial);
-        ApplyTmpAutomaticFallbackStyle(matchedMaterial, resolved, styleProfile);
-        ApplyTmpComponentColorToMaterial(component, matchedMaterial);
+        NormalizeTmpFallbackMaterialShader(matchedMaterial, fontAssetMaterial);
+        ApplyTmpFallbackStyleConstraints(matchedMaterial, styleProfile);
+        ApplyVisibleTmpColorToMaterial(component, componentMaterial, matchedMaterial);
     }
 
     private static object? GetTmpComponentMaterial(object component)
     {
-        return GetProperty(component, "fontSharedMaterial") ??
+        return GetProperty(component, "materialForRendering") ??
+            GetProperty(component, "fontSharedMaterial") ??
             GetProperty(component, "fontMaterial") ??
             GetProperty(component, "sharedMaterial") ??
             GetProperty(component, "material") ??
@@ -2030,38 +2049,137 @@ internal sealed class UnityTextFontReplacementService
             GetField(fontAsset, "m_fontAssetMaterial");
     }
 
-    private static object? EnsureTmpFontAssetMaterial(object fontAsset, object? templateMaterial)
+    private static object? EnsureTmpFontAssetMaterial(object fontAsset)
     {
         var material = GetTmpFontAssetMaterial(fontAsset);
-        if (templateMaterial is not Material template)
+        var existingMaterial = material as Material;
+        var atlasTexture = GetTmpFontAssetAtlasTexture(fontAsset) ?? GetTmpMaterialTexture(existingMaterial, "_MainTex");
+        if (existingMaterial != null)
+        {
+            if (atlasTexture != null)
+            {
+                ApplyTmpAtlasTexture(existingMaterial, atlasTexture);
+            }
+
+            return existingMaterial;
+        }
+
+        if (atlasTexture == null)
         {
             return material;
         }
 
-        var existingMaterial = material as Material;
-        if (existingMaterial != null && MaterialShadersMatch(existingMaterial, template))
+        var shader = Shader.Find("TextMeshPro/Distance Field") ?? Shader.Find("TextMeshPro/Distance Field SSD");
+        if (shader == null)
         {
-            return existingMaterial;
+            return material;
         }
 
-        var atlasTexture = GetTmpFontAssetAtlasTexture(fontAsset) ?? GetTmpMaterialTexture(existingMaterial, "_MainTex");
-        if (atlasTexture == null)
-        {
-            return existingMaterial;
-        }
-
-        var fallbackMaterial = new Material(template)
+        var fallbackMaterial = new Material(shader)
         {
             name = $"{GetProperty(fontAsset, "name") ?? "TMP Fallback"} Material"
         };
         ApplyTmpAtlasTexture(fallbackMaterial, atlasTexture);
-        if (existingMaterial != null && !MaterialShadersMatch(existingMaterial, template))
-        {
-            CopyTmpFontAtlasMetrics(existingMaterial, fallbackMaterial);
-        }
-
         SetTmpFontAssetMaterial(fontAsset, fallbackMaterial);
         return fallbackMaterial;
+    }
+
+    private static void NormalizeTmpFallbackMaterialShader(object? material, object? fontAssetMaterial)
+    {
+        if (material is not Material target || fontAssetMaterial is not Material source)
+        {
+            return;
+        }
+
+        if (MaterialShadersMatch(target, source))
+        {
+            return;
+        }
+
+        var atlasTexture = GetTmpMaterialTexture(target, "_MainTex") ?? GetTmpMaterialTexture(source, "_MainTex");
+        try
+        {
+            target.shader = source.shader;
+        }
+        catch
+        {
+            return;
+        }
+
+        if (atlasTexture != null)
+        {
+            ApplyTmpAtlasTexture(target, atlasTexture);
+        }
+
+        CopyTmpFontAtlasMetrics(source, target);
+    }
+
+    private static object? CreateTmpUniqueComponentMaterial(
+        object component,
+        object fontAsset,
+        object? componentMaterial,
+        object? fontAssetMaterial,
+        TmpFallbackStyleProfile styleProfile)
+    {
+        var template = componentMaterial as Material ?? fontAssetMaterial as Material;
+        if (template == null)
+        {
+            return fontAssetMaterial;
+        }
+
+        var atlasTexture = GetTmpFontAssetAtlasTexture(fontAsset) ??
+            GetTmpMaterialTexture(fontAssetMaterial as Material, "_MainTex");
+        var suffix = component is UnityEngine.Object unityObject
+            ? unityObject.GetInstanceID().ToString()
+            : component.GetHashCode().ToString();
+        var material = new Material(template)
+        {
+            name = $"{template.name} TMP Fallback Copy {suffix}"
+        };
+
+        if (atlasTexture != null)
+        {
+            ApplyTmpAtlasTexture(material, atlasTexture);
+        }
+
+        if (fontAssetMaterial is Material atlasMetricMaterial)
+        {
+            CopyTmpFontAtlasMetrics(atlasMetricMaterial, material);
+        }
+
+        ApplyTmpFallbackStyleConstraints(material, styleProfile);
+        ApplyVisibleTmpColorToMaterial(component, componentMaterial, material);
+        ClearTmpMaterialClipping(material);
+        return material;
+    }
+
+    private static void ClearTmpMaterialClipping(Material material)
+    {
+        try
+        {
+            if (material.HasProperty("_ClipRect"))
+            {
+                material.SetVector("_ClipRect", new Vector4(-32767f, -32767f, 32767f, 32767f));
+            }
+
+            if (material.HasProperty("_MaskSoftnessX"))
+            {
+                material.SetFloat("_MaskSoftnessX", 0f);
+            }
+
+            if (material.HasProperty("_MaskSoftnessY"))
+            {
+                material.SetFloat("_MaskSoftnessY", 0f);
+            }
+
+            if (material.HasProperty("_UseUIAlphaClip"))
+            {
+                material.SetFloat("_UseUIAlphaClip", 0f);
+            }
+        }
+        catch
+        {
+        }
     }
 
     private static bool MaterialShadersMatch(Material left, Material right)
@@ -2098,11 +2216,9 @@ internal sealed class UnityTextFontReplacementService
         }
     }
 
-    private static void ApplyTmpAutomaticFallbackStyle(object? material, ResolvedFont? resolved, TmpFallbackStyleProfile styleProfile)
+    private static void ApplyTmpFallbackStyleConstraints(object? material, TmpFallbackStyleProfile styleProfile)
     {
-        if (resolved == null ||
-            !IsAutomaticFontSource(resolved.Source) ||
-            styleProfile != TmpFallbackStyleProfile.ConstrainOutline)
+        if (styleProfile != TmpFallbackStyleProfile.ConstrainOutline)
         {
             return;
         }
@@ -2116,11 +2232,6 @@ internal sealed class UnityTextFontReplacementService
 
     private static TmpFallbackStyleProfile ResolveTmpFallbackStyleProfile(object? sourceMaterial, ResolvedFont? resolved)
     {
-        if (resolved == null || !IsAutomaticFontSource(resolved.Source))
-        {
-            return TmpFallbackStyleProfile.PreserveSource;
-        }
-
         return SourceTmpMaterialNeedsOutlineConstraint(sourceMaterial)
             ? TmpFallbackStyleProfile.ConstrainOutline
             : TmpFallbackStyleProfile.PreserveSource;
@@ -2213,6 +2324,20 @@ internal sealed class UnityTextFontReplacementService
         }
     }
 
+    private static bool SetTmpMaterial(object component, object matchedMaterial)
+    {
+        var changed = SetProperty(component, "fontMaterial", matchedMaterial);
+        changed |= SetProperty(component, "fontSharedMaterial", matchedMaterial);
+        changed |= SetProperty(component, "sharedMaterial", matchedMaterial);
+        changed |= SetProperty(component, "material", matchedMaterial);
+        changed |= SetField(component, "m_fontMaterial", matchedMaterial);
+        changed |= SetField(component, "m_sharedMaterial", matchedMaterial);
+        changed |= SetField(component, "m_currentMaterial", matchedMaterial);
+        changed |= SetField(component, "m_material", matchedMaterial);
+        SyncTmpCanvasRenderer(component);
+        return changed;
+    }
+
     private static Texture? GetTmpMaterialTexture(Material? material, string name)
     {
         if (material == null)
@@ -2293,19 +2418,6 @@ internal sealed class UnityTextFontReplacementService
         }
     }
 
-    private static bool SetTmpMaterial(object component, object matchedMaterial)
-    {
-        var changed = SetProperty(component, "fontMaterial", matchedMaterial);
-        changed |= SetProperty(component, "fontSharedMaterial", matchedMaterial);
-        changed |= SetProperty(component, "sharedMaterial", matchedMaterial);
-        changed |= SetProperty(component, "material", matchedMaterial);
-        changed |= SetField(component, "m_fontMaterial", matchedMaterial);
-        changed |= SetField(component, "m_sharedMaterial", matchedMaterial);
-        changed |= SetField(component, "m_currentMaterial", matchedMaterial);
-        changed |= SetField(component, "m_material", matchedMaterial);
-        return changed;
-    }
-
     private static void CopyTmpMaterialPresetProperties(object sourceMaterial, object targetMaterial)
     {
         if (sourceMaterial is not Material source || targetMaterial is not Material target)
@@ -2343,19 +2455,349 @@ internal sealed class UnityTextFontReplacementService
         CopyMaterialFloat(source, target, "_OutlineSoftness");
     }
 
-    private static void ApplyTmpComponentColorToMaterial(object component, object? targetMaterial)
+    private static void RestoreMaterialFloat(Material target, string name, bool hasValue, float value)
     {
-        if (targetMaterial is not Material target ||
-            GetProperty(component, "color") is not Color componentColor)
+        if (!hasValue)
         {
             return;
         }
 
-        SetTmpMaterialColor(target, "_FaceColor", componentColor);
-        SetTmpMaterialColor(target, "_Color", componentColor);
+        try
+        {
+            if (target.HasProperty(name))
+            {
+                target.SetFloat(name, value);
+            }
+        }
+        catch
+        {
+        }
     }
 
-    private static void SetTmpMaterialColor(Material target, string name, Color componentColor)
+    private static void ApplyVisibleTmpColorToMaterial(object component, object? sourceMaterial, object? targetMaterial)
+    {
+        if (targetMaterial is not Material material)
+        {
+            return;
+        }
+
+        var visibleColor = ResolveCurrentTmpVisibleColor(component, sourceMaterial, allowDefaultWhiteFallback: true);
+        if (visibleColor.HasValue)
+        {
+            SetTmpMaterialVisibleColor(material, visibleColor.Value);
+        }
+    }
+
+    private Color? ResolveTmpVisibleColor(UnityEngine.Object component, object? sourceMaterial)
+    {
+        var currentNonDefaultColor = ResolveCurrentTmpVisibleColor(
+            component,
+            sourceMaterial,
+            allowDefaultWhiteFallback: false);
+        if (currentNonDefaultColor.HasValue)
+        {
+            _tmpVisibleColors[component.GetInstanceID()] = currentNonDefaultColor.Value;
+            return currentNonDefaultColor;
+        }
+
+        if (_tmpVisibleColors.TryGetValue(component.GetInstanceID(), out var rememberedColor))
+        {
+            return rememberedColor;
+        }
+
+        var currentDefaultColor = ResolveCurrentTmpVisibleColor(
+            component,
+            sourceMaterial,
+            allowDefaultWhiteFallback: true);
+        if (currentDefaultColor.HasValue)
+        {
+            _tmpVisibleColors[component.GetInstanceID()] = currentDefaultColor.Value;
+            return currentDefaultColor;
+        }
+
+        return null;
+    }
+
+    private static Color? ResolveCurrentTmpVisibleColor(
+        object component,
+        object? sourceMaterial,
+        bool allowDefaultWhiteFallback)
+    {
+        var hasComponentColor = TryGetTmpComponentColor(component, out var componentColor);
+        var hasMaterialColor = TryGetVisibleTmpMaterialColor(sourceMaterial, out var materialColor);
+        if (hasComponentColor &&
+            hasMaterialColor &&
+            ShouldPreferTmpMaterialVisibleColor(sourceMaterial, componentColor, materialColor))
+        {
+            materialColor.a = Math.Min(materialColor.a, componentColor.a);
+            return materialColor;
+        }
+
+        if (hasComponentColor && !IsDefaultTmpComponentColor(componentColor))
+        {
+            return componentColor;
+        }
+
+        if (hasMaterialColor && !IsDefaultTmpComponentColor(materialColor))
+        {
+            return materialColor;
+        }
+
+        if (!allowDefaultWhiteFallback)
+        {
+            return null;
+        }
+
+        if (hasComponentColor)
+        {
+            return componentColor;
+        }
+
+        if (hasMaterialColor)
+        {
+            return materialColor;
+        }
+
+        return null;
+    }
+
+    private static bool ShouldPreferTmpMaterialVisibleColor(
+        object? sourceMaterial,
+        Color componentColor,
+        Color materialColor)
+    {
+        if (sourceMaterial is not Material material ||
+            !IsTmpBitmapMaterial(material))
+        {
+            return false;
+        }
+
+        var componentLuminance = GetTmpColorLuminance(componentColor);
+        var materialLuminance = GetTmpColorLuminance(materialColor);
+        return componentLuminance >= 0.2f &&
+            componentLuminance < 0.65f &&
+            materialLuminance - componentLuminance > 0.25f;
+    }
+
+    private static bool IsTmpBitmapMaterial(Material material)
+    {
+        try
+        {
+            return material.shader?.name?.IndexOf("Bitmap", StringComparison.OrdinalIgnoreCase) >= 0;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static float GetTmpColorLuminance(Color color)
+    {
+        return (0.2126f * color.r) + (0.7152f * color.g) + (0.0722f * color.b);
+    }
+
+    private static void ApplyVisibleTmpColorToTmpSubTextMaterials(object component, Color? visibleColor)
+    {
+        if (!visibleColor.HasValue)
+        {
+            return;
+        }
+
+        SetTmpComponentVisibleColor(component, visibleColor.Value);
+        if (GetField(component, "m_subTextObjects") is not Array subTextObjects)
+        {
+            ForceTmpMeshUpdate(component);
+            SyncTmpCanvasRenderer(component);
+            return;
+        }
+
+        for (var i = 1; i < subTextObjects.Length; i++)
+        {
+            var subText = subTextObjects.GetValue(i);
+            if (subText == null)
+            {
+                continue;
+            }
+
+            if (GetProperty(subText, "sharedMaterial") is Material sharedMaterial)
+            {
+                SetTmpMaterialVisibleColor(sharedMaterial, visibleColor.Value);
+            }
+
+            if (GetProperty(subText, "fallbackMaterial") is Material material)
+            {
+                SetTmpMaterialVisibleColor(material, visibleColor.Value);
+            }
+
+            SetTmpComponentVisibleColor(subText, visibleColor.Value);
+            ForceTmpMeshUpdate(subText);
+            SyncTmpCanvasRenderer(subText);
+        }
+
+        ForceTmpMeshUpdate(component);
+        SyncTmpCanvasRenderer(component);
+    }
+
+    private static void SetTmpComponentVisibleColor(object component, Color visibleColor)
+    {
+        var visibleColor32 = (Color32)visibleColor;
+        SetProperty(component, "color", visibleColor);
+        SetField(component, "m_fontColor", visibleColor);
+        SetField(component, "m_fontColor32", visibleColor32);
+        SetProperty(component, "faceColor", visibleColor32);
+        SetField(component, "m_faceColor", visibleColor32);
+        SetField(component, "m_htmlColor", visibleColor32);
+        SetTmpCanvasRendererVisibleColor(component, visibleColor);
+    }
+
+    private static void SetTmpCanvasRendererVisibleColor(object component, Color visibleColor)
+    {
+        if (GetProperty(component, "canvasRenderer") is not CanvasRenderer renderer)
+        {
+            return;
+        }
+
+        try
+        {
+            renderer.cull = false;
+            renderer.SetColor(visibleColor);
+            renderer.SetAlpha(visibleColor.a);
+        }
+        catch
+        {
+        }
+    }
+
+    private static void SyncTmpCanvasRenderer(object component)
+    {
+        if (GetProperty(component, "canvasRenderer") is not CanvasRenderer renderer)
+        {
+            return;
+        }
+
+        try
+        {
+            renderer.cull = false;
+        }
+        catch
+        {
+        }
+
+        if (GetTmpComponentMaterial(component) is Material material)
+        {
+            try
+            {
+                renderer.SetMaterial(material, 0);
+            }
+            catch
+            {
+            }
+
+            var texture = GetTmpMaterialTexture(material, "_MainTex");
+            if (texture != null)
+            {
+                try
+                {
+                    renderer.SetTexture(texture);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        if (GetProperty(component, "mesh") is Mesh mesh)
+        {
+            try
+            {
+                renderer.SetMesh(mesh);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private static void RevealTmpTranslatedText(object component, string translatedText)
+    {
+        if (string.IsNullOrEmpty(translatedText))
+        {
+            return;
+        }
+
+        SetProperty(component, "maxVisibleCharacters", TmpMaxVisibleCount);
+        SetProperty(component, "maxVisibleWords", TmpMaxVisibleCount);
+        SetProperty(component, "maxVisibleLines", TmpMaxVisibleCount);
+        SetField(component, "m_maxVisibleCharacters", TmpMaxVisibleCount);
+        SetField(component, "m_maxVisibleWords", TmpMaxVisibleCount);
+        SetField(component, "m_maxVisibleLines", TmpMaxVisibleCount);
+    }
+
+    private static bool TryGetVisibleTmpMaterialColor(object? sourceMaterial, out Color materialColor)
+    {
+        materialColor = default;
+        if (sourceMaterial is not Material material)
+        {
+            return false;
+        }
+
+        return TryGetVisibleMaterialColor(material, "_FaceColor", out materialColor) ||
+            TryGetVisibleMaterialColor(material, "_Color", out materialColor);
+    }
+
+    private static bool TryGetVisibleMaterialColor(Material material, string name, out Color materialColor)
+    {
+        materialColor = default;
+        try
+        {
+            if (!material.HasProperty(name))
+            {
+                return false;
+            }
+
+            var color = material.GetColor(name);
+            if (color.a <= TmpColorAlphaVisibilityThreshold)
+            {
+                return false;
+            }
+
+            materialColor = color;
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static bool TryGetTmpComponentColor(object component, out Color componentColor)
+    {
+        componentColor = default;
+        if (GetProperty(component, "color") is not Color color ||
+            color.a <= TmpColorAlphaVisibilityThreshold)
+        {
+            return false;
+        }
+
+        componentColor = color;
+        return true;
+    }
+
+    private static bool IsDefaultTmpComponentColor(Color color)
+    {
+        return Math.Abs(color.r - 1f) < 0.001f &&
+            Math.Abs(color.g - 1f) < 0.001f &&
+            Math.Abs(color.b - 1f) < 0.001f &&
+            Math.Abs(color.a - 1f) < 0.001f;
+    }
+
+    private static void SetTmpMaterialVisibleColor(Material material, Color componentColor)
+    {
+        SetTmpMaterialVisibleColor(material, "_FaceColor", componentColor);
+        SetTmpMaterialVisibleColor(material, "_Color", componentColor);
+    }
+
+    private static void SetTmpMaterialVisibleColor(Material target, string name, Color componentColor)
     {
         try
         {
@@ -2377,13 +2819,23 @@ internal sealed class UnityTextFontReplacementService
         object fontAsset,
         ResolvedFont? resolved)
     {
-        if (!config.EnableTranslationDebugLogs ||
-            _loggedTmpMaterialDiagnostics.Count >= MaxTmpMaterialDiagnostics)
+        if (!config.EnableTranslationDebugLogs)
         {
             return;
         }
 
         var text = GetProperty(component, "text") as string ?? translatedText;
+        var isPriority = IsTmpPriorityDiagnosticContext(context, text);
+        if (!isPriority && _loggedTmpMaterialDiagnostics.Count >= MaxTmpMaterialDiagnostics)
+        {
+            return;
+        }
+
+        if (isPriority && _loggedTmpMaterialDiagnostics.Count >= MaxTmpMaterialDiagnostics + MaxTmpPriorityMaterialDiagnostics)
+        {
+            return;
+        }
+
         var key = string.Join(
             "|",
             context.SceneName ?? string.Empty,
@@ -2398,12 +2850,14 @@ internal sealed class UnityTextFontReplacementService
         var componentMaterial = GetTmpComponentMaterial(component);
         var fontAssetMaterial = GetTmpFontAssetMaterial(fontAsset);
         var styleProfile = ResolveTmpFallbackStyleProfile(componentMaterial, resolved);
+        ForceTmpMeshUpdate(component);
         _logger.LogInfo(
             "TMP 材质诊断：" +
             $"层级={context.ComponentHierarchy ?? "未知"}；" +
             $"组件={component.GetType().FullName}；" +
             $"文本={TrimDiagnosticText(text)}；" +
             $"fallbackStyleProfile={styleProfile}；" +
+            $"state={FormatTmpComponentState(component)}; " +
             $"组件颜色={FormatTmpColor(GetProperty(component, "color"))}；" +
             $"组件材质={FormatTmpMaterial(componentMaterial)}；" +
             $"后备字体材质={FormatTmpMaterial(fontAssetMaterial)}。");
@@ -2415,13 +2869,23 @@ internal sealed class UnityTextFontReplacementService
         TranslationCacheContext context,
         string translatedText)
     {
-        if (!config.EnableTranslationDebugLogs ||
-            _loggedTmpSubTextMaterialDiagnostics.Count >= MaxTmpSubTextMaterialDiagnostics)
+        if (!config.EnableTranslationDebugLogs)
         {
             return;
         }
 
         var text = GetProperty(component, "text") as string ?? translatedText;
+        var isPriority = IsTmpPriorityDiagnosticContext(context, text);
+        if (!isPriority && _loggedTmpSubTextMaterialDiagnostics.Count >= MaxTmpSubTextMaterialDiagnostics)
+        {
+            return;
+        }
+
+        if (isPriority && _loggedTmpSubTextMaterialDiagnostics.Count >= MaxTmpSubTextMaterialDiagnostics + MaxTmpPrioritySubTextMaterialDiagnostics)
+        {
+            return;
+        }
+
         var key = string.Join(
             "|",
             context.SceneName ?? string.Empty,
@@ -2433,7 +2897,7 @@ internal sealed class UnityTextFontReplacementService
             return;
         }
 
-        InvokeMethodIfAvailable(component, "ForceMeshUpdate");
+        ForceTmpMeshUpdate(component);
         if (GetField(component, "m_subTextObjects") is not Array subTextObjects)
         {
             _logger.LogInfo($"TMP 子材质诊断：层级={context.ComponentHierarchy ?? "未知"}；未找到 m_subTextObjects。");
@@ -2453,10 +2917,133 @@ internal sealed class UnityTextFontReplacementService
                 $"层级={context.ComponentHierarchy ?? "未知"}；" +
                 $"索引={i}；" +
                 $"fontAsset={GetProperty(subText, "fontAsset")?.GetType().FullName ?? "<null>"}；" +
+                $"state={FormatTmpComponentState(subText)}; " +
                 $"shared={FormatTmpMaterial(GetProperty(subText, "sharedMaterial"))}；" +
                 $"fallback={FormatTmpMaterial(GetProperty(subText, "fallbackMaterial"))}；" +
                 $"fallbackSource={FormatTmpMaterial(GetProperty(subText, "fallbackSourceMaterial"))}。");
         }
+    }
+
+    private static string FormatTmpComponentState(object component)
+    {
+        return string.Join(
+            ", ",
+            $"enabled={FormatTmpValue(GetProperty(component, "enabled"))}",
+            $"active={FormatTmpGameObjectState(component)}",
+            $"font={FormatTmpValue(GetProperty(component, "font"))}",
+            $"fontSize={FormatTmpValue(GetProperty(component, "fontSize"))}",
+            $"fontStyle={FormatTmpValue(GetProperty(component, "fontStyle"))}",
+            $"autoSize={FormatTmpValue(GetProperty(component, "enableAutoSizing"))}",
+            $"fontSizeMin={FormatTmpValue(GetProperty(component, "fontSizeMin"))}",
+            $"fontSizeMax={FormatTmpValue(GetProperty(component, "fontSizeMax"))}",
+            $"alignment={FormatTmpValue(GetProperty(component, "alignment"))}",
+            $"overflow={FormatTmpValue(GetProperty(component, "overflowMode"))}",
+            $"wrapping={FormatTmpValue(GetProperty(component, "enableWordWrapping"))}",
+            $"maxChars={FormatTmpValue(GetProperty(component, "maxVisibleCharacters"))}",
+            $"maxWords={FormatTmpValue(GetProperty(component, "maxVisibleWords"))}",
+            $"maxLines={FormatTmpValue(GetProperty(component, "maxVisibleLines"))}",
+            $"preferred={FormatTmpValue(GetProperty(component, "preferredWidth"))}x{FormatTmpValue(GetProperty(component, "preferredHeight"))}",
+            $"rect={FormatTmpRectTransform(GetProperty(component, "rectTransform"))}",
+            $"renderer={FormatTmpCanvasRenderer(GetProperty(component, "canvasRenderer"))}",
+            $"mesh={FormatTmpMesh(GetProperty(component, "mesh"))}",
+            $"textInfo={FormatTmpTextInfo(GetProperty(component, "textInfo") ?? GetField(component, "m_textInfo"))}",
+            $"rawText={FormatTmpValue(GetField(component, "m_text"))}");
+    }
+
+    private static string FormatTmpValue(object? value)
+    {
+        return value?.ToString() ?? "<null>";
+    }
+
+    private static string FormatTmpGameObjectState(object component)
+    {
+        if (GetProperty(component, "gameObject") is not GameObject gameObject)
+        {
+            return "<null>";
+        }
+
+        try
+        {
+            return $"{gameObject.activeSelf}/{gameObject.activeInHierarchy}";
+        }
+        catch
+        {
+            return "<unavailable>";
+        }
+    }
+
+    private static string FormatTmpRectTransform(object? value)
+    {
+        if (value is not RectTransform rectTransform)
+        {
+            return value == null ? "<null>" : value.GetType().FullName ?? value.ToString() ?? "<unknown>";
+        }
+
+        try
+        {
+            return string.Join(
+                " ",
+                $"rect={rectTransform.rect}",
+                $"anchored={rectTransform.anchoredPosition}",
+                $"local={rectTransform.localPosition}",
+                $"scale={rectTransform.localScale}",
+                $"lossy={rectTransform.lossyScale}");
+        }
+        catch
+        {
+            return "<unavailable>";
+        }
+    }
+
+    private static string FormatTmpCanvasRenderer(object? value)
+    {
+        if (value is not CanvasRenderer renderer)
+        {
+            return value == null ? "<null>" : value.GetType().FullName ?? value.ToString() ?? "<unknown>";
+        }
+
+        try
+        {
+            return $"cull={renderer.cull}, color={renderer.GetColor()}, alpha={renderer.GetAlpha():0.###}";
+        }
+        catch
+        {
+            return "<unavailable>";
+        }
+    }
+
+    private static string FormatTmpMesh(object? value)
+    {
+        if (value is not Mesh mesh)
+        {
+            return value == null ? "<null>" : value.GetType().FullName ?? value.ToString() ?? "<unknown>";
+        }
+
+        try
+        {
+            return $"vertices={mesh.vertexCount}, bounds={mesh.bounds}";
+        }
+        catch
+        {
+            return "<unavailable>";
+        }
+    }
+
+    private static string FormatTmpTextInfo(object? textInfo)
+    {
+        if (textInfo == null)
+        {
+            return "<null>";
+        }
+
+        var meshInfo = GetProperty(textInfo, "meshInfo") as Array;
+        return string.Join(
+            ", ",
+            $"characters={FormatTmpValue(GetProperty(textInfo, "characterCount"))}",
+            $"words={FormatTmpValue(GetProperty(textInfo, "wordCount"))}",
+            $"lines={FormatTmpValue(GetProperty(textInfo, "lineCount"))}",
+            $"pages={FormatTmpValue(GetProperty(textInfo, "pageCount"))}",
+            $"meshInfo={meshInfo?.Length.ToString() ?? "<null>"}");
     }
 
     private static string FormatTmpMaterial(object? material)
@@ -2548,6 +3135,75 @@ internal sealed class UnityTextFontReplacementService
         return normalized.Length <= 80 ? normalized : normalized[..80] + "...";
     }
 
+    private static bool IsTmpPriorityDiagnosticContext(TranslationCacheContext context, string? text)
+    {
+        var hierarchy = context.ComponentHierarchy ?? string.Empty;
+        return hierarchy.Contains("/Choices/", StringComparison.Ordinal) ||
+            hierarchy.Contains("Dialogue_Cyberpunk_Choice", StringComparison.Ordinal) ||
+            hierarchy.Contains("Dialogue_Default_Dialogue", StringComparison.Ordinal) ||
+            (text?.Contains("<color=", StringComparison.OrdinalIgnoreCase) ?? false);
+    }
+
+    private static bool DeprecatedUnusedTmpFallbackSubMesh(TranslationCacheContext context)
+    {
+        var hierarchy = context.ComponentHierarchy ?? string.Empty;
+        return hierarchy.Contains("/Choices/", StringComparison.Ordinal) ||
+            hierarchy.Contains("Dialogue_Cyberpunk_Choice", StringComparison.Ordinal);
+    }
+
+    private static void DeprecatedUnusedChoiceTmpTextRenderOrder(object component)
+    {
+        if (GetProperty(component, "rectTransform") is not RectTransform rectTransform)
+        {
+            return;
+        }
+
+        try
+        {
+            rectTransform.SetAsLastSibling();
+            if (rectTransform.parent is Transform parent)
+            {
+                parent.SetAsLastSibling();
+            }
+        }
+        catch
+        {
+        }
+    }
+
+    private static void DeprecatedUnusedChoiceTmpMaterialOverlay(object component)
+    {
+        var overlayShader = Shader.Find("TextMeshPro/Distance Field Overlay");
+        foreach (var material in EnumerateTmpComponentMaterials(component).OfType<Material>().Distinct())
+        {
+            try
+            {
+                if (overlayShader != null)
+                {
+                    material.shader = overlayShader;
+                }
+
+                material.renderQueue = Math.Max(material.renderQueue, 4000);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private static IEnumerable<object?> EnumerateTmpComponentMaterials(object component)
+    {
+        yield return GetProperty(component, "materialForRendering");
+        yield return GetProperty(component, "fontMaterial");
+        yield return GetProperty(component, "fontSharedMaterial");
+        yield return GetProperty(component, "sharedMaterial");
+        yield return GetProperty(component, "material");
+        yield return GetField(component, "m_fontMaterial");
+        yield return GetField(component, "m_sharedMaterial");
+        yield return GetField(component, "m_currentMaterial");
+        yield return GetField(component, "m_material");
+    }
+
     private static bool TryGetMaterialFloat(Material material, string name, out float value)
     {
         value = 0;
@@ -2567,25 +3223,6 @@ internal sealed class UnityTextFontReplacementService
         }
     }
 
-    private static void RestoreMaterialFloat(Material material, string name, bool hasValue, float value)
-    {
-        if (!hasValue)
-        {
-            return;
-        }
-
-        try
-        {
-            if (material.HasProperty(name))
-            {
-                material.SetFloat(name, value);
-            }
-        }
-        catch
-        {
-        }
-    }
-
     private static object? ResolveTmpFallbackMaterial(object? fontAsset, object? componentMaterial, object? fontAssetMaterial)
     {
         if (componentMaterial == null)
@@ -2594,6 +3231,30 @@ internal sealed class UnityTextFontReplacementService
         }
 
         var materialManagerType = ResolveType(TmpMaterialManagerTypeNames);
+        if (fontAssetMaterial != null)
+        {
+            var method = materialManagerType?
+                .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
+                .Where(candidate => candidate.Name == "GetFallbackMaterial")
+                .FirstOrDefault(candidate =>
+                {
+                    var parameters = candidate.GetParameters();
+                    return parameters.Length == 2 &&
+                        IsCompatibleValue(parameters[0].ParameterType, componentMaterial) &&
+                        IsCompatibleValue(parameters[1].ParameterType, fontAssetMaterial);
+                });
+            if (method != null)
+            {
+                try
+                {
+                    return method.Invoke(null, new[] { componentMaterial, fontAssetMaterial }) ?? fontAssetMaterial;
+                }
+                catch
+                {
+                }
+            }
+        }
+
         if (fontAsset != null)
         {
             const int atlasIndex = 0;
@@ -2620,34 +3281,7 @@ internal sealed class UnityTextFontReplacementService
             }
         }
 
-        if (fontAssetMaterial == null)
-        {
-            return componentMaterial;
-        }
-
-        var method = materialManagerType?
-            .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static)
-            .Where(candidate => candidate.Name == "GetFallbackMaterial")
-            .FirstOrDefault(candidate =>
-            {
-                var parameters = candidate.GetParameters();
-                return parameters.Length == 2 &&
-                    IsCompatibleValue(parameters[0].ParameterType, componentMaterial) &&
-                    IsCompatibleValue(parameters[1].ParameterType, fontAssetMaterial);
-            });
-        if (method == null)
-        {
-            return fontAssetMaterial;
-        }
-
-        try
-        {
-            return method.Invoke(null, new[] { componentMaterial, fontAssetMaterial }) ?? fontAssetMaterial;
-        }
-        catch
-        {
-            return fontAssetMaterial;
-        }
+        return fontAssetMaterial ?? componentMaterial;
     }
 
     private static void MarkTmpTextDirty(object component)
@@ -2660,6 +3294,9 @@ internal sealed class UnityTextFontReplacementService
         InvokeMethodIfAvailable(component, "SetVerticesDirty");
         InvokeMethodIfAvailable(component, "SetLayoutDirty");
         InvokeMethodIfAvailable(component, "SetMaterialDirty");
+        InvokeMethodIfAvailable(component, "RecalculateMasking");
+        InvokeMethodIfAvailable(component, "RecalculateClipping");
+        InvokeMethodIfAvailable(component, "UpdateMaterial");
     }
 
     private static void PopulateTmpFontAsset(object fontAsset, object component)
@@ -2702,6 +3339,43 @@ internal sealed class UnityTextFontReplacementService
             {
             }
         }
+    }
+
+    private static void ForceTmpMeshUpdate(object component)
+    {
+        var methods = component
+            .GetType()
+            .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .Where(method => method.Name == "ForceMeshUpdate" && !method.ContainsGenericParameters)
+            .OrderByDescending(method => method.GetParameters().Length);
+
+        foreach (var method in methods)
+        {
+            var parameters = method.GetParameters();
+            if (parameters.Any(parameter => parameter.ParameterType != typeof(bool) && !parameter.HasDefaultValue))
+            {
+                continue;
+            }
+
+            var arguments = new object?[parameters.Length];
+            for (var i = 0; i < parameters.Length; i++)
+            {
+                arguments[i] = parameters[i].ParameterType == typeof(bool) ? true : parameters[i].DefaultValue;
+            }
+
+            try
+            {
+                method.Invoke(component, arguments);
+                SyncTmpCanvasRenderer(component);
+                return;
+            }
+            catch
+            {
+            }
+        }
+
+        InvokeMethodIfAvailable(component, "ForceMeshUpdate");
+        SyncTmpCanvasRenderer(component);
     }
 
     private static void InvokeMethodIfAvailable(object instance, string methodName)

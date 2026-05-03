@@ -274,7 +274,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "打开控制面板的快捷键。写 None 可禁用。", "Alt+H", "格式示例：Alt+H、Ctrl+Shift+P、None。", "OpenControlPanelHotkey", Text(config.OpenControlPanelHotkey ?? defaults.OpenControlPanelHotkey));
         Option(builder, "临时启用或暂停翻译的快捷键。写 None 可禁用。", "Alt+F", "格式示例：Alt+F、Ctrl+T、None。", "ToggleTranslationHotkey", Text(config.ToggleTranslationHotkey ?? defaults.ToggleTranslationHotkey));
         Option(builder, "强制重新扫描当前画面文字的快捷键。写 None 可禁用。", "Alt+G", "格式示例：Alt+G、Ctrl+G、None。", "ForceScanHotkey", Text(config.ForceScanHotkey ?? defaults.ForceScanHotkey));
-        Option(builder, "临时启用或暂停字体替换功能的快捷键。TMP 会优先保留原字体材质和效果。写 None 可禁用。", "Alt+D", "格式示例：Alt+D、Shift+F8、None。", "ToggleFontHotkey", Text(config.ToggleFontHotkey ?? defaults.ToggleFontHotkey));
+        Option(builder, "临时启用或暂停字体补字 fallback 的快捷键。TMP 会优先保留原字体材质和效果。写 None 可禁用。", "Alt+D", "格式示例：Alt+D、Shift+F8、None。", "ToggleFontHotkey", Text(config.ToggleFontHotkey ?? defaults.ToggleFontHotkey));
 
         Section(builder, PromptTemplateSection);
         Option(builder, "系统提示词模板。留空使用内置默认；需要换行时写 \\n。", "内置默认", "可用：{TargetLanguage}、{StyleInstruction}、{GameTitle}、{GameContext}、{GlossarySystemPolicy}。", "SystemPrompt", Prompt(promptTemplates.SystemPrompt));
@@ -335,10 +335,10 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "术语提示最多占用多少字符。", "1200", "范围：0 到 8000。", "GlossaryMaxCharacters", Int(config.GlossaryMaxCharacters ?? defaults.GlossaryMaxCharacters));
 
         Section(builder, FontSection);
-        Option(builder, "是否启用字体替换功能。", "true", "只在缺字或需要补字时使用替换字体或 TMP fallback，不会主动乱改已有字体效果。", "EnableFontReplacement", Bool(config.EnableFontReplacement ?? defaults.EnableFontReplacement));
-        Option(builder, "UGUI 原字体缺字时是否启用字体替换。", "true", "true 或 false。", "ReplaceUguiFonts", Bool(config.ReplaceUguiFonts ?? defaults.ReplaceUguiFonts));
-        Option(builder, "TextMeshPro 缺字时是否启用 TMP fallback。", "true", "true 或 false。", "ReplaceTmpFonts", Bool(config.ReplaceTmpFonts ?? defaults.ReplaceTmpFonts));
-        Option(builder, "IMGUI 当前绘制项缺字时是否启用临时字体替换。", "true", "只在单次绘制期间临时使用替换字体，绘制后立即恢复原皮肤字体。", "ReplaceImguiFonts", Bool(config.ReplaceImguiFonts ?? defaults.ReplaceImguiFonts));
+        Option(builder, "是否启用字体补字 fallback。", "true", "优先保留原字体，只在译文缺字时补充中文 fallback，不主动改已有 TMP 字体效果。", "EnableFontReplacement", Bool(config.EnableFontReplacement ?? defaults.EnableFontReplacement));
+        Option(builder, "UGUI 原字体缺字时是否启用缺字补字。", "true", "true 或 false。", "ReplaceUguiFonts", Bool(config.ReplaceUguiFonts ?? defaults.ReplaceUguiFonts));
+        Option(builder, "TextMeshPro 缺字时是否启用 TMP fallback 补字。", "true", "true 或 false。", "ReplaceTmpFonts", Bool(config.ReplaceTmpFonts ?? defaults.ReplaceTmpFonts));
+        Option(builder, "IMGUI 当前绘制项缺字时是否启用临时补字。", "true", "只在单次绘制期间临时补充中文字体，绘制后立即恢复原皮肤字体。", "ReplaceImguiFonts", Bool(config.ReplaceImguiFonts ?? defaults.ReplaceImguiFonts));
         Option(builder, "未填写自定义字体时，是否自动使用系统中的中日韩字体。", "true", "true 或 false。", "AutoUseCjkFallbackFonts", Bool(config.AutoUseCjkFallbackFonts ?? defaults.AutoUseCjkFallbackFonts));
         Option(builder, "自定义字体名称。留空表示自动选择。", "留空", "示例：Noto Sans SC、Microsoft YaHei。", "ReplacementFontName", Text(config.ReplacementFontName));
         Option(builder, "自定义字体文件完整路径。留空表示自动选择。", "留空", "示例：C:\\Windows\\Fonts\\msyh.ttc。", "ReplacementFontFile", Text(config.ReplacementFontFile));

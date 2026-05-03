@@ -183,8 +183,14 @@ internal sealed class UnityMainThreadResultApplier
                 continue;
             }
 
-            if (_writebacks.TryGetDisplayText(target.Id, target.GetText(), useTranslatedText, out var replacement))
+            var currentText = target.GetText();
+            if (_writebacks.TryGetDisplayText(target.Id, currentText, useTranslatedText, out var replacement))
             {
+                if (useTranslatedText && _writebacks.IsRememberedSourceText(target.Id, currentText))
+                {
+                    CaptureTmpVisibleColorBeforeWriteback(target);
+                }
+
                 target.SetText(replacement);
                 ApplyFontSizeState(target, translatedTextIsActive: useTranslatedText);
                 applied++;
@@ -410,14 +416,30 @@ internal sealed class UnityMainThreadResultApplier
 
     private bool TryApplyRemembered(IUnityTextTarget target)
     {
-        if (!_writebacks.TryGetDisplayText(target.Id, target.GetText(), _useTranslatedText, out var replacement))
+        var currentText = target.GetText();
+        if (!_writebacks.TryGetDisplayText(target.Id, currentText, _useTranslatedText, out var replacement))
         {
             return false;
+        }
+
+        if (_useTranslatedText && _writebacks.IsRememberedSourceText(target.Id, currentText))
+        {
+            CaptureTmpVisibleColorBeforeWriteback(target);
         }
 
         target.SetText(replacement);
         ApplyFontSizeState(target, translatedTextIsActive: _useTranslatedText);
         return true;
+    }
+
+    private void CaptureTmpVisibleColorBeforeWriteback(IUnityTextTarget target)
+    {
+        if (_fontReplacement == null || !IsTmpTarget(target.ComponentType))
+        {
+            return;
+        }
+
+        _fontReplacement.CaptureTmpVisibleColor(target.Component);
     }
 
     private bool ApplyFontForResult(TranslationResult result, IUnityTextTarget target)
