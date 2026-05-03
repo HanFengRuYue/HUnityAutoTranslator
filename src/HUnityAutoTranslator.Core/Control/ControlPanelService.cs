@@ -7,6 +7,10 @@ namespace HUnityAutoTranslator.Core.Control;
 public sealed class ControlPanelService
 {
     private static readonly TimeSpan ProviderCooldownDuration = TimeSpan.FromMinutes(2);
+    private const string DefaultPluginVersion = "0.1.0";
+    private const string MissingBepInExVersion = "未检测到";
+    private const string ProjectAuthor = "HanFengRuYue";
+    private const string ProjectRepositoryUrl = "https://github.com/HanFengRuYue/HUnityAutoTranslator";
 
     private readonly object _gate = new();
     private readonly IControlPanelSettingsStore? _settingsStore;
@@ -24,6 +28,8 @@ public sealed class ControlPanelService
     private string? _automaticReplacementFontName;
     private string? _automaticReplacementFontFile;
     private string? _automaticGameTitle;
+    private string _pluginVersion = DefaultPluginVersion;
+    private string _bepInExVersion = MissingBepInExVersion;
     private LlamaCppServerStatus _llamaCppStatus;
     private ProviderStatus _providerStatus = new("unchecked", "尚未检测", null);
 
@@ -99,6 +105,10 @@ public sealed class ControlPanelService
             return new ControlPanelState(
                 config.Enabled,
                 config.TargetLanguage,
+                _pluginVersion,
+                _bepInExVersion,
+                ProjectAuthor,
+                ProjectRepositoryUrl,
                 _config.GameTitle,
                 _automaticGameTitle,
                 config.Style,
@@ -199,6 +209,20 @@ public sealed class ControlPanelService
         {
             return BuildEffectiveConfig(_config);
         }
+    }
+
+    public void SetRuntimeVersions(string pluginVersion, string? bepInExVersion)
+    {
+        lock (_gate)
+        {
+            _pluginVersion = NormalizeVersionValue(pluginVersion, "未知");
+            _bepInExVersion = NormalizeVersionValue(bepInExVersion, MissingBepInExVersion);
+        }
+    }
+
+    private static string NormalizeVersionValue(string? value, string fallback)
+    {
+        return string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
     }
 
     public string? GetApiKey()

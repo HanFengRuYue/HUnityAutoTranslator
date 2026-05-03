@@ -316,6 +316,10 @@ export interface ProviderActivityPreview {
 export interface ControlPanelState {
   Enabled: boolean;
   TargetLanguage: string;
+  PluginVersion: string;
+  BepInExVersion: string;
+  ProjectAuthor: string;
+  ProjectRepositoryUrl: string;
   GameTitle: string | null;
   AutomaticGameTitle: string | null;
   Style: number | string;

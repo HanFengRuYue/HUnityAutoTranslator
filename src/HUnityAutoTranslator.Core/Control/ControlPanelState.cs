@@ -6,6 +6,10 @@ namespace HUnityAutoTranslator.Core.Control;
 public sealed record ControlPanelState(
     bool Enabled,
     string TargetLanguage,
+    string PluginVersion,
+    string BepInExVersion,
+    string ProjectAuthor,
+    string ProjectRepositoryUrl,
     string? GameTitle,
     string? AutomaticGameTitle,
     TranslationStyle Style,

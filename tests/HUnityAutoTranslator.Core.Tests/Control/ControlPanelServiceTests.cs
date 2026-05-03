@@ -62,6 +62,21 @@ public sealed class ControlPanelServiceTests
     }
 
     [Fact]
+    public void Snapshot_reports_project_metadata_for_version_page()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        service.SetRuntimeVersions("9.8.7", "6.0.0.0");
+
+        var state = service.GetState();
+
+        state.PluginVersion.Should().Be("9.8.7");
+        state.BepInExVersion.Should().Be("6.0.0.0");
+        state.ProjectAuthor.Should().Be("HanFengRuYue");
+        state.ProjectRepositoryUrl.Should().Be("https://github.com/HanFengRuYue/HUnityAutoTranslator");
+    }
+
+    [Fact]
     public void Snapshot_reports_no_active_provider_profile_when_queue_is_empty()
     {
         var service = ControlPanelService.CreateDefault();

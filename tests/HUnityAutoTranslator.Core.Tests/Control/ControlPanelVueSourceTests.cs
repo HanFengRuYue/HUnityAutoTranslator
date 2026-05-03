@@ -31,6 +31,38 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_about_page_is_limited_to_project_version_plate_fields()
+    {
+        var aboutPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AboutPage.vue"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+        var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+
+        apiTypesSource.Should().Contain("PluginVersion: string;");
+        apiTypesSource.Should().Contain("BepInExVersion: string;");
+        apiTypesSource.Should().Contain("ProjectAuthor: string;");
+        apiTypesSource.Should().Contain("ProjectRepositoryUrl: string;");
+        aboutPageSource.Should().Contain("controlPanelStore.state");
+        aboutPageSource.Should().Contain("LlamaCppStatus");
+        aboutPageSource.Should().Contain("Release");
+        aboutPageSource.Should().Contain("插件版本");
+        aboutPageSource.Should().Contain("llama.cpp 版本");
+        aboutPageSource.Should().Contain("当前 BepInEx 版本");
+        aboutPageSource.Should().Contain("作者名称");
+        aboutPageSource.Should().Contain("GitHub 仓库");
+        aboutPageSource.Should().Contain("未安装");
+        aboutPageSource.Should().Contain("未检测到");
+        aboutPageSource.Should().Contain("https://github.com/HanFengRuYue/HUnityAutoTranslator");
+        aboutPageSource.Should().NotContain("控制面板 URL");
+        aboutPageSource.Should().NotContain("访问范围");
+        aboutPageSource.Should().NotContain("面板实现");
+        aboutPageSource.Should().NotContain("缓存与术语");
+        CssBlock(cssSource, @"\.about-stage").Should().Contain("grid-template-columns").And.Contain("min-height: calc(100vh - 112px)");
+        CssBlock(cssSource, @"\.about-logo-mark").Should().Contain("animation: about-logo-float");
+        CssBlock(cssSource, @"\.about-version-list").Should().Contain("display: grid;");
+        cssSource.Should().Contain("@media (prefers-reduced-motion: reduce)");
+    }
+
+    [Fact]
     public void Vue_status_page_uses_one_metric_layer_without_writeback_or_provider_result()
     {
         var statusPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "StatusPage.vue"));

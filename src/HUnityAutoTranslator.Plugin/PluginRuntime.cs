@@ -55,6 +55,18 @@ internal sealed class PluginRuntime : IDisposable
         _pluginDirectory = pluginDirectory;
     }
 
+    private static string? GetBepInExVersion()
+    {
+        try
+        {
+            return typeof(Paths).Assembly.GetName().Version?.ToString();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     public void Start()
     {
         WindowsConsoleEncoding.ConfigureUtf8();
@@ -75,6 +87,7 @@ internal sealed class PluginRuntime : IDisposable
                 new EncryptedProviderProfileStore(providerProfilesPath),
                 new EncryptedTextureImageProviderProfileStore(textureImageProviderProfilesPath),
                 _metrics);
+            _controlPanel.SetRuntimeVersions(MyPluginInfo.PLUGIN_VERSION, GetBepInExVersion());
             _controlPanel.SetAutomaticGameTitle(Application.productName);
             var config = _controlPanel.GetConfig();
             _cache = new SqliteTranslationCache(cachePath);
