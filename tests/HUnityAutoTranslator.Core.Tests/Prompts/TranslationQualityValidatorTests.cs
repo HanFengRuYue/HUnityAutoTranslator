@@ -107,7 +107,7 @@ public sealed class TranslationQualityValidatorTests
     }
 
     [Fact]
-    public void Quality_validator_allows_game_title_to_remain_unchanged()
+    public void Quality_validator_rejects_untranslated_source_language_game_title()
     {
         const string gameTitle = "\u6c60\u888b\u30bb\u30af\u30b5\u30ed\u30a4\u30c9\u5973\u5b66\u5712";
         var result = TranslationQualityValidator.ValidateBatch(
@@ -117,7 +117,8 @@ public sealed class TranslationQualityValidatorTests
             "zh-Hans",
             gameTitle);
 
-        result.IsValid.Should().BeTrue();
+        result.IsValid.Should().BeFalse();
+        result.Reason.Should().Be("translatable source text was left untranslated");
     }
 
     [Fact]
@@ -165,7 +166,6 @@ public sealed class TranslationQualityValidatorTests
         var config = TranslationQualityConfig.Default() with
         {
             Mode = "custom",
-            PreserveGameTitle = false,
             RejectGeneratedOuterSymbols = false,
             RejectUntranslatedLatinUiText = false,
             RejectShortSettingValue = false,

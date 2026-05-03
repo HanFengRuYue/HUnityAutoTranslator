@@ -174,7 +174,6 @@ public sealed class CfgControlPanelSettingsStoreTests
             AllowAlreadyTargetLanguageSource = false
             EnableRepair = false
             MaxRetryCount = 9
-            PreserveGameTitle = false
             RejectGeneratedOuterSymbols = false
             RejectUntranslatedLatinUiText = false
             RejectShortSettingValue = false
@@ -258,7 +257,6 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.TranslationQuality.AllowAlreadyTargetLanguageSource.Should().BeTrue();
         config.TranslationQuality.EnableRepair.Should().BeTrue();
         config.TranslationQuality.MaxRetryCount.Should().Be(5);
-        config.TranslationQuality.PreserveGameTitle.Should().BeTrue();
         config.TranslationQuality.RejectGeneratedOuterSymbols.Should().BeTrue();
         config.TranslationQuality.RejectUntranslatedLatinUiText.Should().BeTrue();
         config.TranslationQuality.RejectShortSettingValue.Should().BeTrue();

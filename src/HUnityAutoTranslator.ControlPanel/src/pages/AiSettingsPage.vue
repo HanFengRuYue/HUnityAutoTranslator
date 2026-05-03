@@ -153,7 +153,6 @@ function createTranslationQualityConfig(mode: TranslationQualityMode = "balanced
     AllowAlreadyTargetLanguageSource: true,
     EnableRepair: true,
     MaxRetryCount: 3,
-    PreserveGameTitle: true,
     RejectGeneratedOuterSymbols: true,
     RejectUntranslatedLatinUiText: true,
     RejectShortSettingValue: true,
@@ -1563,7 +1562,6 @@ watch(selectedProfileId, () => {
           <label class="check help-target" data-help="关闭后不再执行语义质量规则，但格式检查和术语检查仍会执行。"><input id="translationQualityEnabled" v-model="form.TranslationQuality.Enabled" type="checkbox" @change="setTranslationQualityCustom">启用质量检查</label>
           <label class="check help-target" data-help="目标语言是简体中文时，原文已经是中文且只含短技术缩写会直接放行。"><input id="translationQualityAllowAlreadyTargetLanguageSource" v-model="form.TranslationQuality.AllowAlreadyTargetLanguageSource" type="checkbox" @change="setTranslationQualityCustom">中文原文放行</label>
           <label class="check help-target" data-help="质量失败后先让 AI 修复一次；关闭后直接进入重试流程。"><input id="translationQualityEnableRepair" v-model="form.TranslationQuality.EnableRepair" type="checkbox" @change="setTranslationQualityCustom">启用质量修复</label>
-          <label class="check help-target" data-help="游戏标题出现在原文时，要求译文保留原标题。"><input id="translationQualityPreserveGameTitle" v-model="form.TranslationQuality.PreserveGameTitle" type="checkbox" @change="setTranslationQualityCustom">保留游戏标题</label>
           <label class="check help-target" data-help="拒绝 AI 额外添加或漏掉原文已有的引号、括号、选择箭头、项目符号等外层/结构符号。"><input id="translationQualityRejectGeneratedOuterSymbols" v-model="form.TranslationQuality.RejectGeneratedOuterSymbols" type="checkbox" @change="setTranslationQualityCustom">拒绝符号错漏</label>
           <label class="check help-target" data-help="拒绝普通英文 UI 文本原样未翻译。"><input id="translationQualityRejectUntranslatedLatinUiText" v-model="form.TranslationQuality.RejectUntranslatedLatinUiText" type="checkbox" @change="setTranslationQualityCustom">拒绝英文未翻译</label>
           <label class="check help-target" data-help="拒绝设置值译文过短或不完整。"><input id="translationQualityRejectShortSettingValue" v-model="form.TranslationQuality.RejectShortSettingValue" type="checkbox" @change="setTranslationQualityCustom">拒绝设置值短译</label>

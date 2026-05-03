@@ -56,7 +56,6 @@ export interface TranslationQualityConfig {
   AllowAlreadyTargetLanguageSource: boolean;
   EnableRepair: boolean;
   MaxRetryCount: number;
-  PreserveGameTitle: boolean;
   RejectGeneratedOuterSymbols: boolean;
   RejectUntranslatedLatinUiText: boolean;
   RejectShortSettingValue: boolean;

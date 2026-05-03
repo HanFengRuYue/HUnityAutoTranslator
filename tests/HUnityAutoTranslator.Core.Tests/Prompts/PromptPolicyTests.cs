@@ -38,7 +38,6 @@ public sealed class PromptPolicyTests
             GameTitle: "The Glitched Attraction"));
 
         prompt.Should().Contain("For short UI text, infer the intended UI role before translating");
-        prompt.Should().Contain("If the source text is or contains the game title, preserve the exact game title");
         prompt.Should().Contain("Accessibility and technical settings must stay distinct");
         prompt.Should().Contain("For Simplified Chinese, do not leave ordinary English UI text untranslated");
         prompt.Should().Contain("Preserve UI marker symbols");
@@ -309,8 +308,7 @@ public sealed class PromptPolicyTests
             "zh-Hans",
             "The Glitched Attraction");
 
-        failures.Select(failure => failure.TextIndex).Should().BeEquivalentTo(new[] { 0, 1, 2, 3, 4 });
-        failures.Should().Contain(failure => failure.Reason.Contains("game title", StringComparison.OrdinalIgnoreCase));
+        failures.Select(failure => failure.TextIndex).Should().BeEquivalentTo(new[] { 1, 2, 3, 4 });
         failures.Should().Contain(failure => failure.Reason.Contains("too short", StringComparison.OrdinalIgnoreCase));
         failures.Should().Contain(failure => failure.Reason.Contains("untranslated", StringComparison.OrdinalIgnoreCase));
         failures.Should().Contain(failure => failure.Reason.Contains("state", StringComparison.OrdinalIgnoreCase));
