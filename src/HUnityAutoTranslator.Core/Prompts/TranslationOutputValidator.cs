@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using HUnityAutoTranslator.Core.Text;
+using Newtonsoft.Json.Linq;
 
 namespace HUnityAutoTranslator.Core.Prompts;
 
@@ -22,6 +23,11 @@ public static class TranslationOutputValidator
         if (string.IsNullOrWhiteSpace(translatedText))
         {
             return ValidationResult.Invalid("译文为空");
+        }
+
+        if (HasStructuredJsonResponseArtifact(translatedText))
+        {
+            return ValidationResult.Invalid("contains structured JSON response artifact");
         }
 
         if (PreservableTextClassifier.CanRemainUntranslated(sourceText))
@@ -64,6 +70,26 @@ public static class TranslationOutputValidator
     {
         return NumberedPrefixPattern.IsMatch(translatedText) &&
             !NumberedPrefixPattern.IsMatch(sourceText);
+    }
+
+    private static bool HasStructuredJsonResponseArtifact(string translatedText)
+    {
+        var trimmed = translatedText.Trim();
+        if (trimmed.Length == 0 ||
+            !((trimmed.StartsWith("{", StringComparison.Ordinal) && trimmed.EndsWith("}", StringComparison.Ordinal)) ||
+              (trimmed.StartsWith("[", StringComparison.Ordinal) && trimmed.EndsWith("]", StringComparison.Ordinal))))
+        {
+            return false;
+        }
+
+        try
+        {
+            return JToken.Parse(trimmed) is JObject or JArray;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     public static ValidationResult ValidateBatch(IReadOnlyList<string> sourceTexts, IReadOnlyList<string> translatedTexts)

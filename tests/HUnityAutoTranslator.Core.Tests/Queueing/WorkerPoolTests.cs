@@ -244,6 +244,64 @@ public sealed class WorkerPoolTests
     }
 
     [Fact]
+    public async Task WorkerPool_extracts_indexed_translation_object_before_caching_results()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var provider = new ParsingProvider("""[{"text_index":0,"text":"\u8bbe\u7f6e"}]""");
+        var limiter = new ProviderRateLimiter(requestsPerMinute: 120);
+        var config = RuntimeConfig.CreateDefault() with { MaxConcurrentRequests = 1 };
+        var pool = new TranslationWorkerPool(queue, dispatcher, provider, limiter, config, cache);
+
+        queue.Enqueue(TranslationJob.Create("ui-1", "Settings", TranslationPriority.VisibleUi));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        var results = dispatcher.Drain(10);
+        results.Should().ContainSingle();
+        results[0].TranslatedText.Should().Be("\u8bbe\u7f6e");
+
+        var key = TranslationCacheKey.Create(
+            "Settings",
+            config.TargetLanguage,
+            config.Provider,
+            TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, TranslationCacheContext.Empty, out var cached).Should().BeTrue();
+        cached.Should().Be("\u8bbe\u7f6e");
+    }
+
+    [Fact]
+    public async Task WorkerPool_rejects_unparsed_structured_json_response_without_caching_or_publishing()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var failures = new List<string>();
+        var provider = new CapturingProvider(new[] { """{"items":[{"text_index":0,"text":"\u8bbe\u7f6e"}]}""" });
+        var limiter = new ProviderRateLimiter(requestsPerMinute: 120);
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            MaxConcurrentRequests = 1,
+            TranslationQuality = TranslationQualityConfig.Default() with { Enabled = false }
+        };
+        var pool = new TranslationWorkerPool(queue, dispatcher, provider, limiter, config, cache, failureReporter: failures.Add);
+
+        queue.Enqueue(TranslationJob.Create("ui-1", "Settings", TranslationPriority.VisibleUi));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        dispatcher.PendingCount.Should().Be(0);
+        var key = TranslationCacheKey.Create(
+            "Settings",
+            config.TargetLanguage,
+            config.Provider,
+            TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, TranslationCacheContext.Empty, out _).Should().BeFalse();
+        failures.Should().ContainSingle().Which.Should().Contain("JSON");
+    }
+
+    [Fact]
     public async Task WorkerPool_preserves_capture_context_when_caching_results()
     {
         var queue = new TranslationJobQueue();
@@ -1302,6 +1360,21 @@ public sealed class WorkerPoolTests
             LastRequest = request;
             Requests.Add(request);
             return Task.FromResult(TranslationResponse.Success(_translations));
+        }
+    }
+
+    private sealed class ParsingProvider : ITranslationProvider
+    {
+        private readonly string _assistantText;
+
+        public ParsingProvider(string assistantText) => _assistantText = assistantText;
+
+        public ProviderKind Kind => ProviderKind.OpenAI;
+
+        public Task<TranslationResponse> TranslateAsync(TranslationRequest request, CancellationToken cancellationToken)
+        {
+            return Task.FromResult(TranslationResponse.Success(
+                ProviderJsonParsers.ParseAssistantTextAsList(_assistantText, request.ProtectedTexts.Count)));
         }
     }
 

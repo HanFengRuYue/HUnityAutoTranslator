@@ -229,6 +229,31 @@ public sealed class TextPipelineTests
     }
 
     [Fact]
+    public void Process_marks_cached_structured_json_translation_pending_even_when_quality_rules_are_disabled()
+    {
+        var cache = new MemoryTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            TranslationQuality = TranslationQualityConfig.Default() with { Enabled = false }
+        };
+        var key = TranslationCacheKey.Create("Settings", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        var context = new TranslationCacheContext("Main Menu", "Canvas/Menu/Settings", "TMPro.TextMeshProUGUI");
+        cache.Set(key, """{"text_index":0,"text":"\u8bbe\u7f6e"}""", context);
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.Process(new CapturedText("ui-1", "Settings", isVisible: true, context));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.Queued);
+        queue.PendingCount.Should().Be(1);
+        cache.TryGet(key, context, out _).Should().BeFalse();
+        var pending = cache.GetPendingTranslations(config.TargetLanguage, TextPipeline.PromptPolicyVersion, limit: 10);
+        pending.Should().ContainSingle();
+        pending[0].TranslatedText.Should().BeNull();
+        pending[0].ProviderKind.Should().BeEmpty();
+    }
+
+    [Fact]
     public void Process_uses_cached_translation_when_quality_rules_are_disabled()
     {
         var cache = new MemoryTranslationCache();
