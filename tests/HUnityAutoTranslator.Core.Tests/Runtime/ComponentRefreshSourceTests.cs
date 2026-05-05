@@ -244,7 +244,17 @@ public sealed class ComponentRefreshSourceTests
         registerBlock.Should().Contain("IsSameRegisteredText(target.Id, currentText)");
         registerBlock.Should().Contain("return;");
         registerBlock.Should().Contain("RememberRegisteredText(target.Id, currentText)");
-        registerBlock.Should().NotContain("ApplyCurrentFontSizeState(target);\r\n        TryApplyPendingComponentRefresh(target);");
+
+        var unchangedTextCheckIndex = registerBlock.IndexOf("IsSameRegisteredText(target.Id, currentText)", StringComparison.Ordinal);
+        var unchangedReturnIndex = registerBlock.IndexOf("return;", unchangedTextCheckIndex, StringComparison.Ordinal);
+        var rememberTextIndex = registerBlock.IndexOf("RememberRegisteredText(target.Id, currentText)", StringComparison.Ordinal);
+        var fontStateIndex = registerBlock.IndexOf("ApplyCurrentFontSizeState(target)", StringComparison.Ordinal);
+        var refreshIndex = registerBlock.IndexOf("TryApplyPendingComponentRefresh(target)", StringComparison.Ordinal);
+
+        unchangedReturnIndex.Should().BeGreaterThan(unchangedTextCheckIndex);
+        rememberTextIndex.Should().BeGreaterThan(unchangedReturnIndex);
+        fontStateIndex.Should().BeGreaterThan(unchangedReturnIndex);
+        refreshIndex.Should().BeGreaterThan(unchangedReturnIndex);
     }
 
     [Fact]
