@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace HUnityAutoTranslator.Plugin.Unity;
 
-internal sealed class UnityTextFontReplacementService
+internal sealed class UnityTextFontReplacementService : IDisposable
 {
     private const string PreferredAutomaticFontName = "Noto Sans SC";
     private const string PreferredAutomaticFontFile = @"C:\Windows\Fonts\NotoSansSC-VF.ttf";
@@ -26,6 +26,8 @@ internal sealed class UnityTextFontReplacementService
     private const float TmpConstrainedOutlineSoftness = 0.01f;
     private const float TmpColorAlphaVisibilityThreshold = 0.01f;
     private const int TmpMaxVisibleCount = int.MaxValue;
+    private const int MaxImguiFontResolutionCacheEntries = 1024;
+    private const int MaxFailedTmpFontAssetKeys = 256;
 
     private static readonly string[] CandidateFontNames =
     {
@@ -138,8 +140,11 @@ internal sealed class UnityTextFontReplacementService
     private readonly Dictionary<int, object?> _tmpReplacementFonts = new();
     private readonly Dictionary<int, Color> _tmpVisibleColors = new();
     private readonly Dictionary<string, string> _failedTmpFontAssetKeys = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Queue<string> _failedTmpFontAssetKeyOrder = new();
     private readonly Dictionary<string, ResolvedFont?> _imguiFontResolutions = new(StringComparer.Ordinal);
+    private readonly Queue<string> _imguiFontResolutionOrder = new();
     private readonly HashSet<string> _imguiRequestedCharacters = new(StringComparer.Ordinal);
+    private readonly List<TmpFallbackRegistration> _ownedTmpFallbacks = new();
     private readonly HashSet<string> _warnedUnityFontFailures = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _warnedTmpCandidateFailureSets = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _loggedAutomaticTmpFontFallbacks = new(StringComparer.OrdinalIgnoreCase);
@@ -162,6 +167,7 @@ internal sealed class UnityTextFontReplacementService
     private bool _warnedTmpInstanceFallbackFailure;
     private bool _loggedTmpInstanceFallback;
     private bool _loggedUguiReplacement;
+    private bool _disposed;
 
     public UnityTextFontReplacementService(
         ITranslationCache cache,
@@ -420,6 +426,43 @@ internal sealed class UnityTextFontReplacementService
         return enabled ? ApplyReplacementFontTargets() : RestoreOriginalFontTargets();
     }
 
+    public FontReplacementMemoryDiagnostics GetMemoryDiagnostics()
+    {
+        PruneDeadFontTargets();
+        return new FontReplacementMemoryDiagnostics(
+            _unityFonts.Count,
+            _tmpFontAssets.Count,
+            _imguiFontResolutions.Count,
+            _uguiFontTargets.Count + _tmpFontTargets.Count,
+            _failedTmpFontAssetKeys.Count,
+            _ownedTmpFallbacks.Count);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        RestoreOriginalFontTargets();
+        RemoveOwnedTmpFallbacks();
+        DestroyOwnedUnityObjects();
+        _uguiFontTargets.Clear();
+        _uguiOriginalFonts.Clear();
+        _uguiReplacementFonts.Clear();
+        _tmpFontTargets.Clear();
+        _tmpOriginalFonts.Clear();
+        _tmpReplacementFonts.Clear();
+        _tmpVisibleColors.Clear();
+        _imguiFontResolutions.Clear();
+        _imguiFontResolutionOrder.Clear();
+        _imguiRequestedCharacters.Clear();
+        _failedTmpFontAssetKeys.Clear();
+        _failedTmpFontAssetKeyOrder.Clear();
+    }
+
     private void RememberFontTarget(
         UnityEngine.Object component,
         Dictionary<int, UnityEngine.Object> targets,
@@ -459,6 +502,31 @@ internal sealed class UnityTextFontReplacementService
         targets.Remove(id);
         originalFonts.Remove(id);
         replacementFonts.Remove(id);
+    }
+
+    private void PruneDeadFontTargets()
+    {
+        PruneDeadFontTargets(_uguiFontTargets, _uguiOriginalFonts, _uguiReplacementFonts);
+        PruneDeadFontTargets(_tmpFontTargets, _tmpOriginalFonts, _tmpReplacementFonts);
+    }
+
+    private void PruneDeadFontTargets(
+        Dictionary<int, UnityEngine.Object> targets,
+        Dictionary<int, object?> originalFonts,
+        Dictionary<int, object?> replacementFonts)
+    {
+        foreach (var item in targets.ToArray())
+        {
+            if (item.Value != null)
+            {
+                continue;
+            }
+
+            targets.Remove(item.Key);
+            originalFonts.Remove(item.Key);
+            replacementFonts.Remove(item.Key);
+            _tmpVisibleColors.Remove(item.Key);
+        }
     }
 
     private int RestoreOriginalFontTargets()
@@ -806,7 +874,7 @@ internal sealed class UnityTextFontReplacementService
     {
         var cacheKey = string.Join(
             "\u001f",
-            key.SourceText,
+            HasComponentFontOverride(key, context) ? key.SourceText : string.Empty,
             key.TargetLanguage,
             key.PromptPolicyVersion,
             context.SceneName ?? string.Empty,
@@ -821,8 +889,22 @@ internal sealed class UnityTextFontReplacementService
         }
 
         var resolved = ResolveUnityTextFont(config, key, context, fontSize);
-        _imguiFontResolutions[cacheKey] = resolved;
+        RememberImguiFontResolution(cacheKey, resolved);
         return resolved;
+    }
+
+    private void RememberImguiFontResolution(string cacheKey, ResolvedFont? resolved)
+    {
+        if (!_imguiFontResolutions.ContainsKey(cacheKey))
+        {
+            _imguiFontResolutionOrder.Enqueue(cacheKey);
+        }
+
+        _imguiFontResolutions[cacheKey] = resolved;
+        while (_imguiFontResolutions.Count > MaxImguiFontResolutionCacheEntries && _imguiFontResolutionOrder.Count > 0)
+        {
+            _imguiFontResolutions.Remove(_imguiFontResolutionOrder.Dequeue());
+        }
     }
 
     private static void TryRequestCharacters(Font font, string text, int fontSize)
@@ -1276,6 +1358,8 @@ internal sealed class UnityTextFontReplacementService
             {
                 lastError = createError ?? "none";
                 _failedTmpFontAssetKeys[cacheKey] = lastError;
+                _failedTmpFontAssetKeyOrder.Enqueue(cacheKey);
+                TrimFailedTmpFontAssetKeys();
                 continue;
             }
 
@@ -1297,6 +1381,14 @@ internal sealed class UnityTextFontReplacementService
         }
 
         return null;
+    }
+
+    private void TrimFailedTmpFontAssetKeys()
+    {
+        while (_failedTmpFontAssetKeys.Count > MaxFailedTmpFontAssetKeys && _failedTmpFontAssetKeyOrder.Count > 0)
+        {
+            _failedTmpFontAssetKeys.Remove(_failedTmpFontAssetKeyOrder.Dequeue());
+        }
     }
 
     private IEnumerable<FontCandidate> EnumerateUnityFontCandidates(
@@ -1690,10 +1782,11 @@ internal sealed class UnityTextFontReplacementService
         }
 
         fallbacks.Add(fontAsset);
+        RememberOwnedTmpFallback(fallbacks, fontAsset);
         return true;
     }
 
-    private static bool AddTmpFallbackToComponentFont(object component, object fontAsset)
+    private bool AddTmpFallbackToComponentFont(object component, object fontAsset)
     {
         var currentFontAsset = GetCurrentTmpFontAsset(component);
         if (currentFontAsset == null || ReferenceEquals(currentFontAsset, fontAsset))
@@ -1704,7 +1797,7 @@ internal sealed class UnityTextFontReplacementService
         return AddTmpFallbackToFontAsset(currentFontAsset, fontAsset);
     }
 
-    private static bool AddTmpFallbackToFontAsset(object targetFontAsset, object fallbackFontAsset)
+    private bool AddTmpFallbackToFontAsset(object targetFontAsset, object fallbackFontAsset)
     {
         var fallbackTable = EnsureTmpFallbackTable(targetFontAsset);
         if (fallbackTable == null)
@@ -1717,7 +1810,56 @@ internal sealed class UnityTextFontReplacementService
             return true;
         }
 
-        return CollectionAdd(fallbackTable, fallbackFontAsset);
+        if (!CollectionAdd(fallbackTable, fallbackFontAsset))
+        {
+            return false;
+        }
+
+        RememberOwnedTmpFallback(fallbackTable, fallbackFontAsset);
+        return true;
+    }
+
+    private void RememberOwnedTmpFallback(object collection, object fontAsset)
+    {
+        if (_ownedTmpFallbacks.Any(item => ReferenceEquals(item.Collection, collection) && ReferenceEquals(item.FontAsset, fontAsset)))
+        {
+            return;
+        }
+
+        _ownedTmpFallbacks.Add(new TmpFallbackRegistration(collection, fontAsset));
+    }
+
+    private void RemoveOwnedTmpFallbacks()
+    {
+        for (var i = _ownedTmpFallbacks.Count - 1; i >= 0; i--)
+        {
+            var item = _ownedTmpFallbacks[i];
+            CollectionRemove(item.Collection, item.FontAsset);
+        }
+
+        _ownedTmpFallbacks.Clear();
+    }
+
+    private void DestroyOwnedUnityObjects()
+    {
+        foreach (var fontAsset in _tmpFontAssets.Values)
+        {
+            if (fontAsset is UnityEngine.Object unityObject && unityObject != null)
+            {
+                UnityEngine.Object.Destroy(unityObject);
+            }
+        }
+
+        _tmpFontAssets.Clear();
+        foreach (var font in _unityFonts.Values)
+        {
+            if (font != null)
+            {
+                UnityEngine.Object.Destroy(font);
+            }
+        }
+
+        _unityFonts.Clear();
     }
 
     private static object? EnsureTmpFallbackTable(object targetFontAsset)
@@ -3697,6 +3839,50 @@ internal sealed class UnityTextFontReplacementService
         return false;
     }
 
+    private static bool CollectionRemove(object collection, object item)
+    {
+        if (collection is IList list)
+        {
+            try
+            {
+                if (list.Contains(item))
+                {
+                    list.Remove(item);
+                }
+
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        var removeMethods = collection
+            .GetType()
+            .GetMethods(BindingFlags.Public | BindingFlags.Instance)
+            .Where(method => method.Name == "Remove" && method.GetParameters().Length == 1);
+        foreach (var method in removeMethods)
+        {
+            var parameter = method.GetParameters()[0];
+            if (!IsCompatibleValue(parameter.ParameterType, item))
+            {
+                continue;
+            }
+
+            try
+            {
+                method.Invoke(collection, new[] { item });
+                return true;
+            }
+            catch
+            {
+            }
+        }
+
+        return false;
+    }
+
     private static bool TrySetPropertyValue(object instance, PropertyInfo property, object? value)
     {
         try
@@ -3949,6 +4135,16 @@ internal sealed class UnityTextFontReplacementService
             }
         }
     }
+
+    public sealed record FontReplacementMemoryDiagnostics(
+        int UnityFontCacheCount,
+        int TmpFontAssetCacheCount,
+        int ImguiFontResolutionCacheCount,
+        int RememberedFontTargetCount,
+        int FailedTmpFontAssetKeyCount,
+        int OwnedTmpFallbackCount);
+
+    private sealed record TmpFallbackRegistration(object Collection, object FontAsset);
 
     private sealed class FontCandidate
     {

@@ -5,9 +5,12 @@ namespace HUnityAutoTranslator.Core.Control;
 
 public sealed class ControlPanelMetrics
 {
+    public const int MaxTrackedCapturedKeys = 4096;
+
     private readonly object _gate = new();
     private readonly Queue<RecentTranslationPreview> _recentTranslations = new();
     private readonly HashSet<TranslationCacheKey> _capturedKeys = new();
+    private readonly Queue<TranslationCacheKey> _capturedKeyOrder = new();
     private long _capturedTextCount;
     private long _queuedTextCount;
     private long _inFlightTranslationCount;
@@ -29,6 +32,8 @@ public sealed class ControlPanelMetrics
         {
             if (_capturedKeys.Add(key))
             {
+                _capturedKeyOrder.Enqueue(key);
+                TrimCapturedKeyTracker();
                 Interlocked.Increment(ref _capturedTextCount);
             }
         }
@@ -116,7 +121,16 @@ public sealed class ControlPanelMetrics
                 AverageTranslationMilliseconds: timedTranslationCount == 0 ? 0 : (double)totalTranslationMilliseconds / timedTranslationCount,
                 AverageCharactersPerSecond: totalTranslationMilliseconds == 0 ? 0 : translatedCharacterCount / (totalTranslationMilliseconds / 1000.0),
                 RecentTranslations: _recentTranslations.Reverse().ToArray(),
-                ActiveTranslationProvider: inFlightTranslationCount > 0 ? _activeTranslationProvider : null);
+                ActiveTranslationProvider: inFlightTranslationCount > 0 ? _activeTranslationProvider : null,
+                CapturedKeyTrackerCount: _capturedKeys.Count);
+        }
+    }
+
+    private void TrimCapturedKeyTracker()
+    {
+        while (_capturedKeys.Count > MaxTrackedCapturedKeys && _capturedKeyOrder.Count > 0)
+        {
+            _capturedKeys.Remove(_capturedKeyOrder.Dequeue());
         }
     }
 
@@ -139,7 +153,8 @@ public sealed record ControlPanelMetricsSnapshot(
     double AverageTranslationMilliseconds,
     double AverageCharactersPerSecond,
     IReadOnlyList<RecentTranslationPreview> RecentTranslations,
-    ProviderActivityPreview? ActiveTranslationProvider = null);
+    ProviderActivityPreview? ActiveTranslationProvider = null,
+    int CapturedKeyTrackerCount = 0);
 
 public sealed record ProviderActivityPreview(
     string Id,

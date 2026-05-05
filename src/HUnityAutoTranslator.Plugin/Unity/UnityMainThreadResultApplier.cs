@@ -20,6 +20,7 @@ internal sealed class UnityMainThreadResultApplier
     private const float TmpOverflowHeightTolerance = 0.5f;
 
     private readonly Dictionary<string, IUnityTextTarget> _targets = new();
+    private readonly List<string> _targetOrder = new();
     private readonly TranslationWritebackTracker _writebacks = new();
     private readonly Func<RuntimeConfig> _configProvider;
     private readonly Action<string>? _fontSizeAdjustmentLogger;
@@ -29,7 +30,7 @@ internal sealed class UnityMainThreadResultApplier
     private readonly HashSet<string> _loggedFontSizeAdjustmentTargets = new(StringComparer.Ordinal);
     private readonly HashSet<string> _loggedLineSpacingAdjustmentTargets = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TranslationResult> _pendingComponentRefreshes = new(StringComparer.Ordinal);
-    private readonly RoundRobinCursor _reapplyCursor = new();
+    private int _nextReapplyTargetIndex;
     private int _fontSizeAdjustmentLogCount;
     private bool _useTranslatedText = true;
     private UnityTextFontReplacementService? _fontReplacement;
@@ -52,6 +53,11 @@ internal sealed class UnityMainThreadResultApplier
 
     public void Register(IUnityTextTarget target)
     {
+        if (!_targets.ContainsKey(target.Id))
+        {
+            _targetOrder.Add(target.Id);
+        }
+
         _targets[target.Id] = target;
         RememberOriginalFontSize(target);
         RememberOriginalTextLayoutBaseline(target);
@@ -96,6 +102,23 @@ internal sealed class UnityMainThreadResultApplier
 
         target = null!;
         return false;
+    }
+
+    public TextApplierMemoryDiagnostics GetMemoryDiagnostics()
+    {
+        foreach (var item in _targets.ToArray())
+        {
+            if (!item.Value.IsAlive)
+            {
+                ForgetTarget(item.Key);
+            }
+        }
+
+        return new TextApplierMemoryDiagnostics(
+            _targets.Count,
+            _pendingComponentRefreshes.Count,
+            _originalFontSizes.Count,
+            _originalTmpAutoSizeStates.Count);
     }
 
     public bool RememberAndApply(IUnityTextTarget target, string sourceText, string translatedText)
@@ -146,7 +169,7 @@ internal sealed class UnityMainThreadResultApplier
         }
 
         var applied = 0;
-        foreach (var target in _reapplyCursor.TakeFullRound(_targets.Values.ToArray()))
+        foreach (var target in EnumerateTargetsFromCursor())
         {
             if (applied >= maxCount)
             {
@@ -181,7 +204,7 @@ internal sealed class UnityMainThreadResultApplier
         }
 
         var applied = 0;
-        foreach (var target in _reapplyCursor.TakeFullRound(_targets.Values.ToArray()))
+        foreach (var target in EnumerateTargetsFromCursor())
         {
             if (applied >= maxCount)
             {
@@ -223,7 +246,7 @@ internal sealed class UnityMainThreadResultApplier
         }
 
         var applied = 0;
-        foreach (var target in _reapplyCursor.TakeFullRound(_targets.Values.ToArray()))
+        foreach (var target in EnumerateTargetsFromCursor())
         {
             if (applied >= maxCount)
             {
@@ -268,6 +291,32 @@ internal sealed class UnityMainThreadResultApplier
         }
 
         return TryFindTargetByComponentContext(result, out target);
+    }
+
+    private IEnumerable<IUnityTextTarget> EnumerateTargetsFromCursor()
+    {
+        if (_targetOrder.Count == 0)
+        {
+            _nextReapplyTargetIndex = 0;
+            yield break;
+        }
+
+        var count = _targetOrder.Count;
+        var start = _nextReapplyTargetIndex % count;
+        _nextReapplyTargetIndex = (start + 1) % count;
+        for (var offset = 0; offset < count; offset++)
+        {
+            var index = (start + offset) % count;
+            if (index >= _targetOrder.Count)
+            {
+                yield break;
+            }
+
+            if (_targets.TryGetValue(_targetOrder[index], out var target))
+            {
+                yield return target;
+            }
+        }
     }
 
     private bool TryFindTargetByComponentContext(TranslationResult result, out IUnityTextTarget target)
@@ -1165,6 +1214,16 @@ internal sealed class UnityMainThreadResultApplier
     private void ForgetTarget(string targetId)
     {
         _targets.Remove(targetId);
+        _targetOrder.Remove(targetId);
+        if (_targetOrder.Count == 0)
+        {
+            _nextReapplyTargetIndex = 0;
+        }
+        else if (_nextReapplyTargetIndex >= _targetOrder.Count)
+        {
+            _nextReapplyTargetIndex = 0;
+        }
+
         _writebacks.Forget(targetId);
         _originalFontSizes.Remove(targetId);
         _originalTmpAutoSizeStates.Remove(targetId);
@@ -1246,4 +1305,10 @@ internal sealed class UnityMainThreadResultApplier
         float? RectHeight,
         float? TmpParagraphSpacing,
         float? TmpLineSpacingAdjustment);
+
+    public sealed record TextApplierMemoryDiagnostics(
+        int RegisteredTextTargetCount,
+        int PendingComponentRefreshCount,
+        int OriginalFontSizeCount,
+        int OriginalTmpAutoSizeStateCount);
 }

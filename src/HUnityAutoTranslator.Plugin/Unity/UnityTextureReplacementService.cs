@@ -22,6 +22,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
     private const int MaxTextureScanTargetsPerTick = 1;
     private const int MaxTextureScanSliceMilliseconds = 8;
     private const int MaxAutomaticTextureCapturePixels = 4096 * 4096;
+    private const float TextureReferencePruneIntervalSeconds = 5f;
 
     private readonly TextureOverrideStore _store;
     private readonly TextureCatalogStore _catalogStore;
@@ -43,6 +44,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
     private bool _startupScanAttempted;
     private bool _hasPersistedOverrides;
     private string? _lastAppliedSceneName;
+    private float _nextTextureReferencePruneTime;
     private bool _disposed;
 
     public UnityTextureReplacementService(
@@ -68,6 +70,11 @@ internal sealed class UnityTextureReplacementService : IDisposable
         }
 
         ProcessScanSlice();
+        if (Time.unscaledTime >= _nextTextureReferencePruneTime)
+        {
+            PruneDeadTextureReferences();
+            _nextTextureReferencePruneTime = Time.unscaledTime + TextureReferencePruneIntervalSeconds;
+        }
 
         var currentSceneName = ActiveSceneName();
         if (!_startupScanAttempted)
@@ -110,6 +117,17 @@ internal sealed class UnityTextureReplacementService : IDisposable
             item => _catalogStore.TryReadSourceBytes(item.SourceHash, out var bytes) ? bytes : Array.Empty<byte>(),
             _gameTitleProvider());
         return Task.FromResult(archive);
+    }
+
+    public Task ExportArchiveAsync(Stream output, string? sceneName = null)
+    {
+        var items = _catalogStore.GetItemsForExport(sceneName, _store.LoadIndex());
+        _store.ExportArchive(
+            output,
+            items,
+            (item, stream) => _catalogStore.WriteSourceBytes(item.SourceHash, stream),
+            _gameTitleProvider());
+        return Task.CompletedTask;
     }
 
     public TextureCatalogPage GetCatalog(TextureCatalogQuery query)
@@ -160,6 +178,21 @@ internal sealed class UnityTextureReplacementService : IDisposable
         }
 
         return false;
+    }
+
+    public TextureRuntimeMemoryDiagnostics GetMemoryDiagnostics()
+    {
+        PruneDeadTextureReferences();
+        lock (_gate)
+        {
+            return new TextureRuntimeMemoryDiagnostics(
+                _records.Count,
+                _records.Values.Sum(record => record.TargetCount),
+                _originalAssets.Count,
+                _replacementTextures.Count,
+                _appliedOverrides.Count,
+                RetainedSourcePngBytes: 0);
+        }
     }
 
     public async Task<TextureTextDetectionResult> AnalyzeTextTexturesAsync(
@@ -417,6 +450,28 @@ internal sealed class UnityTextureReplacementService : IDisposable
         }
 
         var importResult = _store.ImportArchive(archiveBytes, currentItems);
+        var applied = importResult.ImportedCount > 0
+            ? await EnqueueOnMainThread(() =>
+            {
+                ClearReplacementTextureCache();
+                var appliedCount = ApplyOverridesToKnownTargets();
+                _hasPersistedOverrides = _store.OverrideCount > 0;
+                _lastAppliedSceneName = ActiveSceneName();
+                return appliedCount;
+            }).ConfigureAwait(false)
+            : 0;
+        return importResult with { AppliedCount = applied };
+    }
+
+    public async Task<TextureImportResult> ImportOverridesAsync(Stream archiveStream)
+    {
+        var currentItems = _catalogStore.GetItemsForExport(null, _store.LoadIndex());
+        if (currentItems.Count == 0)
+        {
+            return new TextureImportResult(0, 0, new[] { "请先扫描贴图目录后再导入贴图包。" });
+        }
+
+        var importResult = _store.ImportArchive(archiveStream, currentItems);
         var applied = importResult.ImportedCount > 0
             ? await EnqueueOnMainThread(() =>
             {
@@ -703,8 +758,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
                     target.Width,
                     target.Height,
                     target.Format,
-                    fileName,
-                    pngBytes);
+                    fileName);
                 _records.Add(hash, record);
             }
 
@@ -756,6 +810,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
     private void CompleteScanSession(TextureScanSession session)
     {
         session.Targets.Dispose();
+        PruneDeadTextureReferences();
         if (!session.ApplyOnly)
         {
             _catalogStore.Save();
@@ -939,7 +994,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
         }
 
         var texture = new Texture2D(2, 2, UnityEngine.TextureFormat.RGBA32, false);
-        if (!ImageConversion.LoadImage(texture, bytes, markNonReadable: false))
+        if (!ImageConversion.LoadImage(texture, bytes, markNonReadable: true))
         {
             UnityEngine.Object.Destroy(texture);
             error = "PNG 解码失败。";
@@ -1157,6 +1212,40 @@ internal sealed class UnityTextureReplacementService : IDisposable
 
         _originalAssets[targetId] = current;
         return current;
+    }
+
+    private void PruneDeadTextureReferences()
+    {
+        lock (_gate)
+        {
+            foreach (var item in _records.ToArray())
+            {
+                item.Value.PruneDeadTargets();
+                if (item.Value.TargetCount == 0 && !_store.TryGetOverride(item.Key, out _))
+                {
+                    _records.Remove(item.Key);
+                }
+            }
+
+            var liveTargetIds = new HashSet<string>(
+                _records.Values.SelectMany(record => record.TargetIds),
+                StringComparer.Ordinal);
+            foreach (var item in _originalAssets.ToArray())
+            {
+                if (item.Value == null || !liveTargetIds.Contains(item.Key))
+                {
+                    _originalAssets.Remove(item.Key);
+                }
+            }
+
+            foreach (var targetId in _appliedOverrides.Keys.ToArray())
+            {
+                if (!liveTargetIds.Contains(targetId))
+                {
+                    _appliedOverrides.Remove(targetId);
+                }
+            }
+        }
     }
 
     private static bool TryEncodeTexture(Texture texture, out byte[] pngBytes, out string error)
@@ -1456,8 +1545,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
             int width,
             int height,
             string format,
-            string fileName,
-            byte[] pngBytes)
+            string fileName)
         {
             SourceHash = sourceHash;
             TextureName = textureName;
@@ -1465,7 +1553,6 @@ internal sealed class UnityTextureReplacementService : IDisposable
             Height = height;
             Format = format;
             FileName = fileName;
-            PngBytes = pngBytes;
         }
 
         public string SourceHash { get; }
@@ -1480,13 +1567,26 @@ internal sealed class UnityTextureReplacementService : IDisposable
 
         public string FileName { get; }
 
-        public byte[] PngBytes { get; }
-
         public IReadOnlyList<ITextureTarget> Targets => _targets.Values.ToArray();
+
+        public IReadOnlyList<string> TargetIds => _targets.Keys.ToArray();
+
+        public int TargetCount => _targets.Count;
 
         public void AddTarget(ITextureTarget target)
         {
             _targets[target.TargetId] = target;
+        }
+
+        public void PruneDeadTargets()
+        {
+            foreach (var item in _targets.ToArray())
+            {
+                if (!item.Value.IsAlive)
+                {
+                    _targets.Remove(item.Key);
+                }
+            }
         }
 
         public TextureCatalogItem ToCatalogItem(TextureOverrideRecord? overrideRecord)
@@ -1508,6 +1608,14 @@ internal sealed class UnityTextureReplacementService : IDisposable
                 overrideRecord?.UpdatedUtc);
         }
     }
+
+    public sealed record TextureRuntimeMemoryDiagnostics(
+        int TextureRecordCount,
+        int TextureTargetReferenceCount,
+        int OriginalAssetReferenceCount,
+        int ReplacementTextureCount,
+        int AppliedOverrideCount,
+        long RetainedSourcePngBytes);
 
     private interface ITextureTarget
     {

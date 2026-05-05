@@ -312,6 +312,23 @@ export interface ProviderActivityPreview {
   StartedUtc: string;
 }
 
+export interface MemoryDiagnosticsSnapshot {
+  ManagedMemoryBytes: number;
+  UnityAllocatedMemoryBytes: number;
+  UnityReservedMemoryBytes: number;
+  UnityMonoHeapBytes: number;
+  QueueCount: number;
+  WritebackQueueCount: number;
+  CapturedKeyTrackerCount: number;
+  RegisteredTextTargetCount: number;
+  FontCacheCount: number;
+  TmpFontAssetCacheCount: number;
+  ImguiFontResolutionCacheCount: number;
+  TextureRecordCount: number;
+  ReplacementTextureCount: number;
+  TexturePngBytes: number;
+}
+
 export interface ControlPanelState {
   Enabled: boolean;
   TargetLanguage: string;
@@ -410,6 +427,7 @@ export interface ControlPanelState {
   ActiveTextureImageProviderProfileName: string | null;
   ActiveTextureImageProviderProfileModel: string | null;
   SelfCheck: SelfCheckReport | null;
+  MemoryDiagnostics: MemoryDiagnosticsSnapshot | null;
 }
 
 export interface UpdateConfigRequest {

@@ -45,6 +45,7 @@ internal sealed class SelfCheckService
     private readonly string _pluginDirectory;
     private readonly string _dataDirectory;
     private readonly Func<string> _controlPanelUrlProvider;
+    private readonly Func<MemoryDiagnosticsSnapshot> _memoryDiagnosticsProvider;
     private readonly ManualLogSource _logger;
     private readonly ConcurrentQueue<Action> _mainThreadActions = new();
     private readonly string _lastReportPath;
@@ -64,6 +65,7 @@ internal sealed class SelfCheckService
         string pluginDirectory,
         string dataDirectory,
         Func<string> controlPanelUrlProvider,
+        Func<MemoryDiagnosticsSnapshot> memoryDiagnosticsProvider,
         ManualLogSource logger)
     {
         _controlPanel = controlPanel;
@@ -77,6 +79,7 @@ internal sealed class SelfCheckService
         _pluginDirectory = pluginDirectory;
         _dataDirectory = dataDirectory;
         _controlPanelUrlProvider = controlPanelUrlProvider;
+        _memoryDiagnosticsProvider = memoryDiagnosticsProvider;
         _logger = logger;
         _lastReportPath = Path.Combine(dataDirectory, "self-check-last.json");
         _latestReport = LoadLastReport();
@@ -203,6 +206,24 @@ internal sealed class SelfCheckService
             return loopback
                 ? SelfCheckItem.Ok("runtime.http", "运行环境", "本机控制面板", $"监听地址：{url}", "无需处理。", 0)
                 : SelfCheckItem.Warning("runtime.http", "运行环境", "本机控制面板", $"监听地址不是 loopback：{url}", "控制面板应只监听本机地址。", 0);
+        }));
+        items.Add(Measure("runtime.memory", "运行环境", "插件内存快照", () =>
+        {
+            var snapshot = _memoryDiagnosticsProvider();
+            var evidence =
+                $"托管内存：{FormatBytes(snapshot.ManagedMemoryBytes)}；" +
+                $"Unity 已分配：{FormatBytes(snapshot.UnityAllocatedMemoryBytes)}；" +
+                $"队列：{snapshot.QueueCount}；写回：{snapshot.WritebackQueueCount}；" +
+                $"字体缓存：{snapshot.FontCacheCount}/{snapshot.TmpFontAssetCacheCount}；" +
+                $"纹理记录：{snapshot.TextureRecordCount}；替换纹理：{snapshot.ReplacementTextureCount}。";
+            return SelfCheckItem.Info(
+                "runtime.memory",
+                "运行环境",
+                "插件内存快照",
+                "用于排查内存占用",
+                evidence,
+                "如果游戏进程内存持续上涨，请对比启动、空闲、切场景和贴图导入后的该项数值。",
+                0);
         }));
         return items;
     }
@@ -724,6 +745,16 @@ internal sealed class SelfCheckService
         }
 
         _logger.LogInfo("本地自检完成：未发现阻断问题。");
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes <= 0)
+        {
+            return "未知";
+        }
+
+        return $"{bytes / 1024d / 1024d:0.0} MB";
     }
 
     private static bool IsSupportedImguiTextMethod(MethodInfo method)

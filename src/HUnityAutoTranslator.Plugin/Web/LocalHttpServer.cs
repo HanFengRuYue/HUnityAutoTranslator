@@ -22,6 +22,9 @@ namespace HUnityAutoTranslator.Plugin;
 internal sealed class LocalHttpServer : IDisposable
 {
     private const int ManualWritebackPriority = (int)TranslationPriority.VisibleUi + 100;
+    private const int MaxConcurrentHttpRequests = 4;
+    private const long MaxJsonRequestBytes = 2L * 1024L * 1024L;
+    private const long MaxTextureArchiveRequestBytes = 512L * 1024L * 1024L;
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
 
     private readonly ControlPanelService _controlPanel;
@@ -34,7 +37,9 @@ internal sealed class LocalHttpServer : IDisposable
     private readonly LlamaCppServerManager? _llamaCppServer;
     private readonly LlamaCppModelDownloadManager _llamaCppModelDownloads;
     private readonly SelfCheckService _selfCheck;
+    private readonly Func<MemoryDiagnosticsSnapshot> _memoryDiagnosticsProvider;
     private readonly HttpClient _httpClient = new();
+    private readonly SemaphoreSlim _requestGate = new(MaxConcurrentHttpRequests, MaxConcurrentHttpRequests);
     private readonly ProviderUtilityClient _providerUtilityClient;
     private readonly ManualLogSource _logger;
     private readonly string _dataDirectory;
@@ -54,6 +59,7 @@ internal sealed class LocalHttpServer : IDisposable
         LlamaCppServerManager? llamaCppServer,
         LlamaCppModelDownloadManager llamaCppModelDownloads,
         SelfCheckService selfCheck,
+        Func<MemoryDiagnosticsSnapshot> memoryDiagnosticsProvider,
         string dataDirectory,
         ManualLogSource logger)
     {
@@ -67,6 +73,7 @@ internal sealed class LocalHttpServer : IDisposable
         _llamaCppServer = llamaCppServer;
         _llamaCppModelDownloads = llamaCppModelDownloads;
         _selfCheck = selfCheck;
+        _memoryDiagnosticsProvider = memoryDiagnosticsProvider;
         _providerUtilityClient = new ProviderUtilityClient(_httpClient, _controlPanel.GetApiKey);
         _logger = logger;
         _dataDirectory = dataDirectory;
@@ -110,7 +117,7 @@ internal sealed class LocalHttpServer : IDisposable
             try
             {
                 var context = await _listener.GetContextAsync();
-                _ = Task.Run(() => HandleAsync(context), cancellationToken);
+                _ = Task.Run(() => HandleWithConcurrencyLimitAsync(context, cancellationToken), cancellationToken);
             }
             catch (ObjectDisposedException)
             {
@@ -120,6 +127,27 @@ internal sealed class LocalHttpServer : IDisposable
             {
                 _logger.LogWarning($"控制面板监听出错：{ex.Message}");
             }
+        }
+    }
+
+    private async Task HandleWithConcurrencyLimitAsync(HttpListenerContext context, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await _requestGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            return;
+        }
+
+        try
+        {
+            await HandleAsync(context).ConfigureAwait(false);
+        }
+        finally
+        {
+            _requestGate.Release();
         }
     }
 
@@ -482,10 +510,18 @@ internal sealed class LocalHttpServer : IDisposable
             }
             else if (context.Request.HttpMethod == "GET" && path == "/api/textures/export")
             {
-                var archive = await _textureReplacement.ExportArchiveAsync(context.Request.QueryString["scene"]).ConfigureAwait(false);
                 context.Response.ContentType = "application/zip";
                 context.Response.Headers["Content-Disposition"] = $"attachment; filename=\"{BuildTextureExportFileName()}\"";
-                await WriteBytesAsync(context.Response, archive).ConfigureAwait(false);
+                try
+                {
+                    await _textureReplacement.ExportArchiveAsync(
+                        context.Response.OutputStream,
+                        context.Request.QueryString["scene"]).ConfigureAwait(false);
+                }
+                finally
+                {
+                    context.Response.OutputStream.Close();
+                }
             }
             else if (context.Request.HttpMethod == "GET" &&
                 path.StartsWith("/api/textures/", StringComparison.Ordinal) &&
@@ -513,9 +549,9 @@ internal sealed class LocalHttpServer : IDisposable
             else if (context.Request.HttpMethod == "POST" && path == "/api/textures/import")
             {
                 _logger.LogInfo("收到贴图包导入请求。");
-                var archive = await ReadBytesAsync(context.Request).ConfigureAwait(false);
-                _logger.LogInfo($"贴图包读取完成：{archive.Length} 字节。");
-                var result = await _textureReplacement.ImportOverridesAsync(archive).ConfigureAwait(false);
+                EnsureContentLengthWithinLimit(context.Request, MaxTextureArchiveRequestBytes);
+                using var boundedArchive = new BoundedReadStream(context.Request.InputStream, MaxTextureArchiveRequestBytes);
+                var result = await _textureReplacement.ImportOverridesAsync(boundedArchive).ConfigureAwait(false);
                 _logger.LogInfo($"贴图包导入完成：导入 {result.ImportedCount} 张，应用 {result.AppliedCount} 个引用，错误 {result.Errors.Count} 条。");
                 await WriteJsonAsync(context.Response, result).ConfigureAwait(false);
             }
@@ -603,7 +639,12 @@ internal sealed class LocalHttpServer : IDisposable
             _controlPanel.SetLlamaCppStatus(_llamaCppServer.GetStatus(_controlPanel.GetConfig()));
         }
 
-        await WriteJsonAsync(response, _controlPanel.GetState(_queue.PendingCount, _cache.Count, _dispatcher.PendingCount, _selfCheck.GetLatestReport())).ConfigureAwait(false);
+        await WriteJsonAsync(response, _controlPanel.GetState(
+            _queue.PendingCount,
+            _cache.Count,
+            _dispatcher.PendingCount,
+            _selfCheck.GetLatestReport(),
+            _memoryDiagnosticsProvider())).ConfigureAwait(false);
     }
 
     private async Task HandleTextureImageProviderProfilesAsync(HttpListenerContext context, string path)
@@ -1460,50 +1501,42 @@ internal sealed class LocalHttpServer : IDisposable
 
     private static async Task<string> ReadBodyAsync(HttpListenerRequest request)
     {
-        using var reader = new StreamReader(request.InputStream, request.ContentEncoding ?? Encoding.UTF8);
-        return await reader.ReadToEndAsync().ConfigureAwait(false);
+        var bytes = await ReadBytesAsync(request, MaxJsonRequestBytes).ConfigureAwait(false);
+        return (request.ContentEncoding ?? Encoding.UTF8).GetString(bytes);
     }
 
-    private static Task<byte[]> ReadBytesAsync(HttpListenerRequest request)
+    private static async Task<byte[]> ReadBytesAsync(HttpListenerRequest request, long maxBytes)
     {
+        EnsureContentLengthWithinLimit(request, maxBytes);
         using var memory = new MemoryStream();
         if (request.InputStream.CanTimeout)
         {
             request.InputStream.ReadTimeout = 15000;
         }
 
-        if (request.ContentLength64 >= 0)
-        {
-            var remaining = request.ContentLength64;
-            var buffer = new byte[81920];
-            while (remaining > 0)
-            {
-                var read = request.InputStream.Read(buffer, 0, (int)Math.Min(buffer.Length, remaining));
-                if (read == 0)
-                {
-                    break;
-                }
-
-                memory.Write(buffer, 0, read);
-                remaining -= read;
-            }
-
-            return Task.FromResult(memory.ToArray());
-        }
-
         var chunk = new byte[81920];
-        while (true)
+        long total = 0;
+        int read;
+        while ((read = await request.InputStream.ReadAsync(chunk, 0, chunk.Length).ConfigureAwait(false)) > 0)
         {
-            var read = request.InputStream.Read(chunk, 0, chunk.Length);
-            if (read == 0)
+            total += read;
+            if (total > maxBytes)
             {
-                break;
+                throw new InvalidDataException("Request body is too large.");
             }
 
             memory.Write(chunk, 0, read);
         }
 
-        return Task.FromResult(memory.ToArray());
+        return memory.ToArray();
+    }
+
+    private static void EnsureContentLengthWithinLimit(HttpListenerRequest request, long maxBytes)
+    {
+        if (request.ContentLength64 > maxBytes)
+        {
+            throw new InvalidDataException("Request body is too large.");
+        }
     }
 
     private static async Task WriteJsonAsync(HttpListenerResponse response, object value)
@@ -1572,6 +1605,74 @@ internal sealed class LocalHttpServer : IDisposable
         }
 
         return "127.0.0.1";
+    }
+
+    private sealed class BoundedReadStream : Stream
+    {
+        private readonly Stream _inner;
+        private readonly long _maxBytes;
+        private long _readBytes;
+
+        public BoundedReadStream(Stream inner, long maxBytes)
+        {
+            _inner = inner;
+            _maxBytes = maxBytes;
+        }
+
+        public override bool CanRead => _inner.CanRead;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => _readBytes;
+            set => throw new NotSupportedException();
+        }
+
+        public override void Flush()
+        {
+        }
+
+        public override int Read(byte[] buffer, int offset, int count)
+        {
+            var read = _inner.Read(buffer, offset, count);
+            _readBytes += read;
+            if (_readBytes > _maxBytes)
+            {
+                throw new InvalidDataException("Request body is too large.");
+            }
+
+            return read;
+        }
+
+        public override long Seek(long offset, SeekOrigin origin)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void SetLength(long value)
+        {
+            throw new NotSupportedException();
+        }
+
+        public override void Write(byte[] buffer, int offset, int count)
+        {
+            throw new NotSupportedException();
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+            {
+                _inner.Dispose();
+            }
+
+            base.Dispose(disposing);
+        }
     }
 
     private sealed class GlossaryTermRequest

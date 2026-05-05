@@ -1,5 +1,6 @@
 using BepInEx;
 using BepInEx.Logging;
+using System.Reflection;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Control;
@@ -19,6 +20,7 @@ namespace HUnityAutoTranslator.Plugin;
 internal sealed class PluginRuntime : IDisposable
 {
     private const float HighlighterSnapshotIntervalSeconds = 0.15f;
+    private const float ReflectionScanIntervalWhenTextHooksEnabledSeconds = 2f;
 
     private readonly ManualLogSource _logger;
     private readonly string? _pluginDirectory;
@@ -43,6 +45,7 @@ internal sealed class PluginRuntime : IDisposable
     private SelfCheckService? _selfCheck;
     private UnityTextChangeHookInstaller? _textChangeHook;
     private float _nextScanTime;
+    private float _nextReflectionScanTime;
     private float _nextHighlighterSnapshotTime;
     private float _nextSkippedWritebackLogTime;
     private bool _openedControlPanel;
@@ -135,6 +138,7 @@ internal sealed class PluginRuntime : IDisposable
                 pluginDirectory,
                 dataDirectory,
                 () => _httpServer?.Url ?? string.Empty,
+                BuildMemoryDiagnostics,
                 _logger);
             _httpServer = new LocalHttpServer(
                 _controlPanel,
@@ -147,6 +151,7 @@ internal sealed class PluginRuntime : IDisposable
                 _llamaCppServer,
                 _llamaCppModelDownloads,
                 _selfCheck,
+                BuildMemoryDiagnostics,
                 dataDirectory,
                 _logger);
             _httpServer.Start(config.HttpHost, config.HttpPort);
@@ -159,6 +164,7 @@ internal sealed class PluginRuntime : IDisposable
                 _logger,
                 _textChangeHook == null ? null : _textChangeHook.RunSuppressed);
             StartLlamaCppIfConfigured();
+            LogMemoryDiagnostics(BuildMemoryDiagnostics());
             _logger.LogInfo($"{MyPluginInfo.PLUGIN_NAME} 已加载。控制面板：{_httpServer.Url}");
             OpenControlPanelIfConfigured();
             _logger.LogInfo($"设置文件：{settingsPath}");
@@ -229,6 +235,68 @@ internal sealed class PluginRuntime : IDisposable
         SystemBrowserLauncher.TryOpen(_httpServer.Url, _logger);
     }
 
+    private MemoryDiagnosticsSnapshot BuildMemoryDiagnostics()
+    {
+        var text = _resultApplier?.GetMemoryDiagnostics();
+        var font = _fontReplacement?.GetMemoryDiagnostics();
+        var texture = _textureReplacement?.GetMemoryDiagnostics();
+        return new MemoryDiagnosticsSnapshot(
+            ManagedMemoryBytes: GC.GetTotalMemory(forceFullCollection: false),
+            UnityAllocatedMemoryBytes: TryReadUnityProfilerValue("GetTotalAllocatedMemoryLong"),
+            UnityReservedMemoryBytes: TryReadUnityProfilerValue("GetTotalReservedMemoryLong"),
+            UnityMonoHeapBytes: TryReadUnityProfilerValue("GetMonoHeapSizeLong"),
+            QueueCount: _queue?.PendingCount ?? 0,
+            WritebackQueueCount: _dispatcher?.PendingCount ?? 0,
+            CapturedKeyTrackerCount: _metrics?.Snapshot().CapturedKeyTrackerCount ?? 0,
+            RegisteredTextTargetCount: text?.RegisteredTextTargetCount ?? 0,
+            FontCacheCount: font?.UnityFontCacheCount ?? 0,
+            TmpFontAssetCacheCount: font?.TmpFontAssetCacheCount ?? 0,
+            ImguiFontResolutionCacheCount: font?.ImguiFontResolutionCacheCount ?? 0,
+            TextureRecordCount: texture?.TextureRecordCount ?? 0,
+            ReplacementTextureCount: texture?.ReplacementTextureCount ?? 0,
+            TexturePngBytes: texture?.RetainedSourcePngBytes ?? 0);
+    }
+
+    private void LogMemoryDiagnostics(MemoryDiagnosticsSnapshot diagnostics)
+    {
+        _logger.LogInfo(
+            "插件内存快照：" +
+            $"托管 {FormatBytes(diagnostics.ManagedMemoryBytes)}，" +
+            $"Unity 已分配 {FormatBytes(diagnostics.UnityAllocatedMemoryBytes)}，" +
+            $"队列 {diagnostics.QueueCount}，写回 {diagnostics.WritebackQueueCount}，" +
+            $"文本目标 {diagnostics.RegisteredTextTargetCount}，" +
+            $"字体缓存 {diagnostics.FontCacheCount}/{diagnostics.TmpFontAssetCacheCount}，" +
+            $"IMGUI 字体解析 {diagnostics.ImguiFontResolutionCacheCount}，" +
+            $"纹理记录 {diagnostics.TextureRecordCount}，替换纹理 {diagnostics.ReplacementTextureCount}。");
+    }
+
+    private static long TryReadUnityProfilerValue(string methodName)
+    {
+        try
+        {
+            var profilerType =
+                Type.GetType("UnityEngine.Profiling.Profiler, UnityEngine.CoreModule") ??
+                typeof(Application).Assembly.GetType("UnityEngine.Profiling.Profiler");
+            var method = profilerType?.GetMethod(methodName, BindingFlags.Public | BindingFlags.Static);
+            var value = method?.Invoke(null, null);
+            return value == null ? 0 : Convert.ToInt64(value);
+        }
+        catch
+        {
+            return 0;
+        }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        if (bytes <= 0)
+        {
+            return "未知";
+        }
+
+        return $"{bytes / 1024d / 1024d:0.0} MB";
+    }
+
     public void Dispose()
     {
         _textChangeHook?.Dispose();
@@ -236,6 +304,7 @@ internal sealed class PluginRuntime : IDisposable
         _workerHost?.Dispose();
         _llamaCppServer?.Dispose();
         _llamaCppModelDownloads?.Dispose();
+        _fontReplacement?.Dispose();
         _textureReplacement?.Dispose();
         _httpServer?.Dispose();
         (_cache as IDisposable)?.Dispose();
@@ -256,8 +325,17 @@ internal sealed class PluginRuntime : IDisposable
         var scanned = false;
         if (_captureCoordinator != null && Time.unscaledTime >= _nextScanTime)
         {
-            _captureCoordinator.Tick();
+            var textHooksEnabled = _textChangeHook?.IsEnabled == true;
+            var runReflectionScan = !textHooksEnabled || Time.unscaledTime >= _nextReflectionScanTime;
+            _captureCoordinator.Tick(skipGlobalObjectScanners: textHooksEnabled && !runReflectionScan);
             _nextScanTime = Time.unscaledTime + (float)config.ScanInterval.TotalSeconds;
+            if (runReflectionScan)
+            {
+                _nextReflectionScanTime = Time.unscaledTime + Math.Max(
+                    ReflectionScanIntervalWhenTextHooksEnabledSeconds,
+                    (float)config.ScanInterval.TotalSeconds);
+            }
+
             scanned = true;
         }
 

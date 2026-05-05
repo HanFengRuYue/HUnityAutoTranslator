@@ -7,11 +7,18 @@ public sealed class BoundedRuntimeLoopSourceTests
     [Fact]
     public void Unity_text_scanners_use_round_robin_windows_for_bounded_object_scans()
     {
+        var moduleSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ITextCaptureModule.cs"));
+        var coordinatorSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TextCaptureCoordinator.cs"));
         var tmpSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs"));
         var uguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs"));
         var finderSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityObjectFinder.cs"));
 
+        moduleSource.Should().Contain("bool UsesGlobalObjectScan");
+        coordinatorSource.Should().Contain("skipGlobalObjectScanners");
+        coordinatorSource.Should().Contain("module.UsesGlobalObjectScan");
+
         tmpSource.Should().Contain("RoundRobinCursor");
+        tmpSource.Should().Contain("public bool UsesGlobalObjectScan => true;");
         tmpSource.Should().Contain("var maxTargets = forceFullScan ? objects.Length : _configProvider().MaxScanTargetsPerTick");
         tmpSource.Should().Contain("_scanCursor.TakeWindow(objects, maxTargets)");
         tmpSource.Should().Contain("UnityObjectFinder.FindObjects(_textType)");
@@ -19,6 +26,7 @@ public sealed class BoundedRuntimeLoopSourceTests
         tmpSource.Should().NotContain("FindObjectsOfType(_textType)");
 
         uguiSource.Should().Contain("RoundRobinCursor");
+        uguiSource.Should().Contain("public bool UsesGlobalObjectScan => true;");
         uguiSource.Should().Contain("var maxTargets = forceFullScan ? objects.Length : _configProvider().MaxScanTargetsPerTick");
         uguiSource.Should().Contain("_scanCursor.TakeWindow(objects, maxTargets)");
         uguiSource.Should().Contain("UnityObjectFinder.FindObjects(_textType)");
@@ -34,11 +42,14 @@ public sealed class BoundedRuntimeLoopSourceTests
     public void Unity_writeback_reapply_scans_a_full_round_before_spending_the_writeback_budget()
     {
         var applierSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));
+        var reapplyBlock = applierSource[
+            applierSource.IndexOf("public int ReapplyRemembered", StringComparison.Ordinal)..
+            applierSource.IndexOf("private bool TryFindTarget", StringComparison.Ordinal)];
 
-        applierSource.Should().Contain("RoundRobinCursor");
-        applierSource.Should().Contain("_reapplyCursor.TakeFullRound(_targets.Values.ToArray())");
-        applierSource.Should().Contain("if (applied >= maxCount)");
-        applierSource.Should().NotContain("_reapplyCursor.TakeWindow(_targets.Values.ToArray(), maxCount)");
+        applierSource.Should().Contain("_targetOrder");
+        reapplyBlock.Should().Contain("EnumerateTargetsFromCursor()");
+        reapplyBlock.Should().Contain("if (applied >= maxCount)");
+        reapplyBlock.Should().NotContain("_targets.Values.ToArray()");
     }
 
     [Fact]
@@ -77,6 +88,35 @@ public sealed class BoundedRuntimeLoopSourceTests
         processorSource.Should().Contain("RunSuppressed");
         runtimeSource.Should().Contain("UnityTextChangeHookInstaller");
         runtimeSource.Should().Contain("_textChangeHook?.Start();");
+        hookSource.Should().Contain("public bool IsEnabled => _enabled;");
+        runtimeSource.Should().Contain("ReflectionScanIntervalWhenTextHooksEnabledSeconds");
+        runtimeSource.Should().Contain("_textChangeHook?.IsEnabled == true");
+        runtimeSource.Should().Contain("skipGlobalObjectScanners: textHooksEnabled && !runReflectionScan");
+    }
+
+    [Fact]
+    public void Memory_sensitive_plugin_paths_have_lifecycle_and_size_guards()
+    {
+        var fontSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+        var textureSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextureReplacementService.cs"));
+        var httpSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
+
+        fontSource.Should().Contain("IDisposable");
+        fontSource.Should().Contain("MaxImguiFontResolutionCacheEntries");
+        fontSource.Should().Contain("RemoveOwnedTmpFallbacks");
+        fontSource.Should().Contain("DestroyOwnedUnityObjects");
+        fontSource.Should().Contain("GetMemoryDiagnostics");
+
+        textureSource.Should().Contain("markNonReadable: true");
+        textureSource.Should().NotContain("public byte[] PngBytes { get; }");
+        textureSource.Should().Contain("PruneDeadTextureReferences");
+        textureSource.Should().Contain("GetMemoryDiagnostics");
+
+        httpSource.Should().Contain("MaxConcurrentHttpRequests");
+        httpSource.Should().Contain("MaxJsonRequestBytes");
+        httpSource.Should().Contain("MaxTextureArchiveRequestBytes");
+        httpSource.Should().Contain("HandleWithConcurrencyLimitAsync");
+        httpSource.Should().Contain("ImportOverridesAsync(boundedArchive");
     }
 
     [Fact]
@@ -165,7 +205,7 @@ public sealed class BoundedRuntimeLoopSourceTests
         var uguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs"));
 
         moduleSource.Should().Contain("void Tick(bool forceFullScan = false);");
-        coordinatorSource.Should().Contain("public void Tick(bool forceFullScan = false)");
+        coordinatorSource.Should().Contain("public void Tick(bool forceFullScan = false, bool skipGlobalObjectScanners = false)");
         coordinatorSource.Should().Contain("module.Tick(forceFullScan)");
         tmpSource.Should().Contain("forceFullScan ? objects.Length : _configProvider().MaxScanTargetsPerTick");
         uguiSource.Should().Contain("forceFullScan ? objects.Length : _configProvider().MaxScanTargetsPerTick");

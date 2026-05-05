@@ -251,7 +251,8 @@ public sealed class ControlPanelHtmlSourceTests
         serverSource.Should().Contain("TryGetTextureImage");
         serverSource.Should().Contain("variant=source|override");
         serverSource.Should().Contain("context.Request.QueryString[\"scene\"]");
-        serverSource.Should().Contain("ReadBytesAsync(context.Request)");
+        serverSource.Should().Contain("ExportArchiveAsync(");
+        serverSource.Should().Contain("ImportOverridesAsync(boundedArchive)");
         serverSource.Should().Contain("request.ContentLength64");
         serverSource.Should().Contain("WriteBytesAsync(context.Response");
         serverSource.Should().Contain("Content-Disposition");
@@ -503,7 +504,7 @@ public sealed class ControlPanelHtmlSourceTests
 
         var addGlobalFallbackBlock = serviceSource[
             serviceSource.IndexOf("private bool AddTmpFallback(object fontAsset)", StringComparison.Ordinal)..
-            serviceSource.IndexOf("private static bool AddTmpFallbackToComponentFont", StringComparison.Ordinal)]
+            serviceSource.IndexOf("private bool AddTmpFallbackToComponentFont", StringComparison.Ordinal)]
             .Replace("\r\n", "\n");
         addGlobalFallbackBlock.Should().Contain("if (fallbacks.Contains(fontAsset))\n        {\n            return true;\n        }");
     }
