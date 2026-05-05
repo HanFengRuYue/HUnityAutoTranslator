@@ -165,6 +165,94 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
         }
     }
 
+    public bool TryGetLineSpacing(out float lineSpacing)
+    {
+        return TryGetFloatMember(_component, "lineSpacing", out lineSpacing);
+    }
+
+    public bool TrySetLineSpacing(float lineSpacing)
+    {
+        return lineSpacing > 0 && TrySetFloatMember(_component, "lineSpacing", lineSpacing);
+    }
+
+    public bool TryGetFontLineHeight(out float lineHeight)
+    {
+        lineHeight = 0;
+        var font =
+            GetMemberValue(_component, "font") ??
+            GetMemberValue(_component, "fontAsset") ??
+            GetMemberValue(_component, "m_fontAsset");
+        return TryReadFontLineHeight(font, out lineHeight);
+    }
+
+    public bool TryGetPreferredHeight(out float preferredHeight)
+    {
+        return TryGetFloatMember(_component, "preferredHeight", out preferredHeight);
+    }
+
+    public bool TryGetRenderedHeight(out float renderedHeight)
+    {
+        if (TryGetFloatMember(_component, "renderedHeight", out renderedHeight))
+        {
+            return true;
+        }
+
+        foreach (var method in _component.GetType()
+            .GetMethods(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
+            .Where(method => method.Name == "GetRenderedValues" && !method.ContainsGenericParameters)
+            .OrderBy(method => method.GetParameters().Length))
+        {
+            var parameters = method.GetParameters();
+            if (parameters.Length > 1 || parameters.Any(parameter => parameter.ParameterType != typeof(bool)))
+            {
+                continue;
+            }
+
+            try
+            {
+                var result = parameters.Length == 0
+                    ? method.Invoke(_component, null)
+                    : method.Invoke(_component, new object[] { true });
+                if (TryReadVectorHeight(result, out renderedHeight))
+                {
+                    return true;
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        renderedHeight = 0;
+        return false;
+    }
+
+    public bool TryGetRectHeight(out float rectHeight)
+    {
+        rectHeight = 0;
+        try
+        {
+            var rectTransform = GetMemberValue(_component, "rectTransform") as RectTransform;
+            if (rectTransform == null && _component is Component component)
+            {
+                rectTransform = component.transform as RectTransform;
+            }
+
+            if (rectTransform == null)
+            {
+                return false;
+            }
+
+            rectHeight = Math.Abs(rectTransform.rect.height);
+            return rectHeight > 0;
+        }
+        catch
+        {
+            rectHeight = 0;
+            return false;
+        }
+    }
+
     public bool TryGetScreenRect(out Rect screenRect)
     {
         screenRect = default;
@@ -192,6 +280,164 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
     private PropertyInfo? FindFontSizeProperty()
     {
         return _component.GetType().GetProperty("fontSize", BindingFlags.Instance | BindingFlags.Public);
+    }
+
+    private static bool TryReadFontLineHeight(object? font, out float lineHeight)
+    {
+        lineHeight = 0;
+        if (font == null)
+        {
+            return false;
+        }
+
+        if (font is Font unityFont)
+        {
+            lineHeight = unityFont.lineHeight;
+            return lineHeight > 0;
+        }
+
+        if (TryGetFloatMember(font, "lineHeight", out lineHeight) && lineHeight > 0)
+        {
+            return true;
+        }
+
+        var faceInfo =
+            GetMemberValue(font, "faceInfo") ??
+            GetMemberValue(font, "m_FaceInfo") ??
+            GetMemberValue(font, "m_faceInfo");
+        return TryGetFloatMember(faceInfo, "lineHeight", out lineHeight) && lineHeight > 0;
+    }
+
+    private static bool TryGetFloatMember(object? instance, string memberName, out float value)
+    {
+        value = 0;
+        var rawValue = GetMemberValue(instance, memberName);
+        return TryConvertToFloat(rawValue, out value);
+    }
+
+    private static bool TrySetFloatMember(object instance, string memberName, float value)
+    {
+        var type = instance.GetType();
+        var property = type.GetProperty(memberName, BindingFlags.Instance | BindingFlags.Public);
+        if (property is { CanWrite: true } &&
+            TryConvertFromFloat(value, property.PropertyType, out var propertyValue))
+        {
+            try
+            {
+                property.SetValue(instance, propertyValue, null);
+                return true;
+            }
+            catch
+            {
+            }
+        }
+
+        var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (field != null && TryConvertFromFloat(value, field.FieldType, out var fieldValue))
+        {
+            try
+            {
+                field.SetValue(instance, fieldValue);
+                return true;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        return false;
+    }
+
+    private static object? GetMemberValue(object? instance, string memberName)
+    {
+        if (instance == null)
+        {
+            return null;
+        }
+
+        var type = instance.GetType();
+        var property = type.GetProperty(memberName, BindingFlags.Instance | BindingFlags.Public);
+        if (property is { CanRead: true })
+        {
+            try
+            {
+                return property.GetValue(instance, null);
+            }
+            catch
+            {
+            }
+        }
+
+        var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        if (field == null)
+        {
+            return null;
+        }
+
+        try
+        {
+            return field.GetValue(instance);
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static bool TryReadVectorHeight(object? value, out float height)
+    {
+        height = 0;
+        if (value is Vector2 vector)
+        {
+            height = vector.y;
+            return height > 0;
+        }
+
+        return TryGetFloatMember(value, "y", out height) && height > 0;
+    }
+
+    private static bool TryConvertToFloat(object? value, out float result)
+    {
+        switch (value)
+        {
+            case float floatValue:
+                result = floatValue;
+                return result > 0 && !float.IsNaN(result) && !float.IsInfinity(result);
+            case int intValue:
+                result = intValue;
+                return result > 0;
+            case double doubleValue:
+                result = (float)doubleValue;
+                return result > 0 && !float.IsNaN(result) && !float.IsInfinity(result);
+            default:
+                result = 0;
+                return false;
+        }
+    }
+
+    private static bool TryConvertFromFloat(float value, Type targetType, out object converted)
+    {
+        converted = null!;
+        if (targetType == typeof(float))
+        {
+            converted = value;
+            return true;
+        }
+
+        if (targetType == typeof(double))
+        {
+            converted = (double)value;
+            return true;
+        }
+
+        if (targetType == typeof(int))
+        {
+            converted = Math.Max(1, (int)Math.Round(value));
+            return true;
+        }
+
+        return false;
     }
 
     private static string BuildHierarchyPath(Transform transform)

@@ -135,6 +135,7 @@ internal sealed class TmpTextScanner : ITextCaptureModule
                     config.Provider,
                     TextPipeline.GetPromptPolicyVersion(config));
                 _fontReplacement?.ApplyToTmp(component, rememberedKey, context, text);
+                _applier.ApplyCurrentTextLayoutState(target);
             }
             else
             {
@@ -160,6 +161,7 @@ internal sealed class TmpTextScanner : ITextCaptureModule
             if (_applier.RememberAndApply(target, text, decision.TranslatedText))
             {
                 _fontReplacement?.ApplyToTmp(component, key, context, decision.TranslatedText);
+                _applier.ApplyCurrentTextLayoutState(target);
             }
             else
             {

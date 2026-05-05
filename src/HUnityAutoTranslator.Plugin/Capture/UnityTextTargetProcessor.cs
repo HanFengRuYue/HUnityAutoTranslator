@@ -73,6 +73,7 @@ internal sealed class UnityTextTargetProcessor
                     config.Provider,
                     TextPipeline.GetPromptPolicyVersion(config));
                 ApplyFont(component, targetKind, rememberedKey, context, text);
+                _applier.ApplyCurrentTextLayoutState(target);
             }
             else
             {
@@ -100,6 +101,7 @@ internal sealed class UnityTextTargetProcessor
             if (applied)
             {
                 ApplyFont(component, targetKind, key, context, decision.TranslatedText);
+                _applier.ApplyCurrentTextLayoutState(target);
             }
             else
             {

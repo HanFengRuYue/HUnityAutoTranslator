@@ -243,6 +243,51 @@ public sealed class ComponentRefreshSourceTests
     }
 
     [Fact]
+    public void Unity_applier_preserves_and_restores_translated_text_layout_spacing()
+    {
+        var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));
+        var targetSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "IUnityTextTarget.cs"));
+        var reflectionTargetSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ReflectionTextTarget.cs"));
+        var hotkeySource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Hotkeys", "RuntimeHotkeyController.cs"));
+        var uguiScannerSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs"));
+        var tmpScannerSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs"));
+        var processorSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs"));
+
+        source.Should().Contain("_originalTextLayoutBaselines");
+        source.Should().Contain("RememberOriginalTextLayoutBaseline(target)");
+        source.Should().Contain("public void ApplyCurrentTextLayoutState(IUnityTextTarget target)");
+        source.Should().Contain("ApplyTranslatedTextLayoutState(target, desiredSize)");
+        source.Should().Contain("RestoreOriginalTextLayoutState(target)");
+        source.Should().Contain("TryApplyUguiLineSpacingCompensation(target, baseline)");
+        source.Should().Contain("TryApplyTmpLineSpacingCompensation(target, baseline)");
+        source.Should().Contain("TryAutoShrinkUguiOverflowingTranslatedText(target, originalSize)");
+        source.Should().Contain("lineSpacing");
+        source.Should().Contain("paragraphSpacing");
+        source.Should().Contain("lineSpacingAdjustment");
+        source.Should().Contain("TextLayoutCompensation.TryCalculateUguiLineSpacing(");
+        source.Should().Contain("TextLayoutCompensation.TryCalculateHeightFitFontSize(");
+
+        targetSource.Should().Contain("bool TryGetLineSpacing(out float lineSpacing)");
+        targetSource.Should().Contain("bool TrySetLineSpacing(float lineSpacing)");
+        targetSource.Should().Contain("bool TryGetFontLineHeight(out float lineHeight)");
+        targetSource.Should().Contain("bool TryGetPreferredHeight(out float preferredHeight)");
+        targetSource.Should().Contain("bool TryGetRenderedHeight(out float renderedHeight)");
+        targetSource.Should().Contain("bool TryGetRectHeight(out float rectHeight)");
+
+        reflectionTargetSource.Should().Contain("public bool TryGetLineSpacing(out float lineSpacing)");
+        reflectionTargetSource.Should().Contain("public bool TrySetLineSpacing(float lineSpacing)");
+        reflectionTargetSource.Should().Contain("public bool TryGetFontLineHeight(out float lineHeight)");
+        reflectionTargetSource.Should().Contain("public bool TryGetPreferredHeight(out float preferredHeight)");
+        reflectionTargetSource.Should().Contain("public bool TryGetRenderedHeight(out float renderedHeight)");
+        reflectionTargetSource.Should().Contain("public bool TryGetRectHeight(out float rectHeight)");
+
+        hotkeySource.Should().Contain("_resultApplier.ReapplyTextLayoutState(int.MaxValue)");
+        uguiScannerSource.Should().Contain("_applier.ApplyCurrentTextLayoutState(target);");
+        tmpScannerSource.Should().Contain("_applier.ApplyCurrentTextLayoutState(target);");
+        processorSource.Should().Contain("_applier.ApplyCurrentTextLayoutState(target);");
+    }
+
+    [Fact]
     public void Translation_import_publishes_refreshes_for_rows_modified_since_import_start()
     {
         var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
