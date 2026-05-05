@@ -36,7 +36,7 @@ const pages: Array<{ key: PageKey; label: string; icon: typeof Download }> = [
 ];
 
 const activePage = ref<PageKey>("install");
-const theme = ref<ThemeMode>(loadTheme());
+const theme = ref<ThemeMode>(readStoredTheme());
 const gameRoot = ref(defaultGameRoot);
 const packageVersion = ref("0.1.1");
 const includeLlamaCppBackend = ref(false);
@@ -88,14 +88,26 @@ const installSteps = computed(() => [
   }
 ]);
 
-function loadTheme(): ThemeMode {
-  const saved = localStorage.getItem(themeStorageKey);
-  return saved === "system" || saved === "light" || saved === "dark" ? saved : "system";
+function readStoredTheme(): ThemeMode {
+  try {
+    const saved = window.localStorage.getItem(themeStorageKey);
+    return saved === "system" || saved === "light" || saved === "dark" ? saved : "system";
+  } catch {
+    return "system";
+  }
+}
+
+function writeStoredTheme(value: ThemeMode): void {
+  try {
+    window.localStorage.setItem(themeStorageKey, value);
+  } catch {
+    // WebView2 NavigateToString can reject storage access before Vue mounts.
+  }
 }
 
 function effectiveTheme(value: ThemeMode): "light" | "dark" {
   if (value === "system") {
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+    return window.matchMedia?.("(prefers-color-scheme: dark)").matches ? "dark" : "light";
   }
 
   return value;
@@ -108,7 +120,7 @@ function applyTheme(): void {
 function cycleTheme(): void {
   const order: ThemeMode[] = ["system", "light", "dark"];
   theme.value = order[(order.indexOf(theme.value) + 1) % order.length];
-  localStorage.setItem(themeStorageKey, theme.value);
+  writeStoredTheme(theme.value);
   applyTheme();
 }
 

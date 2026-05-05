@@ -30,6 +30,99 @@ public sealed class ToolboxPackageScriptTests
     }
 
     [Fact]
+    public void Toolbox_package_script_removes_publish_directory_after_copying_single_exe()
+    {
+        var root = FindRepositoryRoot();
+        var script = File.ReadAllText(Path.Combine(root, "build", "package-toolbox.ps1"));
+
+        const string copySingleExe = "Copy-Item -LiteralPath $publishedExe -Destination $singleExePath -Force";
+        const string cleanupPublishDirectory = "Remove-BuildSubdirectory -Path $publishRoot";
+
+        var copyIndex = script.IndexOf(copySingleExe, StringComparison.Ordinal);
+        var cleanupIndex = script.IndexOf(cleanupPublishDirectory, copyIndex + copySingleExe.Length, StringComparison.Ordinal);
+
+        copyIndex.Should().BeGreaterThanOrEqualTo(0);
+        cleanupIndex.Should().BeGreaterThan(copyIndex);
+    }
+
+    [Fact]
+    public void Toolbox_package_script_removes_stale_webview_cache_next_to_single_exe()
+    {
+        var root = FindRepositoryRoot();
+        var script = File.ReadAllText(Path.Combine(root, "build", "package-toolbox.ps1"));
+
+        script.Should().Contain("$singleExeCachePath = \"$singleExePath.WebView2\"");
+        script.Should().Contain("Remove-BuildSubdirectory -Path $singleExeCachePath");
+    }
+
+    [Fact]
+    public void Toolbox_package_script_moves_inlined_vue_script_after_app_root()
+    {
+        var root = FindRepositoryRoot();
+        var script = File.ReadAllText(Path.Combine(root, "build", "package-toolbox.ps1"));
+
+        script.Should().Contain("$scriptBlocks");
+        script.Should().Contain("</body>");
+        script.Should().Contain("<script>`n$script`n</script>");
+    }
+
+    [Fact]
+    public void Generated_toolbox_html_uses_webview_compatible_script_position()
+    {
+        var root = FindRepositoryRoot();
+        var generated = File.ReadAllText(Path.Combine(root, "src", "HUnityAutoTranslator.Toolbox", "Web", "ToolboxHtml.cs"));
+
+        generated.Should().NotContain("<script type=\"module\"");
+
+        var appRootIndex = generated.IndexOf("<div id=\"app\"></div>", StringComparison.Ordinal);
+        var scriptIndex = generated.IndexOf("<script>", StringComparison.Ordinal);
+        var bodyEndIndex = generated.IndexOf("</body>", StringComparison.Ordinal);
+
+        appRootIndex.Should().BeGreaterThanOrEqualTo(0);
+        scriptIndex.Should().BeGreaterThan(appRootIndex);
+        scriptIndex.Should().BeLessThan(bodyEndIndex);
+    }
+
+    [Fact]
+    public void Generated_toolbox_html_has_no_trailing_whitespace()
+    {
+        var root = FindRepositoryRoot();
+        var generated = File.ReadAllText(Path.Combine(root, "src", "HUnityAutoTranslator.Toolbox", "Web", "ToolboxHtml.cs"));
+
+        generated.Split('\n')
+            .Should()
+            .OnlyContain(line => line.TrimEnd('\r', ' ', '\t').Length == line.TrimEnd('\r').Length);
+    }
+
+    [Fact]
+    public void Toolbox_theme_storage_is_guarded_for_webview_string_documents()
+    {
+        var root = FindRepositoryRoot();
+        var ui = File.ReadAllText(Path.Combine(root, "src", "HUnityAutoTranslator.Toolbox.Ui", "src", "App.vue"));
+
+        ui.Should().Contain("function readStoredTheme");
+        ui.Should().Contain("function writeStoredTheme");
+        ui.Should().Contain("const saved = window.localStorage.getItem(themeStorageKey);");
+        ui.Should().Contain("window.localStorage.setItem(themeStorageKey, value);");
+        ui.Should().Contain("catch");
+        ui.Should().NotContain("const saved = localStorage.getItem(themeStorageKey);");
+        ui.Should().NotContain("localStorage.setItem(themeStorageKey, theme.value);");
+    }
+
+    [Fact]
+    public void Toolbox_webview_uses_windows_local_app_data_for_runtime_cache()
+    {
+        var root = FindRepositoryRoot();
+        var windowCode = File.ReadAllText(Path.Combine(root, "src", "HUnityAutoTranslator.Toolbox", "MainWindow.xaml.cs"));
+
+        windowCode.Should().Contain("CoreWebView2Environment.CreateAsync(null, userDataFolder)");
+        windowCode.Should().Contain("WebView.EnsureCoreWebView2Async(environment)");
+        windowCode.Should().Contain("Environment.SpecialFolder.LocalApplicationData");
+        windowCode.Should().Contain("\"HUnityAutoTranslator\", \"Toolbox\", \"WebView2\"");
+        windowCode.Should().NotContain("WebView.EnsureCoreWebView2Async().ConfigureAwait");
+    }
+
+    [Fact]
     public void Toolbox_uses_existing_project_branding_assets()
     {
         var root = FindRepositoryRoot();

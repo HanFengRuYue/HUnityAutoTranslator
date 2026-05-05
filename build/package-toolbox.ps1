@@ -14,6 +14,7 @@ $toolboxUiRoot = Join-Path $root "src\HUnityAutoTranslator.Toolbox.Ui"
 $outputRoot = Resolve-Path -LiteralPath $PSScriptRoot
 $publishRoot = Join-Path $outputRoot "HUnityAutoTranslator.Toolbox"
 $singleExePath = Join-Path $outputRoot "HUnityAutoTranslator.Toolbox.exe"
+$singleExeCachePath = "$singleExePath.WebView2"
 $toolboxHtmlOutput = Join-Path $root "src\HUnityAutoTranslator.Toolbox\Web\ToolboxHtml.cs"
 
 function Invoke-CheckedNative([string]$Command, [string[]]$Arguments) {
@@ -25,6 +26,10 @@ function Invoke-CheckedNative([string]$Command, [string[]]$Arguments) {
 
 function Normalize-Newlines([string]$Value) {
     return ($Value -replace "`r`n", "`n") -replace "`r", "`n"
+}
+
+function Remove-TrailingWhitespace([string]$Value) {
+    return [regex]::Replace($Value, '[ \t]+(?=\n|$)', '')
 }
 
 function Get-AssetMimeType([string]$AssetPath) {
@@ -116,6 +121,8 @@ function Write-ToolboxHtml([string]$InputHtml, [string]$OutputFile) {
 
     $html = Convert-LocalIconLinksToDataUris -Html $html -DistRoot $distRoot
 
+    $scriptBlocks = [System.Collections.Generic.List[string]]::new()
+
     $html = [regex]::Replace(
         $html,
         '<link[^>]+rel="modulepreload"[^>]*>',
@@ -137,16 +144,37 @@ function Write-ToolboxHtml([string]$InputHtml, [string]$OutputFile) {
         '<script([^>]*)src="([^"]+)"([^>]*)></script>',
         {
             param($match)
-            $before = $match.Groups[1].Value -replace '\s*crossorigin', ''
-            $after = $match.Groups[3].Value -replace '\s*crossorigin', ''
             $js = Read-ToolboxDistAsset $distRoot $match.Groups[2].Value
-            "<script$before$after>`n$js`n</script>"
+            $scriptBlocks.Add($js) | Out-Null
+            ''
         },
         [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+
+    if ($scriptBlocks.Count -gt 0) {
+        $inlineScripts = ($scriptBlocks | ForEach-Object {
+            $script = $_
+            "<script>`n$script`n</script>"
+        }) -join "`n"
+
+        $bodyCloseRegex = [regex]::new('</body>', [System.Text.RegularExpressions.RegexOptions]::IgnoreCase)
+        if (-not $bodyCloseRegex.IsMatch($html)) {
+            throw "Built toolbox HTML is missing a closing body tag."
+        }
+
+        $html = $bodyCloseRegex.Replace(
+            $html,
+            {
+                param($match)
+                "$inlineScripts`n$($match.Value)"
+            },
+            1)
+    }
 
     if ($html -match '(?i)(?:src|href)="https?://') {
         throw "Generated toolbox must not reference remote assets."
     }
+
+    $html = Remove-TrailingWhitespace $html
 
     $delimiter = '""""""""'
     $content = @(
@@ -213,6 +241,7 @@ if ($GenerateHtmlOnly) {
 }
 
 Remove-BuildSubdirectory -Path $publishRoot
+Remove-BuildSubdirectory -Path $singleExeCachePath
 New-Item -ItemType Directory -Force -Path $publishRoot | Out-Null
 
 Invoke-CheckedNative "dotnet" @(
@@ -241,4 +270,5 @@ if (-not (Test-Path -LiteralPath $publishedExe)) {
 }
 
 Copy-Item -LiteralPath $publishedExe -Destination $singleExePath -Force
+Remove-BuildSubdirectory -Path $publishRoot
 Write-Host "Toolbox exe: $singleExePath"

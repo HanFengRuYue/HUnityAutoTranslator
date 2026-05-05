@@ -30,7 +30,11 @@ public partial class MainWindow : Window
     {
         try
         {
-            await WebView.EnsureCoreWebView2Async().ConfigureAwait(true);
+            var userDataFolder = GetWebViewUserDataFolder();
+            Directory.CreateDirectory(userDataFolder);
+
+            var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder).ConfigureAwait(true);
+            await WebView.EnsureCoreWebView2Async(environment).ConfigureAwait(true);
             WebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             WebView.CoreWebView2.Settings.AreDevToolsEnabled = true;
             WebView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
@@ -43,6 +47,17 @@ public partial class MainWindow : Window
             Fallback.Visibility = Visibility.Visible;
             FallbackMessage.Text = "请确认系统已安装 Microsoft Edge WebView2 Runtime，然后重新打开工具箱。\n\n" + ex.Message;
         }
+    }
+
+    private static string GetWebViewUserDataFolder()
+    {
+        var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrWhiteSpace(localAppData))
+        {
+            localAppData = Path.GetTempPath();
+        }
+
+        return Path.Combine(localAppData, "HUnityAutoTranslator", "Toolbox", "WebView2");
     }
 
     private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
