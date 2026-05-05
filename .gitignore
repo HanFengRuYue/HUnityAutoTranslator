@@ -10,9 +10,15 @@ publish/
 /build/HUnityAutoTranslator-*.zip
 /build/.cache/
 /build/.control-panel-build/
+/build/.toolbox-ui-build/
+/build/HUnityAutoTranslator.Toolbox/
+/build/HUnityAutoTranslator.Toolbox.exe
 /src/HUnityAutoTranslator.ControlPanel/node_modules/
 /src/HUnityAutoTranslator.ControlPanel/dist/
 /src/HUnityAutoTranslator.ControlPanel/*.log
+/src/HUnityAutoTranslator.Toolbox.Ui/node_modules/
+/src/HUnityAutoTranslator.Toolbox.Ui/dist/
+/src/HUnityAutoTranslator.Toolbox.Ui/*.log
 *.user
 *.suo
 *.tmp

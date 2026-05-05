@@ -1,6 +1,9 @@
+using System;
+using System.IO;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading.Tasks;
 using System.Windows;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Toolbox.Core.Database;
