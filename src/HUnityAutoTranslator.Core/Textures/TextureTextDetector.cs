@@ -72,12 +72,12 @@ public static class TextureTextDetector
 
     private static bool LooksLikeNoTextName(string name)
     {
-        return NoTextNameMarkers.Any(marker => name.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        return NoTextNameMarkers.Any(marker => name.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0);
     }
 
     private static bool LooksLikeTextCandidateName(string name)
     {
-        return TextCandidateNameMarkers.Any(marker => name.Contains(marker, StringComparison.OrdinalIgnoreCase));
+        return TextCandidateNameMarkers.Any(marker => name.IndexOf(marker, StringComparison.OrdinalIgnoreCase) >= 0);
     }
 
     private static double EstimateContrastScore(byte[] pngBytes)

@@ -25,14 +25,14 @@ public static class TextureArchiveNaming
 
         var normalized = path.Replace('\\', '/');
         if (normalized.StartsWith("/", StringComparison.Ordinal) ||
-            normalized.Contains(':', StringComparison.Ordinal) ||
+            normalized.IndexOf(':') >= 0 ||
             !normalized.StartsWith("textures/", StringComparison.OrdinalIgnoreCase) ||
             !normalized.EndsWith(".png", StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
 
-        var parts = normalized.Split('/');
+        var parts = normalized.Split(new[] { '/' });
         return parts.All(part => part.Length > 0 && part != "." && part != "..");
     }
 
@@ -69,7 +69,7 @@ public static class TextureArchiveNaming
             }
         }
 
-        var name = builder.ToString().Trim('-');
+        var name = builder.ToString().Trim(new[] { '-' });
         return name.Length == 0 ? "texture" : name;
     }
 }

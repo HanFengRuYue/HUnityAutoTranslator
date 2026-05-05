@@ -66,7 +66,7 @@ public sealed class OpenAiResponsesProvider : ITranslationProvider
 
     private HttpRequestMessage CreateRequest(JObject body)
     {
-        var uri = new Uri(new Uri(_profile.BaseUrl.TrimEnd('/') + "/"), _profile.Endpoint.TrimStart('/'));
+        var uri = new Uri(new Uri(_profile.BaseUrl.TrimEnd(new[] { '/' }) + "/"), _profile.Endpoint.TrimStart(new[] { '/' }));
         var message = new HttpRequestMessage(HttpMethod.Post, uri)
         {
             Content = new StringContent(JsonConvert.SerializeObject(body, Formatting.None), Encoding.UTF8, "application/json")

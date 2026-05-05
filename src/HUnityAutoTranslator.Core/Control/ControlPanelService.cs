@@ -1193,7 +1193,7 @@ public sealed class ControlPanelService
             return false;
         }
 
-        var parts = value.Split('+')
+        var parts = value.Split(new[] { '+' })
             .Select(part => part.Trim())
             .Where(part => part.Length > 0)
             .ToArray();
@@ -1608,7 +1608,7 @@ public sealed class ControlPanelService
         var quality = SelectKnown(request.Quality, current.Quality, "low", "medium", "high", "auto");
         return new TextureImageTranslationConfig(
             request.Enabled,
-            baseUrl.TrimEnd('/'),
+            baseUrl.TrimEnd(new[] { '/' }),
             editEndpoint,
             visionEndpoint,
             imageModel,

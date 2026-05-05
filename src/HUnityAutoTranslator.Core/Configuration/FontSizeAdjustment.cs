@@ -17,7 +17,7 @@ public static class FontSizeAdjustment
             return 0;
         }
 
-        return Math.Clamp(value, MinimumValue, MaximumValue);
+        return Math.Min(MaximumValue, Math.Max(MinimumValue, value));
     }
 
     public static float Calculate(float originalSize, FontSizeAdjustmentMode mode, double value)

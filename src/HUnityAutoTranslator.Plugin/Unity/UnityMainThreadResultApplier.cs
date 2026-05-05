@@ -493,7 +493,7 @@ internal sealed class UnityMainThreadResultApplier
     {
         var value = Normalize(componentType);
         return value.StartsWith("TMPro.", StringComparison.Ordinal) ||
-            value.Contains("TextMeshPro", StringComparison.Ordinal);
+            value.IndexOf("TextMeshPro", StringComparison.Ordinal) >= 0;
     }
 
     private static bool IsUguiTarget(string? componentType)

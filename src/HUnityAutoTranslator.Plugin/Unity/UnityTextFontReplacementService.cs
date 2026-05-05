@@ -1755,7 +1755,7 @@ internal sealed class UnityTextFontReplacementService : IDisposable
 
         if (parameter.ParameterType.IsEnum)
         {
-            var preferred = parameter.ParameterType.Name.Contains("AtlasPopulationMode", StringComparison.Ordinal)
+            var preferred = parameter.ParameterType.Name.IndexOf("AtlasPopulationMode", StringComparison.Ordinal) >= 0
                 ? "Dynamic"
                 : "SDFAA";
             return Enum.Parse(parameter.ParameterType, preferred);
@@ -3463,17 +3463,17 @@ internal sealed class UnityTextFontReplacementService : IDisposable
     private static bool IsTmpPriorityDiagnosticContext(TranslationCacheContext context, string? text)
     {
         var hierarchy = context.ComponentHierarchy ?? string.Empty;
-        return hierarchy.Contains("/Choices/", StringComparison.Ordinal) ||
-            hierarchy.Contains("Dialogue_Cyberpunk_Choice", StringComparison.Ordinal) ||
-            hierarchy.Contains("Dialogue_Default_Dialogue", StringComparison.Ordinal) ||
-            (text?.Contains("<color=", StringComparison.OrdinalIgnoreCase) ?? false);
+        return hierarchy.IndexOf("/Choices/", StringComparison.Ordinal) >= 0 ||
+            hierarchy.IndexOf("Dialogue_Cyberpunk_Choice", StringComparison.Ordinal) >= 0 ||
+            hierarchy.IndexOf("Dialogue_Default_Dialogue", StringComparison.Ordinal) >= 0 ||
+            (text?.IndexOf("<color=", StringComparison.OrdinalIgnoreCase) ?? -1) >= 0;
     }
 
     private static bool DeprecatedUnusedTmpFallbackSubMesh(TranslationCacheContext context)
     {
         var hierarchy = context.ComponentHierarchy ?? string.Empty;
-        return hierarchy.Contains("/Choices/", StringComparison.Ordinal) ||
-            hierarchy.Contains("Dialogue_Cyberpunk_Choice", StringComparison.Ordinal);
+        return hierarchy.IndexOf("/Choices/", StringComparison.Ordinal) >= 0 ||
+            hierarchy.IndexOf("Dialogue_Cyberpunk_Choice", StringComparison.Ordinal) >= 0;
     }
 
     private static void DeprecatedUnusedChoiceTmpTextRenderOrder(object component)

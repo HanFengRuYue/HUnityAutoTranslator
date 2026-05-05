@@ -119,11 +119,11 @@ public static class GlossaryExtractionService
 
     private static bool LooksUnsafe(string value)
     {
-        return value.Contains("__HUT_TOKEN_", StringComparison.Ordinal)
-            || value.Contains("<", StringComparison.Ordinal)
-            || value.Contains(">", StringComparison.Ordinal)
-            || value.Contains("{", StringComparison.Ordinal)
-            || value.Contains("}", StringComparison.Ordinal)
+        return value.IndexOf("__HUT_TOKEN_", StringComparison.Ordinal) >= 0
+            || value.IndexOf('<') >= 0
+            || value.IndexOf('>') >= 0
+            || value.IndexOf('{') >= 0
+            || value.IndexOf('}') >= 0
             || value.Length > 80;
     }
 

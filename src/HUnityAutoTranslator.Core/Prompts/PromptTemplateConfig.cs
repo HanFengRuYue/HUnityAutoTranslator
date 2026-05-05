@@ -127,15 +127,15 @@ Do not include placeholders, rich text tags, pure symbols, whole sentences, or g
             return null;
         }
 
-        return requiredPlaceholders.All(placeholder => normalized.Contains(placeholder, StringComparison.Ordinal))
+        return requiredPlaceholders.All(placeholder => normalized.IndexOf(placeholder, StringComparison.Ordinal) >= 0)
             ? normalized
             : null;
     }
 
     private static string NormalizeText(string? value)
     {
-        return (value ?? string.Empty).Replace("\r\n", "\n", StringComparison.Ordinal)
-            .Replace("\r", "\n", StringComparison.Ordinal)
+        return (value ?? string.Empty).Replace("\r\n", "\n")
+            .Replace("\r", "\n")
             .Trim();
     }
 

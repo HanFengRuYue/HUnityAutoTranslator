@@ -87,7 +87,7 @@ public sealed class TextureTextAnalysisStore
         try
         {
             var json = File.ReadAllText(_path);
-            var items = json.TrimStart().StartsWith("[", StringComparison.Ordinal)
+            var items = json.TrimStart(Array.Empty<char>()).StartsWith("[", StringComparison.Ordinal)
                 ? JsonConvert.DeserializeObject<TextureTextAnalysis[]>(json) ?? Array.Empty<TextureTextAnalysis>()
                 : JsonConvert.DeserializeObject<TextureTextAnalysisIndex>(json)?.Items ?? Array.Empty<TextureTextAnalysis>();
             foreach (var item in items)

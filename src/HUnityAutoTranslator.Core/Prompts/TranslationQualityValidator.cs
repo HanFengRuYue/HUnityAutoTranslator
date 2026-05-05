@@ -345,7 +345,7 @@ public static class TranslationQualityValidator
 
         var source = PromptItemClassifier.NormalizeForMatch(sourceText).ToLowerInvariant();
         return source is "activated" or "active" or "enabled" &&
-            (translatedText ?? string.Empty).Contains("\u6fc0\u6d3b", StringComparison.Ordinal);
+            (translatedText ?? string.Empty).IndexOf("\u6fc0\u6d3b", StringComparison.Ordinal) >= 0;
     }
 
     private static bool IsSuspiciousShortSwitchStateTranslation(
@@ -431,9 +431,9 @@ public static class TranslationQualityValidator
 
     private static bool IsAllowedUntranslatedToken(string source)
     {
-        var compact = source.Replace("-", string.Empty, StringComparison.Ordinal)
-            .Replace("_", string.Empty, StringComparison.Ordinal)
-            .Replace(".", string.Empty, StringComparison.Ordinal);
+        var compact = source.Replace("-", string.Empty)
+            .Replace("_", string.Empty)
+            .Replace(".", string.Empty);
         return compact.Length <= 4 &&
             compact.All(character => char.IsUpper(character) || char.IsDigit(character));
     }

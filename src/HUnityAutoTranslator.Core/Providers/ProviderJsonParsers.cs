@@ -215,7 +215,7 @@ public static class ProviderJsonParsers
     private static bool TryParseIndexedLines(string text, out IReadOnlyList<string> indexedTexts)
     {
         var lines = text
-            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace("\r\n", "\n")
             .Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries)
             .Select(line => line.Trim())
             .Where(line => line.Length > 0)

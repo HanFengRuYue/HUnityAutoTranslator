@@ -26,12 +26,23 @@ public static class LlamaCppProcessPath
             }
 
             var fullModelPath = Path.GetFullPath(modelPath);
-            var fullWorkingDirectory = Path.GetFullPath(workingDirectory);
-            return Path.GetRelativePath(fullWorkingDirectory, fullModelPath);
+            var fullWorkingDirectory = EnsureTrailingDirectorySeparator(Path.GetFullPath(workingDirectory));
+            var workingUri = new Uri(fullWorkingDirectory);
+            var modelUri = new Uri(fullModelPath);
+            return Uri.UnescapeDataString(workingUri.MakeRelativeUri(modelUri).ToString())
+                .Replace('/', Path.DirectorySeparatorChar);
         }
-        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException)
+        catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException or UriFormatException)
         {
             return modelPath;
         }
+    }
+
+    private static string EnsureTrailingDirectorySeparator(string path)
+    {
+        return path.EndsWith(Path.DirectorySeparatorChar.ToString(), StringComparison.Ordinal) ||
+            path.EndsWith(Path.AltDirectorySeparatorChar.ToString(), StringComparison.Ordinal)
+            ? path
+            : path + Path.DirectorySeparatorChar;
     }
 }

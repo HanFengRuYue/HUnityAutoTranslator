@@ -53,9 +53,9 @@ internal static class CsvTranslationCacheFormat
     public static IReadOnlyList<TranslationCacheEntry> Read(string content)
     {
         var lines = content
-            .Replace("\r\n", "\n", StringComparison.Ordinal)
+            .Replace("\r\n", "\n")
             .Replace('\r', '\n')
-            .Split('\n', StringSplitOptions.RemoveEmptyEntries);
+            .Split(new[] { '\n' }, StringSplitOptions.RemoveEmptyEntries);
         if (lines.Length == 0)
         {
             return Array.Empty<TranslationCacheEntry>();
@@ -90,7 +90,7 @@ internal static class CsvTranslationCacheFormat
     {
         value ??= string.Empty;
         return value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) >= 0
-            ? "\"" + value.Replace("\"", "\"\"", StringComparison.Ordinal) + "\""
+            ? "\"" + value.Replace("\"", "\"\"") + "\""
             : value;
     }
 

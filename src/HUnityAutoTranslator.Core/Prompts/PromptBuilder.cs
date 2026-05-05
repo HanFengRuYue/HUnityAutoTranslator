@@ -30,7 +30,7 @@ public static class PromptBuilder
             ["GlossarySystemPolicy"] = glossaryPolicy
         };
         var prompt = ApplyTemplate(template, values);
-        if (options.HasGlossaryTerms && !prompt.Contains(glossaryPolicy.Trim(), StringComparison.Ordinal))
+        if (options.HasGlossaryTerms && prompt.IndexOf(glossaryPolicy.Trim(), StringComparison.Ordinal) < 0)
         {
             prompt += glossaryPolicy;
         }
@@ -272,7 +272,7 @@ public static class PromptBuilder
         var result = template;
         foreach (var pair in values)
         {
-            result = result.Replace("{" + pair.Key + "}", pair.Value, StringComparison.Ordinal);
+            result = result.Replace("{" + pair.Key + "}", pair.Value);
         }
 
         return result.Trim();

@@ -47,6 +47,6 @@ public static class LlamaCppServerCommandBuilder
 
     private static string Quote(string value)
     {
-        return "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+        return "\"" + value.Replace("\"", "\\\"") + "\"";
     }
 }

@@ -17,7 +17,7 @@ public sealed record TranslationCacheKey(
             sourceText,
             targetLanguage.Trim(),
             provider.Kind,
-            provider.BaseUrl.TrimEnd('/'),
+            provider.BaseUrl.TrimEnd(new[] { '/' }),
             provider.Endpoint.Trim(),
             provider.Model.Trim(),
             promptPolicyVersion.Trim());

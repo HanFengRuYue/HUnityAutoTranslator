@@ -580,7 +580,7 @@ internal sealed class LlamaCppServerManager : IDisposable
 
     private static string Quote(string value)
     {
-        return "\"" + value.Replace("\"", "\\\"", StringComparison.Ordinal) + "\"";
+        return "\"" + value.Replace("\"", "\\\"") + "\"";
     }
 
     private void AppendOutput(string? value)

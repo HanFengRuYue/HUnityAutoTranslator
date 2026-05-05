@@ -27,7 +27,7 @@ internal readonly struct RuntimeHotkey
             return false;
         }
 
-        var parts = value.Split('+').Select(part => part.Trim()).ToArray();
+        var parts = value.Split(new[] { '+' }).Select(part => part.Trim()).ToArray();
         if (parts.Any(part => part.Length == 0))
         {
             return false;

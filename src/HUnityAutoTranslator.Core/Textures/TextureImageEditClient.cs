@@ -96,7 +96,7 @@ public sealed class TextureImageEditClient
     {
         var normalizedBase = string.IsNullOrWhiteSpace(baseUrl)
             ? TextureImageTranslationConfig.Default().BaseUrl
-            : baseUrl.TrimEnd('/');
+            : baseUrl.TrimEnd(new[] { '/' });
         var normalizedEndpoint = string.IsNullOrWhiteSpace(endpoint)
             ? TextureImageTranslationConfig.Default().EditEndpoint
             : endpoint.StartsWith("/", StringComparison.Ordinal) ? endpoint : "/" + endpoint;

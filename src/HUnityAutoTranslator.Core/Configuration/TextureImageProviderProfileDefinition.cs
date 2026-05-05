@@ -119,7 +119,7 @@ public sealed record TextureImageProviderProfileDefinition(
 
     private static string NormalizeUrl(string? value, string fallback)
     {
-        var text = SelectText(value, fallback).TrimEnd('/');
+        var text = SelectText(value, fallback).TrimEnd(new[] { '/' });
         return text.Length == 0 ? fallback : text;
     }
 

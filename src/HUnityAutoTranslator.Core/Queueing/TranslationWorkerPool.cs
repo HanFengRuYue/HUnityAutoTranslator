@@ -192,14 +192,14 @@ public sealed class TranslationWorkerPool
         if (sourceNewLine != null)
         {
             normalized = normalized
-                .Replace("\\r\\n", sourceNewLine, StringComparison.Ordinal)
-                .Replace("\\n", sourceNewLine, StringComparison.Ordinal)
-                .Replace("\\r", sourceNewLine, StringComparison.Ordinal);
+                .Replace("\\r\\n", sourceNewLine)
+                .Replace("\\n", sourceNewLine)
+                .Replace("\\r", sourceNewLine);
         }
 
-        if (sourceText.Contains('\t'))
+        if (sourceText.IndexOf('\t') >= 0)
         {
-            normalized = normalized.Replace("\\t", "\t", StringComparison.Ordinal);
+            normalized = normalized.Replace("\\t", "\t");
         }
 
         return normalized;
@@ -207,17 +207,17 @@ public sealed class TranslationWorkerPool
 
     private static string? GetSourceNewLine(string sourceText)
     {
-        if (sourceText.Contains("\r\n", StringComparison.Ordinal))
+        if (sourceText.IndexOf("\r\n", StringComparison.Ordinal) >= 0)
         {
             return "\r\n";
         }
 
-        if (sourceText.Contains('\n'))
+        if (sourceText.IndexOf('\n') >= 0)
         {
             return "\n";
         }
 
-        return sourceText.Contains('\r') ? "\r" : null;
+        return sourceText.IndexOf('\r') >= 0 ? "\r" : null;
     }
 
     private async Task<IReadOnlyList<TranslationJob>> HandleSuccessfulResponseAsync(
@@ -478,16 +478,16 @@ public sealed class TranslationWorkerPool
         }
 
         var source = jobs[0].SourceText
-            .Replace("\r", "\\r", StringComparison.Ordinal)
-            .Replace("\n", "\\n", StringComparison.Ordinal);
+            .Replace("\r", "\\r")
+            .Replace("\n", "\\n");
         return source.Length <= 160 ? source : source[..160] + "...";
     }
 
     private static string BuildTextPreview(string? value)
     {
         var preview = (value ?? string.Empty)
-            .Replace("\r", "\\r", StringComparison.Ordinal)
-            .Replace("\n", "\\n", StringComparison.Ordinal);
+            .Replace("\r", "\\r")
+            .Replace("\n", "\\n");
         return preview.Length <= 160 ? preview : preview[..160] + "...";
     }
 

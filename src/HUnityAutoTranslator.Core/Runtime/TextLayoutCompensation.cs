@@ -85,7 +85,7 @@ public static class TextLayoutCompensation
 
     public static bool IsLikelyMultiline(string? text, float fontSize, float? preferredHeight, float? renderedHeight)
     {
-        if (!string.IsNullOrEmpty(text) && (text.Contains('\n') || text.Contains('\r')))
+        if (!string.IsNullOrEmpty(text) && (text.IndexOf('\n') >= 0 || text.IndexOf('\r') >= 0))
         {
             return true;
         }

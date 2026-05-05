@@ -130,13 +130,13 @@ public static class LlamaCppBenchmarkParser
 
     private static bool LooksLikeErrorLine(string line)
     {
-        return line.Contains("error", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("failed", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("failure", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("exception", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("fatal", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("out of memory", StringComparison.OrdinalIgnoreCase)
-            || line.Contains("oom", StringComparison.OrdinalIgnoreCase);
+        return line.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0
+            || line.IndexOf("failed", StringComparison.OrdinalIgnoreCase) >= 0
+            || line.IndexOf("failure", StringComparison.OrdinalIgnoreCase) >= 0
+            || line.IndexOf("exception", StringComparison.OrdinalIgnoreCase) >= 0
+            || line.IndexOf("fatal", StringComparison.OrdinalIgnoreCase) >= 0
+            || line.IndexOf("out of memory", StringComparison.OrdinalIgnoreCase) >= 0
+            || line.IndexOf("oom", StringComparison.OrdinalIgnoreCase) >= 0;
     }
 
     private static int? ReadInt(JObject json, string property)

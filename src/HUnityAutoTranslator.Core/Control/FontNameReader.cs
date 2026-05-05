@@ -129,16 +129,16 @@ public static class FontNameReader
         {
             if (platformId == 0 || platformId == 3)
             {
-                return length % 2 == 0 ? BigEndianUnicode.GetString(data, offset, length).TrimEnd('\0') : null;
+                return length % 2 == 0 ? BigEndianUnicode.GetString(data, offset, length).TrimEnd(new[] { '\0' }) : null;
             }
 
             if (platformId == 1)
             {
-                return Encoding.ASCII.GetString(data, offset, length).TrimEnd('\0');
+                return Encoding.ASCII.GetString(data, offset, length).TrimEnd(new[] { '\0' });
             }
 
             return encodingId == 0
-                ? Encoding.ASCII.GetString(data, offset, length).TrimEnd('\0')
+                ? Encoding.ASCII.GetString(data, offset, length).TrimEnd(new[] { '\0' })
                 : null;
         }
         catch

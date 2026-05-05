@@ -366,7 +366,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         {
             builder.AppendLine();
             builder.AppendLine("# 以下为旧版服务商配置，当前版本已忽略，仅为避免覆盖你的原始文本而保留。");
-            builder.AppendLine(legacyProviderSectionText.TrimEnd());
+            builder.AppendLine(legacyProviderSectionText.TrimEnd(Array.Empty<char>()));
         }
 
         return builder.ToString();
@@ -548,9 +548,9 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
 
     private static string DecodePrompt(string value)
     {
-        return value.Replace("\\r\\n", "\n", StringComparison.Ordinal)
-            .Replace("\\n", "\n", StringComparison.Ordinal)
-            .Replace("\\r", "\n", StringComparison.Ordinal);
+        return value.Replace("\\r\\n", "\n")
+            .Replace("\\n", "\n")
+            .Replace("\\r", "\n");
     }
 
     private static string? NullIfWhiteSpace(string? value)
@@ -567,9 +567,9 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
     {
         return string.IsNullOrEmpty(value)
             ? string.Empty
-            : value.Replace("\r\n", "\n", StringComparison.Ordinal)
-                .Replace("\r", "\n", StringComparison.Ordinal)
-                .Replace("\n", "\\n", StringComparison.Ordinal);
+            : value.Replace("\r\n", "\n")
+                .Replace("\r", "\n")
+                .Replace("\n", "\\n");
     }
 
     private static string Bool(bool value)

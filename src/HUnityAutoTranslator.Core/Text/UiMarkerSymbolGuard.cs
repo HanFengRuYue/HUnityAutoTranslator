@@ -45,7 +45,7 @@ internal static class UiMarkerSymbolGuard
 
     private static string PreservePrefix(UiMarkerAffix sourcePrefix, string value)
     {
-        var trimmed = value.TrimStart();
+        var trimmed = value.TrimStart(Array.Empty<char>());
         var translatedPrefix = FindPrefix(trimmed, requireWhitespace: false);
         if (translatedPrefix != null)
         {
@@ -54,7 +54,7 @@ internal static class UiMarkerSymbolGuard
                 return value;
             }
 
-            return sourcePrefix.Text + trimmed.Substring(translatedPrefix.Value.Text.Length).TrimStart();
+            return sourcePrefix.Text + trimmed.Substring(translatedPrefix.Value.Text.Length).TrimStart(Array.Empty<char>());
         }
 
         return sourcePrefix.Text + trimmed;
@@ -62,7 +62,7 @@ internal static class UiMarkerSymbolGuard
 
     private static string PreserveSuffix(UiMarkerAffix sourceSuffix, string value)
     {
-        var trimmed = value.TrimEnd();
+        var trimmed = value.TrimEnd(Array.Empty<char>());
         var translatedSuffix = FindSuffix(trimmed, requireWhitespace: false);
         if (translatedSuffix != null)
         {
@@ -71,7 +71,7 @@ internal static class UiMarkerSymbolGuard
                 return value;
             }
 
-            return trimmed.Substring(0, trimmed.Length - translatedSuffix.Value.Text.Length).TrimEnd() + sourceSuffix.Text;
+            return trimmed.Substring(0, trimmed.Length - translatedSuffix.Value.Text.Length).TrimEnd(Array.Empty<char>()) + sourceSuffix.Text;
         }
 
         return trimmed + sourceSuffix.Text;
@@ -102,7 +102,7 @@ internal static class UiMarkerSymbolGuard
 
     private static UiMarkerAffix? FindPrefix(string value, bool requireWhitespace)
     {
-        var trimmed = (value ?? string.Empty).TrimStart();
+        var trimmed = (value ?? string.Empty).TrimStart(Array.Empty<char>());
         foreach (var symbol in MarkerSymbols)
         {
             if (!trimmed.StartsWith(symbol, StringComparison.Ordinal) ||
@@ -137,7 +137,7 @@ internal static class UiMarkerSymbolGuard
 
     private static UiMarkerAffix? FindSuffix(string value, bool requireWhitespace)
     {
-        var trimmed = (value ?? string.Empty).TrimEnd();
+        var trimmed = (value ?? string.Empty).TrimEnd(Array.Empty<char>());
         foreach (var symbol in MarkerSymbols)
         {
             if (!trimmed.EndsWith(symbol, StringComparison.Ordinal) ||

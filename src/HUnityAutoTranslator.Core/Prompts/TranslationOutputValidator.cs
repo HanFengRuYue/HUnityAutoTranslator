@@ -40,7 +40,7 @@ public static class TranslationOutputValidator
             }
         }
 
-        var trimmed = translatedText.TrimStart();
+        var trimmed = translatedText.TrimStart(Array.Empty<char>());
         if (ExplanatoryPrefixes.Any(prefix => trimmed.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
         {
             return ValidationResult.Invalid("包含解释性前缀");

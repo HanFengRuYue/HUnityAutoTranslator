@@ -140,9 +140,9 @@ public static class OpenAICompatibleRequestOptions
 
     private static IEnumerable<string> SplitLines(string value)
     {
-        return value.Replace("\r\n", "\n", StringComparison.Ordinal)
+        return value.Replace("\r\n", "\n")
             .Replace('\r', '\n')
-            .Split('\n');
+            .Split(new[] { '\n' });
     }
 
     private static bool IsHeaderNameAllowed(string name)

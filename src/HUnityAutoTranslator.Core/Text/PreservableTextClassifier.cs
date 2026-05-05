@@ -109,8 +109,8 @@ public static class PreservableTextClassifier
 
     private static bool IsPath(string value)
     {
-        if (!value.Contains('\\', StringComparison.Ordinal) &&
-            !value.Contains('/', StringComparison.Ordinal))
+        if (value.IndexOf('\\') < 0 &&
+            value.IndexOf('/') < 0)
         {
             return false;
         }
@@ -147,10 +147,10 @@ public static class PreservableTextClassifier
             return false;
         }
 
-        return value.Contains('.', StringComparison.Ordinal) ||
-            value.Contains('_', StringComparison.Ordinal) ||
-            value.Contains("::", StringComparison.Ordinal) ||
-            value.Contains('#', StringComparison.Ordinal);
+        return value.IndexOf('.') >= 0 ||
+            value.IndexOf('_') >= 0 ||
+            value.IndexOf("::", StringComparison.Ordinal) >= 0 ||
+            value.IndexOf('#') >= 0;
     }
 
     private static bool IsLatinLetter(char character)

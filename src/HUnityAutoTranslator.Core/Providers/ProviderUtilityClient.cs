@@ -144,7 +144,7 @@ public sealed class ProviderUtilityClient
             : CreateChatCompletionsTestBody(profile);
         var request = new HttpRequestMessage(
             HttpMethod.Post,
-            new Uri(new Uri(profile.BaseUrl.TrimEnd('/') + "/"), profile.Endpoint.TrimStart('/')))
+            new Uri(new Uri(profile.BaseUrl.TrimEnd(new[] { '/' }) + "/"), profile.Endpoint.TrimStart(new[] { '/' })))
         {
             Content = new StringContent(JsonConvert.SerializeObject(body, Formatting.None), Encoding.UTF8, "application/json")
         };
@@ -209,7 +209,7 @@ public sealed class ProviderUtilityClient
 
     private HttpRequestMessage CreateGet(ProviderProfile profile, string path)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, new Uri(new Uri(profile.BaseUrl.TrimEnd('/') + "/"), path.TrimStart('/')));
+        var request = new HttpRequestMessage(HttpMethod.Get, new Uri(new Uri(profile.BaseUrl.TrimEnd(new[] { '/' }) + "/"), path.TrimStart(new[] { '/' })));
         var apiKey = _apiKeyProvider();
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
