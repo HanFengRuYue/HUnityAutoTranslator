@@ -21,6 +21,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\HUnityAutoTranslator.Core\HUnityAutoTranslator.Core.csproj" />
+    <ProjectReference Include="..\..\src\HUnityAutoTranslator.Toolbox.Core\HUnityAutoTranslator.Toolbox.Core.csproj" />
   </ItemGroup>
 
 </Project>
