@@ -78,7 +78,7 @@ public partial class MainWindow : Window
             "getAppInfo" => new
             {
                 Name = "HUnityAutoTranslator 工具箱",
-                Version = typeof(MainWindow).Assembly.GetName().Version?.ToString() ?? "0.1.0"
+                Version = typeof(MainWindow).Assembly.GetName().Version?.ToString() ?? "0.1.1"
             },
             "inspectGame" => GameInspector.Inspect(ReadString(payload, "gameRoot")),
             "createInstallPlan" => CreateInstallPlan(payload),
@@ -92,7 +92,7 @@ public partial class MainWindow : Window
     {
         var inspection = GameInspector.Inspect(ReadString(payload, "gameRoot"));
         var options = new InstallPlanOptions(
-            PackageVersion: ReadString(payload, "packageVersion", "0.1.0"),
+            PackageVersion: ReadString(payload, "packageVersion", "0.1.1"),
             Mode: ReadEnum(payload, "mode", InstallMode.Full),
             IncludeLlamaCppBackend: ReadBool(payload, "includeLlamaCppBackend"),
             LlamaCppBackend: ReadEnum(payload, "llamaCppBackend", LlamaCppBackendKind.None));

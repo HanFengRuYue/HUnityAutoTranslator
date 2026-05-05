@@ -45,7 +45,7 @@ function fallbackResponse<T>(command: string, payload: unknown): T {
   if (command === "createInstallPlan") {
     return {
       Mode: "Full",
-      PluginPackageName: "HUnityAutoTranslator-0.1.0-il2cpp.zip",
+      PluginPackageName: "HUnityAutoTranslator-0.1.1-il2cpp.zip",
       LlamaCppPackageName: null,
       ProtectedPaths: [
         "BepInEx\\config\\HUnityAutoTranslator\\translation-cache.sqlite",
@@ -54,14 +54,14 @@ function fallbackResponse<T>(command: string, payload: unknown): T {
       BackupDirectory: "BepInEx\\config\\HUnityAutoTranslator\\toolbox-backups\\preview",
       Operations: [
         { Kind: "CreateDirectory", SourcePath: "", DestinationPath: "BepInEx\\plugins\\HUnityAutoTranslator", Description: "确保插件目录存在" },
-        { Kind: "ExtractPackage", SourcePath: "HUnityAutoTranslator-0.1.0-il2cpp.zip", DestinationPath: readPayloadString(payload, "gameRoot"), Description: "解压插件包" },
+        { Kind: "ExtractPackage", SourcePath: "HUnityAutoTranslator-0.1.1-il2cpp.zip", DestinationPath: readPayloadString(payload, "gameRoot"), Description: "解压插件包" },
         { Kind: "VerifyFile", SourcePath: "", DestinationPath: "HUnityAutoTranslator.Plugin.IL2CPP.dll", Description: "验证插件 DLL" }
       ]
     } as T;
   }
 
   if (command === "getAppInfo") {
-    return { Name: "HUnityAutoTranslator 工具箱", Version: "0.1.0" } as T;
+    return { Name: "HUnityAutoTranslator 工具箱", Version: "0.1.1" } as T;
   }
 
   if (command === "runDatabaseMaintenance") {

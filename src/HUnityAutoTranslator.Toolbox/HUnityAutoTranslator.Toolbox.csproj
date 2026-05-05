@@ -7,6 +7,7 @@
     <UseWPF>true</UseWPF>
     <AssemblyName>HUnityAutoTranslator.Toolbox</AssemblyName>
     <RootNamespace>HUnityAutoTranslator.Toolbox</RootNamespace>
+    <Version>0.1.1</Version>
     <ApplicationIcon>..\HUnityAutoTranslator.ControlPanel\public\branding\hunity-icon-blue-white.ico</ApplicationIcon>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>

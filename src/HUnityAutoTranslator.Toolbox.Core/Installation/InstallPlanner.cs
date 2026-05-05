@@ -73,7 +73,7 @@ public static class InstallPlanner
 
     private static string BuildPluginPackageName(string version, ToolboxRuntimeKind runtime)
     {
-        var normalizedVersion = string.IsNullOrWhiteSpace(version) ? "0.1.0" : version.Trim();
+        var normalizedVersion = string.IsNullOrWhiteSpace(version) ? "0.1.1" : version.Trim();
         return runtime switch
         {
             ToolboxRuntimeKind.BepInEx5Mono => $"HUnityAutoTranslator-{normalizedVersion}-bepinex5.zip",
@@ -95,7 +95,7 @@ public static class InstallPlanner
 
     private static string BuildLlamaCppPackageName(string version, LlamaCppBackendKind backend)
     {
-        var normalizedVersion = string.IsNullOrWhiteSpace(version) ? "0.1.0" : version.Trim();
+        var normalizedVersion = string.IsNullOrWhiteSpace(version) ? "0.1.1" : version.Trim();
         return backend switch
         {
             LlamaCppBackendKind.Cuda13 => $"HUnityAutoTranslator-{normalizedVersion}-llamacpp-cuda13.zip",
