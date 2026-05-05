@@ -40,17 +40,14 @@ public static class ProviderJsonParsers
     private static bool TryParseJsonResponse(string text, int? expectedCount, out IReadOnlyList<string> texts)
     {
         texts = Array.Empty<string>();
-        if (text.Length == 0 ||
-            (!text.StartsWith("[", StringComparison.Ordinal) &&
-             !text.StartsWith("{", StringComparison.Ordinal) &&
-             !text.StartsWith("\"", StringComparison.Ordinal)))
+        if (!LooksLikeJsonResponse(text))
         {
             return false;
         }
 
         try
         {
-            var token = JToken.Parse(text);
+            var token = JToken.Parse(NormalizeJsonBoundaryDelimiters(text));
             if (token.Type == JTokenType.String && expectedCount == 1)
             {
                 texts = new[] { token.Value<string>() ?? string.Empty };
@@ -71,6 +68,53 @@ public static class ProviderJsonParsers
             texts = Array.Empty<string>();
             return false;
         }
+    }
+
+    private static bool LooksLikeJsonResponse(string text)
+    {
+        if (text.Length == 0)
+        {
+            return false;
+        }
+
+        return text[0] is '[' or '{' or '"' or '\uff3b' or '\uff5b';
+    }
+
+    private static string NormalizeJsonBoundaryDelimiters(string text)
+    {
+        if (text.Length < 2)
+        {
+            return text;
+        }
+
+        var first = NormalizeOpeningJsonDelimiter(text[0]);
+        var last = NormalizeClosingJsonDelimiter(text[^1]);
+        if (first == text[0] && last == text[^1])
+        {
+            return text;
+        }
+
+        return first + text.Substring(1, text.Length - 2) + last;
+    }
+
+    private static char NormalizeOpeningJsonDelimiter(char value)
+    {
+        return value switch
+        {
+            '\uff3b' => '[',
+            '\uff5b' => '{',
+            _ => value
+        };
+    }
+
+    private static char NormalizeClosingJsonDelimiter(char value)
+    {
+        return value switch
+        {
+            '\uff3d' => ']',
+            '\uff5d' => '}',
+            _ => value
+        };
     }
 
     private static bool TryParseStringArray(JArray array, out IReadOnlyList<string> texts)

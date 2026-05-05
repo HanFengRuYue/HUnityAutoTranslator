@@ -16,24 +16,50 @@ public static class TranslationQualityValidator
         Brace
     }
 
-    private static readonly (string Open, string Close, OuterSymbolKind Kind)[] OuterSymbolPairs =
+    private static readonly (string Symbol, OuterSymbolKind Kind)[] OuterOpeningSymbols =
     {
-        ("\"", "\"", OuterSymbolKind.Quote),
-        ("'", "'", OuterSymbolKind.Quote),
-        ("\u201c", "\u201d", OuterSymbolKind.Quote),
-        ("\u2018", "\u2019", OuterSymbolKind.Quote),
-        ("[", "]", OuterSymbolKind.Square),
-        ("\uff3b", "\uff3d", OuterSymbolKind.Square),
-        ("\u3010", "\u3011", OuterSymbolKind.Square),
-        ("\u3014", "\u3015", OuterSymbolKind.Square),
-        ("(", ")", OuterSymbolKind.Round),
-        ("\uff08", "\uff09", OuterSymbolKind.Round),
-        ("\u300a", "\u300b", OuterSymbolKind.BookTitle),
-        ("<", ">", OuterSymbolKind.BookTitle),
-        ("\u3008", "\u3009", OuterSymbolKind.BookTitle),
-        ("\u300c", "\u300d", OuterSymbolKind.Corner),
-        ("\u300e", "\u300f", OuterSymbolKind.Corner),
-        ("{", "}", OuterSymbolKind.Brace)
+        ("\"", OuterSymbolKind.Quote),
+        ("'", OuterSymbolKind.Quote),
+        ("\uff02", OuterSymbolKind.Quote),
+        ("\uff07", OuterSymbolKind.Quote),
+        ("\u201c", OuterSymbolKind.Quote),
+        ("\u2018", OuterSymbolKind.Quote),
+        ("[", OuterSymbolKind.Square),
+        ("\uff3b", OuterSymbolKind.Square),
+        ("\u3010", OuterSymbolKind.Square),
+        ("\u3014", OuterSymbolKind.Square),
+        ("(", OuterSymbolKind.Round),
+        ("\uff08", OuterSymbolKind.Round),
+        ("\u300a", OuterSymbolKind.BookTitle),
+        ("<", OuterSymbolKind.BookTitle),
+        ("\u3008", OuterSymbolKind.BookTitle),
+        ("\u300c", OuterSymbolKind.Corner),
+        ("\u300e", OuterSymbolKind.Corner),
+        ("{", OuterSymbolKind.Brace),
+        ("\uff5b", OuterSymbolKind.Brace)
+    };
+
+    private static readonly (string Symbol, OuterSymbolKind Kind)[] OuterClosingSymbols =
+    {
+        ("\"", OuterSymbolKind.Quote),
+        ("'", OuterSymbolKind.Quote),
+        ("\uff02", OuterSymbolKind.Quote),
+        ("\uff07", OuterSymbolKind.Quote),
+        ("\u201d", OuterSymbolKind.Quote),
+        ("\u2019", OuterSymbolKind.Quote),
+        ("]", OuterSymbolKind.Square),
+        ("\uff3d", OuterSymbolKind.Square),
+        ("\u3011", OuterSymbolKind.Square),
+        ("\u3015", OuterSymbolKind.Square),
+        (")", OuterSymbolKind.Round),
+        ("\uff09", OuterSymbolKind.Round),
+        ("\u300b", OuterSymbolKind.BookTitle),
+        (">", OuterSymbolKind.BookTitle),
+        ("\u3009", OuterSymbolKind.BookTitle),
+        ("\u300d", OuterSymbolKind.Corner),
+        ("\u300f", OuterSymbolKind.Corner),
+        ("}", OuterSymbolKind.Brace),
+        ("\uff5d", OuterSymbolKind.Brace)
     };
 
     public static ValidationResult ValidateBatch(
@@ -383,23 +409,30 @@ public static class TranslationQualityValidator
     private static bool TryGetOuterSymbolKind(string value, out OuterSymbolKind kind)
     {
         var trimmed = (value ?? string.Empty).Trim();
-        foreach (var pair in OuterSymbolPairs)
+        foreach (var open in OuterOpeningSymbols)
         {
-            if (trimmed.Length <= pair.Open.Length + pair.Close.Length ||
-                !trimmed.StartsWith(pair.Open, StringComparison.Ordinal) ||
-                !trimmed.EndsWith(pair.Close, StringComparison.Ordinal))
+            if (!trimmed.StartsWith(open.Symbol, StringComparison.Ordinal))
             {
                 continue;
             }
 
-            var innerLength = trimmed.Length - pair.Open.Length - pair.Close.Length;
-            if (string.IsNullOrWhiteSpace(trimmed.Substring(pair.Open.Length, innerLength)))
+            foreach (var close in OuterClosingSymbols.Where(item => item.Kind == open.Kind))
             {
-                continue;
-            }
+                if (trimmed.Length <= open.Symbol.Length + close.Symbol.Length ||
+                    !trimmed.EndsWith(close.Symbol, StringComparison.Ordinal))
+                {
+                    continue;
+                }
 
-            kind = pair.Kind;
-            return true;
+                var innerLength = trimmed.Length - open.Symbol.Length - close.Symbol.Length;
+                if (string.IsNullOrWhiteSpace(trimmed.Substring(open.Symbol.Length, innerLength)))
+                {
+                    continue;
+                }
+
+                kind = open.Kind;
+                return true;
+            }
         }
 
         kind = default;

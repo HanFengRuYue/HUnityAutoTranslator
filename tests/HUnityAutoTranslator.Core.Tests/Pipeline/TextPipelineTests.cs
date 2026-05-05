@@ -46,6 +46,45 @@ public sealed class TextPipelineTests
     }
 
     [Fact]
+    public void ResolveExactCachedTranslation_returns_context_hit_without_queueing_or_recording_pending_capture()
+    {
+        var cache = new CountingTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var context = new TranslationCacheContext("Options", "Canvas/Page/Start", "TMPro.TextMeshProUGUI");
+        var key = TranslationCacheKey.Create("Start Game", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.Set(key, "Start translated", context);
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.ResolveExactCachedTranslation(new CapturedText("ui-1", "Start Game", isVisible: true, context));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.UseCachedTranslation);
+        decision.TranslatedText.Should().Be("Start translated");
+        cache.RecordCapturedCallCount.Should().Be(0);
+        queue.PendingCount.Should().Be(0);
+    }
+
+    [Fact]
+    public void ResolveExactCachedTranslation_does_not_reuse_other_context_or_enqueue()
+    {
+        var cache = new CountingTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        var currentContext = new TranslationCacheContext("Options", "Canvas/Page/Back", "TMPro.TextMeshProUGUI");
+        var otherContext = new TranslationCacheContext("Title", "Canvas/Page/Back", "TMPro.TextMeshProUGUI");
+        var key = TranslationCacheKey.Create("Back", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.Set(key, "Back translated", otherContext);
+        var pipeline = new TextPipeline(cache, queue, config);
+
+        var decision = pipeline.ResolveExactCachedTranslation(new CapturedText("ui-1", "Back", isVisible: true, currentContext));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.Ignored);
+        cache.RecordCapturedCallCount.Should().Be(0);
+        cache.GetPendingTranslations(config.TargetLanguage, TextPipeline.PromptPolicyVersion, limit: 10).Should().BeEmpty();
+        queue.PendingCount.Should().Be(0);
+    }
+
+    [Fact]
     public void Process_records_pending_capture_only_when_new_job_is_enqueued()
     {
         var cache = new CountingTranslationCache();

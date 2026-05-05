@@ -98,7 +98,7 @@ internal sealed class TranslationWorkerHost : IDisposable
                 if (_queue.PendingCount == 0)
                 {
                     await TryExtractGlossaryAsync(provider, config, cancellationToken).ConfigureAwait(false);
-                    await Task.Delay(40, cancellationToken).ConfigureAwait(false);
+                    await _queue.WaitForPendingAsync(TimeSpan.FromMilliseconds(40), cancellationToken).ConfigureAwait(false);
                     continue;
                 }
 

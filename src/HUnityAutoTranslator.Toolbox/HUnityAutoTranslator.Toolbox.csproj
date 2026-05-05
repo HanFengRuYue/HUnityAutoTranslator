@@ -5,6 +5,7 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <AssemblyName>HUnityAutoTranslator.Toolbox</AssemblyName>
     <RootNamespace>HUnityAutoTranslator.Toolbox</RootNamespace>
     <Version>0.1.1</Version>

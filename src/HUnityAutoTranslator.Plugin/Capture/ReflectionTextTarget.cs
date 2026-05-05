@@ -6,13 +6,28 @@ namespace HUnityAutoTranslator.Plugin.Capture;
 
 internal sealed class ReflectionTextTarget : IUnityTextTarget
 {
+    private static readonly object MemberCacheGate = new();
+    private static readonly Dictionary<Type, ReflectionTextMemberCache> _memberCache = new();
+
     private readonly UnityEngine.Object _component;
-    private readonly PropertyInfo _textProperty;
+    private PropertyInfo _textProperty;
+    private string? _cachedSceneName;
+    private string? _cachedHierarchyPath;
+    private readonly string _componentType;
+    private int _metadataGeneration;
+    private int _loadedMetadataGeneration = int.MinValue;
 
     public ReflectionTextTarget(UnityEngine.Object component, PropertyInfo textProperty)
+        : this(component, textProperty, metadataGeneration: 0)
+    {
+    }
+
+    public ReflectionTextTarget(UnityEngine.Object component, PropertyInfo textProperty, int metadataGeneration)
     {
         _component = component;
         _textProperty = textProperty;
+        _metadataGeneration = metadataGeneration;
+        _componentType = component.GetType().FullName ?? component.GetType().Name;
         Id = component.GetInstanceID().ToString();
     }
 
@@ -21,6 +36,29 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
     public UnityEngine.Object Component => _component;
 
     public bool IsAlive => _component != null;
+
+    public void UpdateTextProperty(PropertyInfo textProperty)
+    {
+        _textProperty = textProperty;
+    }
+
+    public void RefreshGeneration(int metadataGeneration)
+    {
+        if (_metadataGeneration == metadataGeneration)
+        {
+            return;
+        }
+
+        _metadataGeneration = metadataGeneration;
+        InvalidateMetadata();
+    }
+
+    public void InvalidateMetadata()
+    {
+        _loadedMetadataGeneration = int.MinValue;
+        _cachedSceneName = null;
+        _cachedHierarchyPath = null;
+    }
 
     public bool IsVisible
     {
@@ -44,8 +82,8 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
         {
             try
             {
-                var component = _component as Component;
-                return component?.gameObject.scene.name;
+                EnsureMetadata();
+                return _cachedSceneName;
             }
             catch
             {
@@ -60,8 +98,8 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
         {
             try
             {
-                var component = _component as Component;
-                return component == null ? null : BuildHierarchyPath(component.transform);
+                EnsureMetadata();
+                return _cachedHierarchyPath;
             }
             catch
             {
@@ -70,7 +108,7 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
         }
     }
 
-    public string ComponentType => _component.GetType().FullName ?? _component.GetType().Name;
+    public string ComponentType => _componentType;
 
     public string? GetText()
     {
@@ -279,7 +317,7 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
 
     private PropertyInfo? FindFontSizeProperty()
     {
-        return _component.GetType().GetProperty("fontSize", BindingFlags.Instance | BindingFlags.Public);
+        return GetMemberCache(_component.GetType()).FontSizeProperty;
     }
 
     private static bool TryReadFontLineHeight(object? font, out float lineHeight)
@@ -318,7 +356,8 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
     private static bool TrySetFloatMember(object instance, string memberName, float value)
     {
         var type = instance.GetType();
-        var property = type.GetProperty(memberName, BindingFlags.Instance | BindingFlags.Public);
+        var cache = GetMemberCache(type);
+        var property = cache.GetProperty(memberName);
         if (property is { CanWrite: true } &&
             TryConvertFromFloat(value, property.PropertyType, out var propertyValue))
         {
@@ -332,7 +371,7 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
             }
         }
 
-        var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        var field = cache.GetField(memberName);
         if (field != null && TryConvertFromFloat(value, field.FieldType, out var fieldValue))
         {
             try
@@ -357,7 +396,8 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
         }
 
         var type = instance.GetType();
-        var property = type.GetProperty(memberName, BindingFlags.Instance | BindingFlags.Public);
+        var cache = GetMemberCache(type);
+        var property = cache.GetProperty(memberName);
         if (property is { CanRead: true })
         {
             try
@@ -369,7 +409,7 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
             }
         }
 
-        var field = type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+        var field = cache.GetField(memberName);
         if (field == null)
         {
             return null;
@@ -449,6 +489,39 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
         }
 
         return string.Join("/", names);
+    }
+
+    private void EnsureMetadata()
+    {
+        if (_loadedMetadataGeneration == _metadataGeneration)
+        {
+            return;
+        }
+
+        _loadedMetadataGeneration = _metadataGeneration;
+        if (_component is not Component component)
+        {
+            _cachedSceneName = null;
+            _cachedHierarchyPath = null;
+            return;
+        }
+
+        _cachedSceneName = component.gameObject.scene.name;
+        _cachedHierarchyPath = BuildHierarchyPath(component.transform);
+    }
+
+    private static ReflectionTextMemberCache GetMemberCache(Type type)
+    {
+        lock (MemberCacheGate)
+        {
+            if (!_memberCache.TryGetValue(type, out var cache))
+            {
+                cache = new ReflectionTextMemberCache(type);
+                _memberCache[type] = cache;
+            }
+
+            return cache;
+        }
     }
 
     private static bool TryGetRectTransformScreenRect(Component component, RectTransform rectTransform, out Rect screenRect)
@@ -540,5 +613,44 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
             maxX - minX + padding * 2f,
             maxY - minY + padding * 2f);
         return true;
+    }
+
+    private sealed class ReflectionTextMemberCache
+    {
+        private readonly Type _type;
+        private readonly Dictionary<string, PropertyInfo?> _properties = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, FieldInfo?> _fields = new(StringComparer.Ordinal);
+
+        public ReflectionTextMemberCache(Type type)
+        {
+            _type = type;
+            FontSizeProperty = GetProperty("fontSize");
+        }
+
+        public PropertyInfo? FontSizeProperty { get; }
+
+        public PropertyInfo? GetProperty(string memberName)
+        {
+            if (_properties.TryGetValue(memberName, out var property))
+            {
+                return property;
+            }
+
+            property = _type.GetProperty(memberName, BindingFlags.Instance | BindingFlags.Public);
+            _properties[memberName] = property;
+            return property;
+        }
+
+        public FieldInfo? GetField(string memberName)
+        {
+            if (_fields.TryGetValue(memberName, out var field))
+            {
+                return field;
+            }
+
+            field = _type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            _fields[memberName] = field;
+            return field;
+        }
     }
 }

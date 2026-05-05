@@ -14,7 +14,27 @@ public sealed record MemoryDiagnosticsSnapshot(
     int ImguiFontResolutionCacheCount,
     int TextureRecordCount,
     int ReplacementTextureCount,
-    long TexturePngBytes)
+    long TexturePngBytes,
+    long TextChangeHookEventCount = 0,
+    long TextChangeHookQueuedCount = 0,
+    long TextChangeHookMergedCount = 0,
+    long TextChangeHookDroppedCount = 0,
+    long TextChangeRawPrefilteredCount = 0,
+    long TextChangeQueueProcessedCount = 0,
+    long TextChangeQueueMilliseconds = 0,
+    long TextTargetMetadataBuildCount = 0,
+    long CacheLookupCount = 0,
+    long GlobalTextScanRequestCount = 0,
+    long GlobalTextScanCount = 0,
+    long GlobalTextScanTargetCount = 0,
+    long GlobalTextScanMilliseconds = 0,
+    long RememberedReapplyCheckCount = 0,
+    long RememberedReapplyAppliedCount = 0,
+    long FontApplicationCount = 0,
+    long FontApplicationSkippedCount = 0,
+    long LayoutApplicationCount = 0,
+    long LayoutApplicationSkippedCount = 0,
+    long TmpMeshForceUpdateCount = 0)
 {
     public static MemoryDiagnosticsSnapshot Empty { get; } = new(
         ManagedMemoryBytes: 0,

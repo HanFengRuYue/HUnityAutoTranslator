@@ -12,28 +12,39 @@ internal sealed class UnityTextStabilityGate
     private readonly Dictionary<StableTextKey, StableTextEntry> _entries = new();
     private readonly double _stableSeconds;
     private readonly double _typewriterStableSeconds;
+    private readonly double _fastStaticStableSeconds;
     private readonly double _releasedTextRefreshSeconds;
     private readonly double _entryTtlSeconds;
     private double _nextPruneSeconds;
 
     public UnityTextStabilityGate(
         double stableSeconds = 0.25,
-        double typewriterStableSeconds = 1.0,
+        double typewriterStableSeconds = 0.35,
         double releasedTextRefreshSeconds = 1.0,
-        double entryTtlSeconds = 300)
+        double entryTtlSeconds = 300,
+        double fastStaticStableSeconds = 0.08)
     {
         _stableSeconds = Math.Max(0.05, stableSeconds);
         _typewriterStableSeconds = Math.Max(_stableSeconds, typewriterStableSeconds);
+        _fastStaticStableSeconds = Math.Min(_stableSeconds, Math.Max(0.02, fastStaticStableSeconds));
         _releasedTextRefreshSeconds = Math.Max(_stableSeconds, releasedTextRefreshSeconds);
         _entryTtlSeconds = Math.Max(_typewriterStableSeconds, entryTtlSeconds);
     }
 
-    public bool ShouldProcess(StableTextContext context, string? sourceText, double nowSeconds)
+    public bool ShouldProcess(
+        StableTextContext context,
+        string? sourceText,
+        double nowSeconds,
+        bool preferFastStaticRelease = false)
     {
-        return Evaluate(context, sourceText, nowSeconds) == StableTextDecisionKind.Process;
+        return Evaluate(context, sourceText, nowSeconds, preferFastStaticRelease) == StableTextDecisionKind.Process;
     }
 
-    public StableTextDecisionKind Evaluate(StableTextContext context, string? sourceText, double nowSeconds)
+    public StableTextDecisionKind Evaluate(
+        StableTextContext context,
+        string? sourceText,
+        double nowSeconds,
+        bool preferFastStaticRelease = false)
     {
         if (string.IsNullOrWhiteSpace(sourceText))
         {
@@ -43,7 +54,10 @@ internal sealed class UnityTextStabilityGate
         var key = StableTextKey.Create(context);
         if (!_entries.TryGetValue(key, out var entry))
         {
-            _entries[key] = new StableTextEntry(sourceText, nowSeconds);
+            _entries[key] = new StableTextEntry(sourceText, nowSeconds)
+            {
+                FastStaticEligible = preferFastStaticRelease
+            };
             TrimIfNeeded(nowSeconds);
             return StableTextDecisionKind.Wait;
         }
@@ -57,9 +71,15 @@ internal sealed class UnityTextStabilityGate
             entry.CurrentText = sourceText;
             entry.CurrentTextReleased = false;
             entry.IsTypewriterText = isPrefixGrowth;
+            entry.FastStaticEligible = preferFastStaticRelease && !isPrefixGrowth;
             entry.LastChangedSeconds = nowSeconds;
             entry.LastRefreshSeconds = nowSeconds;
             return StableTextDecisionKind.Wait;
+        }
+
+        if (preferFastStaticRelease && !entry.IsTypewriterText)
+        {
+            entry.FastStaticEligible = true;
         }
 
         if (entry.CurrentTextReleased)
@@ -73,7 +93,11 @@ internal sealed class UnityTextStabilityGate
             return StableTextDecisionKind.RefreshCachedTranslation;
         }
 
-        var requiredStableSeconds = entry.IsTypewriterText ? _typewriterStableSeconds : _stableSeconds;
+        var requiredStableSeconds = entry.IsTypewriterText
+            ? _typewriterStableSeconds
+            : entry.FastStaticEligible
+                ? _fastStaticStableSeconds
+                : _stableSeconds;
         if (nowSeconds - entry.LastChangedSeconds < requiredStableSeconds)
         {
             return StableTextDecisionKind.Wait;
@@ -199,6 +223,8 @@ internal sealed class UnityTextStabilityGate
         public bool CurrentTextReleased { get; set; }
 
         public bool IsTypewriterText { get; set; }
+
+        public bool FastStaticEligible { get; set; }
 
         public double LastChangedSeconds { get; set; }
 

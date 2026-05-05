@@ -88,6 +88,27 @@ public sealed class TranslationQueueTests
     }
 
     [Fact]
+    public async Task Wait_for_pending_returns_when_new_job_is_enqueued()
+    {
+        var queue = new TranslationJobQueue();
+        var waitTask = queue.WaitForPendingAsync(TimeSpan.FromSeconds(1), CancellationToken.None);
+
+        queue.Enqueue(TranslationJob.Create("button", "Start Game", TranslationPriority.VisibleUi)).Should().BeTrue();
+
+        (await waitTask).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task Wait_for_pending_times_out_when_queue_stays_empty()
+    {
+        var queue = new TranslationJobQueue();
+
+        var signaled = await queue.WaitForPendingAsync(TimeSpan.FromMilliseconds(1), CancellationToken.None);
+
+        signaled.Should().BeFalse();
+    }
+
+    [Fact]
     public void Quality_retry_resume_suppression_skips_only_stale_pending_rows()
     {
         var suppressions = new QualityRetryResumeSuppressions();

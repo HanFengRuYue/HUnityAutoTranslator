@@ -1,8 +1,10 @@
 using System.Reflection;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
+using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Runtime;
+using HUnityAutoTranslator.Core.Text;
 using HUnityAutoTranslator.Plugin.Unity;
 using UnityEngine;
 
@@ -14,6 +16,13 @@ internal enum UnityTextTargetKind
     Tmp
 }
 
+internal enum UnityTextProcessResult
+{
+    Completed,
+    Ignored,
+    WaitForStability
+}
+
 internal sealed class UnityTextTargetProcessor
 {
     private readonly TextPipeline _pipeline;
@@ -22,6 +31,8 @@ internal sealed class UnityTextTargetProcessor
     private readonly UnityTextFontReplacementService? _fontReplacement;
     private readonly Action<Action> _applyScope;
     private readonly UnityTextStabilityGate _stabilityGate;
+    private readonly UnityTextTargetRegistry _targetRegistry;
+    private readonly ControlPanelMetrics? _metrics;
 
     public UnityTextTargetProcessor(
         TextPipeline pipeline,
@@ -29,7 +40,9 @@ internal sealed class UnityTextTargetProcessor
         Func<RuntimeConfig> configProvider,
         UnityTextFontReplacementService? fontReplacement = null,
         Action<Action>? applyScope = null,
-        UnityTextStabilityGate? stabilityGate = null)
+        UnityTextStabilityGate? stabilityGate = null,
+        UnityTextTargetRegistry? targetRegistry = null,
+        ControlPanelMetrics? metrics = null)
     {
         _pipeline = pipeline;
         _applier = applier;
@@ -37,16 +50,35 @@ internal sealed class UnityTextTargetProcessor
         _fontReplacement = fontReplacement;
         _applyScope = applyScope ?? RunUnsuppressed;
         _stabilityGate = stabilityGate ?? new UnityTextStabilityGate();
+        _targetRegistry = targetRegistry ?? new UnityTextTargetRegistry(metrics);
+        _metrics = metrics;
     }
 
-    public void Process(UnityEngine.Object component, PropertyInfo textProperty, UnityTextTargetKind targetKind)
+    public UnityTextProcessResult Process(
+        UnityEngine.Object component,
+        PropertyInfo textProperty,
+        UnityTextTargetKind targetKind,
+        string? observedText = null)
     {
-        var target = new ReflectionTextTarget(component, textProperty);
+        var config = _configProvider();
+        if (observedText != null && ShouldSkipRawText(observedText, config))
+        {
+            _metrics?.RecordTextChangeRawPrefiltered();
+            return UnityTextProcessResult.Ignored;
+        }
+
+        var target = _targetRegistry.GetOrCreateTarget(component, textProperty);
         var text = target.GetText();
+        if (ShouldSkipRawText(text, config))
+        {
+            _metrics?.RecordTextChangeRawPrefiltered();
+            return UnityTextProcessResult.Ignored;
+        }
+
         if (string.IsNullOrWhiteSpace(text))
         {
             RestoreFont(component, targetKind);
-            return;
+            return UnityTextProcessResult.Ignored;
         }
 
         RunSuppressed(() =>
@@ -57,11 +89,10 @@ internal sealed class UnityTextTargetProcessor
         if (string.IsNullOrWhiteSpace(text))
         {
             RestoreFont(component, targetKind);
-            return;
+            return UnityTextProcessResult.Ignored;
         }
 
         var context = new TranslationCacheContext(target.SceneName, target.HierarchyPath, target.ComponentType);
-        var config = _configProvider();
         var key = TranslationCacheKey.Create(text, config.TargetLanguage, config.Provider, TextPipeline.GetPromptPolicyVersion(config));
         if (_applier.IsRememberedTranslation(target.Id, text))
         {
@@ -80,14 +111,19 @@ internal sealed class UnityTextTargetProcessor
                 RestoreFont(component, targetKind);
             }
 
-            return;
+            return UnityTextProcessResult.Completed;
+        }
+
+        if (TryApplyExactCachedTranslation(component, target, targetKind, text, context, key))
+        {
+            return UnityTextProcessResult.Completed;
         }
 
         var stableDecision = EvaluateStableText(target, text, context, config);
         if (stableDecision == StableTextDecisionKind.Wait)
         {
             RestoreFont(component, targetKind);
-            return;
+            return UnityTextProcessResult.WaitForStability;
         }
 
         var capturedText = new CapturedText(target.Id, text, target.IsVisible, context);
@@ -112,6 +148,8 @@ internal sealed class UnityTextTargetProcessor
         {
             RestoreFont(component, targetKind);
         }
+
+        return UnityTextProcessResult.Completed;
     }
 
     private void RunSuppressed(Action action)
@@ -122,6 +160,51 @@ internal sealed class UnityTextTargetProcessor
     private static void RunUnsuppressed(Action action)
     {
         action();
+    }
+
+    public static bool ShouldSkipRawText(string? text, RuntimeConfig config)
+    {
+        if (string.IsNullOrWhiteSpace(text) || text.Length > config.MaxSourceTextLength)
+        {
+            return true;
+        }
+
+        return !TextFilter.ShouldTranslate(text) ||
+            TextFilter.IsAlreadyTargetLanguageSource(text, config.TargetLanguage);
+    }
+
+    private bool TryApplyExactCachedTranslation(
+        UnityEngine.Object component,
+        ReflectionTextTarget target,
+        UnityTextTargetKind targetKind,
+        string text,
+        TranslationCacheContext context,
+        TranslationCacheKey key)
+    {
+        if (!target.IsVisible)
+        {
+            return false;
+        }
+
+        var decision = _pipeline.ResolveExactCachedTranslation(new CapturedText(target.Id, text, isVisible: true, context));
+        if (decision.Kind != PipelineDecisionKind.UseCachedTranslation || decision.TranslatedText == null)
+        {
+            return false;
+        }
+
+        var applied = false;
+        RunSuppressed(() => applied = _applier.RememberAndApply(target, text, decision.TranslatedText));
+        if (applied)
+        {
+            ApplyFont(component, targetKind, key, context, decision.TranslatedText);
+            _applier.ApplyCurrentTextLayoutState(target);
+        }
+        else
+        {
+            RestoreFont(component, targetKind);
+        }
+
+        return true;
     }
 
     private StableTextDecisionKind EvaluateStableText(
@@ -139,7 +222,8 @@ internal sealed class UnityTextTargetProcessor
                 context.ComponentHierarchy,
                 context.ComponentType),
             text,
-            Time.unscaledTime);
+            Time.unscaledTime,
+            preferFastStaticRelease: true);
     }
 
     private void ApplyFont(

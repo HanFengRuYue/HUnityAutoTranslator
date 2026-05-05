@@ -10,5 +10,5 @@ internal interface ITextCaptureModule : IDisposable
 
     void Start();
 
-    void Tick(bool forceFullScan = false);
+    int Tick(bool forceFullScan = false, int? maxTargetsOverride = null);
 }

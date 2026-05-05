@@ -17,15 +17,23 @@ internal sealed class TextCaptureCoordinator : IDisposable
         }
     }
 
-    public void Tick(bool forceFullScan = false, bool skipGlobalObjectScanners = false)
+    public int Tick(
+        bool forceFullScan = false,
+        bool skipGlobalObjectScanners = false,
+        int? maxGlobalObjectScanTargets = null)
     {
+        var processed = 0;
         foreach (var module in _modules)
         {
             if (module.IsEnabled && !(skipGlobalObjectScanners && module.UsesGlobalObjectScan))
             {
-                module.Tick(forceFullScan);
+                processed += module.Tick(
+                    forceFullScan,
+                    module.UsesGlobalObjectScan ? maxGlobalObjectScanTargets : null);
             }
         }
+
+        return processed;
     }
 
     public void Dispose()

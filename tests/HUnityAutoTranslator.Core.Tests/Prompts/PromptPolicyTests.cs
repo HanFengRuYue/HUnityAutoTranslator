@@ -408,6 +408,23 @@ public sealed class PromptPolicyTests
     }
 
     [Fact]
+    public void Quality_validator_rejects_mixed_width_generated_outer_symbols()
+    {
+        var failures = TranslationQualityValidator.FindFailures(
+            new[] { "Settings" },
+            new[] { "[\u0022\u8bbe\u7f6e\u0022\uff3d" },
+            new[]
+            {
+                new PromptItemContext(0, "Main Menu", "Menu/Camera/Canvas/Settings Menu/Main/Title", "TMPro.TextMeshProUGUI")
+            },
+            "zh-Hans",
+            "The Glitched Attraction");
+
+        failures.Should().ContainSingle();
+        failures[0].Reason.Should().Contain("outer symbols");
+    }
+
+    [Fact]
     public void Quality_validator_allows_localized_outer_symbols_when_source_has_wrapper()
     {
         var failures = TranslationQualityValidator.FindFailures(

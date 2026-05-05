@@ -21,15 +21,20 @@ internal sealed class UnityMainThreadResultApplier
 
     private readonly Dictionary<string, IUnityTextTarget> _targets = new();
     private readonly List<string> _targetOrder = new();
+    private readonly HashSet<string> _dirtyReapplyTargets = new(StringComparer.Ordinal);
+    private readonly Queue<string> _dirtyReapplyTargetOrder = new();
+    private readonly Dictionary<string, string?> _registeredTextSnapshots = new(StringComparer.Ordinal);
     private readonly TranslationWritebackTracker _writebacks = new();
     private readonly Func<RuntimeConfig> _configProvider;
     private readonly Action<string>? _fontSizeAdjustmentLogger;
+    private readonly ControlPanelMetrics? _metrics;
     private readonly Dictionary<string, float> _originalFontSizes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TmpAutoSizeState> _originalTmpAutoSizeStates = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TextLayoutBaseline> _originalTextLayoutBaselines = new(StringComparer.Ordinal);
     private readonly HashSet<string> _loggedFontSizeAdjustmentTargets = new(StringComparer.Ordinal);
     private readonly HashSet<string> _loggedLineSpacingAdjustmentTargets = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TranslationResult> _pendingComponentRefreshes = new(StringComparer.Ordinal);
+    private readonly AppliedUnityTextStateCache _layoutStateCache = new();
     private int _nextReapplyTargetIndex;
     private int _fontSizeAdjustmentLogCount;
     private bool _useTranslatedText = true;
@@ -40,10 +45,14 @@ internal sealed class UnityMainThreadResultApplier
     {
     }
 
-    public UnityMainThreadResultApplier(Func<RuntimeConfig> configProvider, Action<string>? fontSizeAdjustmentLogger = null)
+    public UnityMainThreadResultApplier(
+        Func<RuntimeConfig> configProvider,
+        Action<string>? fontSizeAdjustmentLogger = null,
+        ControlPanelMetrics? metrics = null)
     {
         _configProvider = configProvider;
         _fontSizeAdjustmentLogger = fontSizeAdjustmentLogger;
+        _metrics = metrics;
     }
 
     public void SetFontReplacementService(UnityTextFontReplacementService? fontReplacement)
@@ -59,6 +68,13 @@ internal sealed class UnityMainThreadResultApplier
         }
 
         _targets[target.Id] = target;
+        var currentText = target.GetText();
+        if (IsSameRegisteredText(target.Id, currentText))
+        {
+            return;
+        }
+
+        RememberRegisteredText(target.Id, currentText);
         RememberOriginalFontSize(target);
         RememberOriginalTextLayoutBaseline(target);
         ApplyCurrentFontSizeState(target);
@@ -169,6 +185,7 @@ internal sealed class UnityMainThreadResultApplier
         }
 
         var applied = 0;
+        var checkedCount = 0;
         foreach (var target in EnumerateTargetsFromCursor())
         {
             if (applied >= maxCount)
@@ -182,6 +199,7 @@ internal sealed class UnityMainThreadResultApplier
                 continue;
             }
 
+            checkedCount++;
             if (TryApplyRemembered(target))
             {
                 applied++;
@@ -192,6 +210,69 @@ internal sealed class UnityMainThreadResultApplier
             }
         }
 
+        _metrics?.RecordRememberedReapply(checkedCount, applied);
+        return applied;
+    }
+
+    public void MarkTargetForReapply(string? targetId)
+    {
+        if (string.IsNullOrEmpty(targetId) || !_targets.ContainsKey(targetId))
+        {
+            return;
+        }
+
+        if (_dirtyReapplyTargets.Add(targetId))
+        {
+            _dirtyReapplyTargetOrder.Enqueue(targetId);
+        }
+    }
+
+    public void MarkAllTargetsForReapply()
+    {
+        foreach (var targetId in _targetOrder.ToArray())
+        {
+            MarkTargetForReapply(targetId);
+        }
+    }
+
+    public int ReapplyDirtyRemembered(int maxCount)
+    {
+        if (maxCount <= 0)
+        {
+            return 0;
+        }
+
+        var checkedCount = 0;
+        var applied = 0;
+        while (checkedCount < maxCount && _dirtyReapplyTargetOrder.Count > 0)
+        {
+            var targetId = _dirtyReapplyTargetOrder.Dequeue();
+            if (!_dirtyReapplyTargets.Remove(targetId) ||
+                !_targets.TryGetValue(targetId, out var target))
+            {
+                continue;
+            }
+
+            if (!target.IsAlive)
+            {
+                ForgetTarget(targetId);
+                continue;
+            }
+
+            checkedCount++;
+            if (TryApplyRemembered(target))
+            {
+                applied++;
+            }
+            else
+            {
+                ApplyCurrentFontSizeState(target);
+            }
+
+            RememberRegisteredText(target.Id, target.GetText());
+        }
+
+        _metrics?.RecordRememberedReapply(checkedCount, applied);
         return applied;
     }
 
@@ -226,6 +307,7 @@ internal sealed class UnityMainThreadResultApplier
                 }
 
                 target.SetText(replacement);
+                RememberRegisteredText(target.Id, replacement);
                 ApplyFontSizeState(target, translatedTextIsActive: useTranslatedText);
                 applied++;
             }
@@ -383,6 +465,7 @@ internal sealed class UnityMainThreadResultApplier
         if (!string.Equals(currentText, replacement, StringComparison.Ordinal))
         {
             target.SetText(replacement);
+            RememberRegisteredText(target.Id, replacement);
         }
 
         RestoreTmpAutoSizeState(target);
@@ -521,6 +604,17 @@ internal sealed class UnityMainThreadResultApplier
         return value?.Trim() ?? string.Empty;
     }
 
+    private bool IsSameRegisteredText(string targetId, string? currentText)
+    {
+        return _registeredTextSnapshots.TryGetValue(targetId, out var previousText) &&
+            string.Equals(previousText, currentText, StringComparison.Ordinal);
+    }
+
+    private void RememberRegisteredText(string targetId, string? currentText)
+    {
+        _registeredTextSnapshots[targetId] = currentText;
+    }
+
     private bool TryApplyRemembered(IUnityTextTarget target)
     {
         var currentText = target.GetText();
@@ -535,6 +629,7 @@ internal sealed class UnityMainThreadResultApplier
         }
 
         target.SetText(replacement);
+        RememberRegisteredText(target.Id, replacement);
         ApplyFontSizeState(target, translatedTextIsActive: _useTranslatedText);
         return true;
     }
@@ -604,12 +699,25 @@ internal sealed class UnityMainThreadResultApplier
 
     private void ApplyCurrentFontSizeState(IUnityTextTarget target)
     {
-        var translatedTextIsActive = _useTranslatedText && _writebacks.IsRememberedTranslation(target.Id, target.GetText());
-        ApplyFontSizeState(target, translatedTextIsActive);
+        var currentText = target.GetText();
+        var translatedTextIsActive = _useTranslatedText && _writebacks.IsRememberedTranslation(target.Id, currentText);
+        ApplyFontSizeState(target, translatedTextIsActive, currentText);
     }
 
-    private void ApplyFontSizeState(IUnityTextTarget target, bool translatedTextIsActive)
+    private void ApplyFontSizeState(IUnityTextTarget target, bool translatedTextIsActive, string? currentText = null)
     {
+        currentText ??= target.GetText();
+        var config = _configProvider();
+        if (_layoutStateCache.TrySkip(target.Id, AppliedUnityTextStateCache.BuildLayoutStateKey(
+            currentText,
+            translatedTextIsActive,
+            config)))
+        {
+            _metrics?.RecordLayoutApplicationSkipped();
+            return;
+        }
+
+        _metrics?.RecordLayoutApplication();
         RememberOriginalFontSize(target);
         RememberOriginalTextLayoutBaseline(target);
         if (!_originalFontSizes.TryGetValue(target.Id, out var originalSize))
@@ -617,7 +725,6 @@ internal sealed class UnityMainThreadResultApplier
             return;
         }
 
-        var config = _configProvider();
         if (!translatedTextIsActive)
         {
             RestoreTmpAutoSizeState(target);
@@ -1225,11 +1332,47 @@ internal sealed class UnityMainThreadResultApplier
         }
 
         _writebacks.Forget(targetId);
+        _dirtyReapplyTargets.Remove(targetId);
+        _registeredTextSnapshots.Remove(targetId);
         _originalFontSizes.Remove(targetId);
         _originalTmpAutoSizeStates.Remove(targetId);
         _originalTextLayoutBaselines.Remove(targetId);
+        _layoutStateCache.Forget(targetId);
         _loggedFontSizeAdjustmentTargets.Remove(targetId);
         _loggedLineSpacingAdjustmentTargets.Remove(targetId);
+    }
+
+    private sealed class AppliedUnityTextStateCache
+    {
+        private readonly Dictionary<string, string> _states = new(StringComparer.Ordinal);
+
+        public bool TrySkip(string targetId, string stateKey)
+        {
+            if (_states.TryGetValue(targetId, out var remembered) &&
+                string.Equals(remembered, stateKey, StringComparison.Ordinal))
+            {
+                return true;
+            }
+
+            _states[targetId] = stateKey;
+            return false;
+        }
+
+        public void Forget(string targetId)
+        {
+            _states.Remove(targetId);
+        }
+
+        public static string BuildLayoutStateKey(string? currentText, bool translatedTextIsActive, RuntimeConfig config)
+        {
+            return string.Join(
+                "\u001f",
+                currentText ?? string.Empty,
+                translatedTextIsActive ? "translated" : "source",
+                config.FontSizeAdjustmentMode.ToString(),
+                config.FontSizeAdjustmentValue.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                config.EnableTmpNativeAutoSize ? "tmp-auto" : "tmp-manual");
+        }
     }
 
     private void LogFontSizeAdjustment(

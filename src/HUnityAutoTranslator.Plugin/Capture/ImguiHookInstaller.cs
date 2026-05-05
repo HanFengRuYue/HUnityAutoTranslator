@@ -81,15 +81,19 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
         }
     }
 
-    public void Tick(bool forceFullScan = false)
+    public int Tick(bool forceFullScan = false, int? maxTargetsOverride = null)
     {
         var config = _configProvider();
         RefreshDrawContext(config);
         var maxCount = Math.Min(MaxImguiPendingBatchSize, Math.Max(1, config.MaxScanTargetsPerTick));
+        var processed = 0;
         foreach (var pendingText in _stateCache.TakePendingBatch(maxCount, Time.unscaledTime))
         {
             ProcessPendingImguiText(pendingText);
+            processed++;
         }
+
+        return processed;
     }
 
     public void Dispose()

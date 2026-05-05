@@ -8,6 +8,8 @@ public sealed class TranslationJobQueue
     private const int MaxRelatedBatchItems = 16;
 
     private readonly object _gate = new();
+    private readonly SemaphoreSlim _pendingSignal = new(0);
+    private int _pendingSignalSet;
     private readonly Dictionary<string, TranslationJob> _pendingBySource = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TranslationJob> _deferredBySource = new(StringComparer.Ordinal);
     private readonly HashSet<string> _inFlightSources = new(StringComparer.Ordinal);
@@ -56,6 +58,7 @@ public sealed class TranslationJobQueue
             return false;
         }
 
+        var added = false;
         lock (_gate)
         {
             if (_inFlightSources.Contains(key))
@@ -85,8 +88,15 @@ public sealed class TranslationJobQueue
 
             _pendingBySource[key] = job;
             _sequences[key] = _sequence++;
-            return true;
+            added = true;
         }
+
+        if (added)
+        {
+            SignalPending();
+        }
+
+        return added;
     }
 
     public bool EnqueueDeferred(TranslationJob job)
@@ -208,6 +218,35 @@ public sealed class TranslationJobQueue
 
             batch = selected.Select(item => item.Job).ToArray();
             return batch.Count > 0;
+        }
+    }
+
+    public async Task<bool> WaitForPendingAsync(TimeSpan timeout, CancellationToken cancellationToken)
+    {
+        if (PendingCount > 0)
+        {
+            return true;
+        }
+
+        if (timeout <= TimeSpan.Zero)
+        {
+            return false;
+        }
+
+        var signaled = await _pendingSignal.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+        if (signaled)
+        {
+            Interlocked.Exchange(ref _pendingSignalSet, 0);
+        }
+
+        return signaled;
+    }
+
+    private void SignalPending()
+    {
+        if (Interlocked.Exchange(ref _pendingSignalSet, 1) == 0)
+        {
+            _pendingSignal.Release();
         }
     }
 

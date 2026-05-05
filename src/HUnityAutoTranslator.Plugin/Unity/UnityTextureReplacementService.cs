@@ -64,6 +64,15 @@ internal sealed class UnityTextureReplacementService : IDisposable
 
     public void Tick()
     {
+        if (_startupScanAttempted &&
+            _scanSession == null &&
+            _mainThreadActions.IsEmpty &&
+            !_hasPersistedOverrides &&
+            HasNoTextureRuntimeWork())
+        {
+            return;
+        }
+
         while (_mainThreadActions.TryDequeue(out var action))
         {
             action();
@@ -192,6 +201,14 @@ internal sealed class UnityTextureReplacementService : IDisposable
                 _replacementTextures.Count,
                 _appliedOverrides.Count,
                 RetainedSourcePngBytes: 0);
+        }
+    }
+
+    private bool HasNoTextureRuntimeWork()
+    {
+        lock (_gate)
+        {
+            return _records.Count == 0 && _replacementTextures.Count == 0;
         }
     }
 

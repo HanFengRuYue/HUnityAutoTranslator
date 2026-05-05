@@ -694,7 +694,7 @@ public sealed class WorkerPoolTests
     }
 
     [Fact]
-    public async Task WorkerPool_stops_requeueing_after_quality_retry_limit()
+    public async Task WorkerPool_publishes_last_translation_after_quality_retry_limit()
     {
         var queue = new TranslationJobQueue();
         var dispatcher = new ResultDispatcher();
@@ -734,11 +734,13 @@ public sealed class WorkerPoolTests
 
         provider.Requests.Should().HaveCount(8);
         var key = TranslationCacheKey.Create("Ultra", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
-        cache.TryGet(key, context, out _).Should().BeFalse();
-        dispatcher.PendingCount.Should().Be(0);
+        cache.TryGet(key, context, out var cached).Should().BeTrue();
+        cached.Should().Be("超");
+        var results = dispatcher.Drain(10);
+        results.Should().ContainSingle();
+        results[0].TranslatedText.Should().Be("超");
         failures.Count(message => message.Contains("队列", StringComparison.Ordinal)).Should().Be(3);
-        failures.Should().ContainSingle(message =>
-            message == "质量失败：设置值译文过短或不完整。原文：Ultra。译文：超。重试：3/3，已达上限，保留为待翻译。");
+        failures.Should().ContainSingle(message => message.Contains("强制使用最后译文", StringComparison.Ordinal));
         exhaustedJobs.Should().ContainSingle(job =>
             job.SourceText == "Ultra" &&
             job.Context == context &&
@@ -784,6 +786,7 @@ public sealed class WorkerPoolTests
         provider.Requests.Should().HaveCount(4);
         failures.Should().HaveCount(2);
         failures.Should().OnlyContain(message => message.Contains("1/1", StringComparison.Ordinal));
+        failures.Should().ContainSingle(message => message.Contains("强制使用最后译文", StringComparison.Ordinal));
         exhaustedJobs.Should().ContainSingle(job => job.QualityRetryCount == 1);
     }
 
@@ -871,6 +874,35 @@ public sealed class WorkerPoolTests
     }
 
     [Fact]
+    public async Task WorkerPool_unwraps_mixed_width_json_array_response_before_cache_write()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var provider = new ParsingProvider("[\u0022\u7b2c\u4e00\u884c\\n\u7b2c\u4e8c\u884c\u0022\uff3d");
+        var config = RuntimeConfig.CreateDefault() with { MaxConcurrentRequests = 1 };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            provider,
+            new ProviderRateLimiter(120),
+            config,
+            cache);
+        var source = "First line\nSecond line";
+        var context = new TranslationCacheContext("GameBase", "Canvas/Dialog/Text", "UnityEngine.UI.Text");
+
+        queue.Enqueue(TranslationJob.Create("dialog", source, TranslationPriority.VisibleUi, context));
+
+        await pool.RunUntilIdleAsync(CancellationToken.None);
+
+        var key = TranslationCacheKey.Create(source, config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, context, out var cached).Should().BeTrue();
+        cached.Should().Be("\u7b2c\u4e00\u884c\n\u7b2c\u4e8c\u884c");
+        cached.Should().NotContain("[\u0022");
+        cached.Should().NotContain("\uff3d");
+    }
+
+    [Fact]
     public async Task WorkerPool_repairs_translation_once_when_generated_outer_symbols_fail_quality_rules()
     {
         var queue = new TranslationJobQueue();
@@ -939,7 +971,7 @@ public sealed class WorkerPoolTests
     }
 
     [Fact]
-    public async Task WorkerPool_does_not_cache_translation_when_outer_symbol_repair_fails()
+    public async Task WorkerPool_publishes_last_translation_when_outer_symbol_repair_fails_after_retry_limit()
     {
         var queue = new TranslationJobQueue();
         var dispatcher = new ResultDispatcher();
@@ -977,11 +1009,53 @@ public sealed class WorkerPoolTests
 
         provider.Requests.Should().HaveCount(8);
         var key = TranslationCacheKey.Create("IMPORTANT", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
-        cache.TryGet(key, context, out _).Should().BeFalse();
-        dispatcher.PendingCount.Should().Be(0);
+        cache.TryGet(key, context, out var cached).Should().BeTrue();
+        cached.Should().Be("\u3010\u91cd\u8981\u63d0\u793a\u3011");
+        var results = dispatcher.Drain(10);
+        results.Should().ContainSingle();
+        results[0].TranslatedText.Should().Be("\u3010\u91cd\u8981\u63d0\u793a\u3011");
         failures.Count(message => message.Contains("队列", StringComparison.Ordinal)).Should().Be(3);
-        failures.Should().ContainSingle(message =>
-            message == "质量失败：译文添加了原文没有的外层符号。原文：IMPORTANT。译文：【重要提示】。重试：3/3，已达上限，保留为待翻译。");
+        failures.Should().ContainSingle(message => message.Contains("强制使用最后译文", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task WorkerPool_publishes_last_translation_when_rich_text_format_retry_limit_is_reached()
+    {
+        var queue = new TranslationJobQueue();
+        var dispatcher = new ResultDispatcher();
+        var cache = new MemoryTranslationCache();
+        var failures = new List<string>();
+        var provider = new SequencedProvider(new[]
+        {
+            new[] { "操作若非1600×900窗口模式，目前无法保证正常运行。" },
+            new[] { "操作若非1600×900窗口模式，目前无法保证正常运行。" }
+        });
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            MaxConcurrentRequests = 1,
+            TranslationQuality = TranslationQualityConfig.Default() with { Mode = "custom", MaxRetryCount = 1 }
+        };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            provider,
+            new ProviderRateLimiter(120),
+            config,
+            cache,
+            failureReporter: failures.Add);
+
+        var context = new TranslationCacheContext("Warning", "Canvas/Warning/Text", "TMPro.TextMeshProUGUI");
+        var source = "Operation <u>other than</u> 1600 * 900 window mode is currently not guaranteed.";
+        queue.Enqueue(TranslationJob.Create("ui-1", source, TranslationPriority.VisibleUi, context));
+
+        await RunPoolUntilNoDeferredRetriesAsync(pool, queue);
+
+        provider.Requests.Should().HaveCount(2);
+        var key = TranslationCacheKey.Create(source, config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
+        cache.TryGet(key, context, out var cached).Should().BeTrue();
+        cached.Should().Be("操作若非1600×900窗口模式，目前无法保证正常运行。");
+        dispatcher.Drain(10).Should().ContainSingle(result => result.TranslatedText == cached);
+        failures.Should().Contain(message => message.Contains("强制使用最后译文", StringComparison.Ordinal));
     }
 
     [Fact]
@@ -1125,7 +1199,7 @@ public sealed class WorkerPoolTests
     }
 
     [Fact]
-    public async Task WorkerPool_does_not_cache_translation_when_glossary_repair_fails()
+    public async Task WorkerPool_publishes_last_translation_when_glossary_repair_retry_limit_is_reached()
     {
         var queue = new TranslationJobQueue();
         var dispatcher = new ResultDispatcher();
@@ -1135,18 +1209,33 @@ public sealed class WorkerPoolTests
         var provider = new SequencedProvider(new[]
         {
             new[] { "找到佛莱迪" },
+            new[] { "还是佛莱迪" },
+            new[] { "找到佛莱迪" },
             new[] { "还是佛莱迪" }
         });
-        var config = RuntimeConfig.CreateDefault() with { MaxConcurrentRequests = 1 };
-        var pool = new TranslationWorkerPool(queue, dispatcher, provider, new ProviderRateLimiter(120), config, cache, metrics: null, glossary: glossary);
+        var config = RuntimeConfig.CreateDefault() with
+        {
+            MaxConcurrentRequests = 1,
+            TranslationQuality = TranslationQualityConfig.Default() with { Mode = "custom", MaxRetryCount = 1 }
+        };
+        var pool = new TranslationWorkerPool(
+            queue,
+            dispatcher,
+            provider,
+            new ProviderRateLimiter(120),
+            config,
+            cache,
+            metrics: null,
+            glossary: glossary);
 
         queue.Enqueue(TranslationJob.Create("ui-1", "Find Freddy", TranslationPriority.VisibleUi));
 
-        await pool.RunUntilIdleAsync(CancellationToken.None);
+        await RunPoolUntilNoDeferredRetriesAsync(pool, queue);
 
         var key = TranslationCacheKey.Create("Find Freddy", config.TargetLanguage, config.Provider, TextPipeline.PromptPolicyVersion);
-        cache.TryGet(key, TranslationCacheContext.Empty, out _).Should().BeFalse();
-        dispatcher.PendingCount.Should().Be(0);
+        cache.TryGet(key, TranslationCacheContext.Empty, out var cached).Should().BeTrue();
+        cached.Should().Be("还是佛莱迪");
+        dispatcher.Drain(10).Should().ContainSingle(result => result.TranslatedText == cached);
     }
 
     [Fact]

@@ -73,8 +73,9 @@ internal sealed class RuntimeHotkeyController
     private void ForceScanAndUpdate()
     {
         _captureCoordinator.Tick(forceFullScan: true);
+        _resultApplier.MarkAllTargetsForReapply();
         var changed = 0;
-        _textWriteScope(() => changed = _resultApplier.ReapplyRemembered(int.MaxValue));
+        _textWriteScope(() => changed = _resultApplier.ReapplyDirtyRemembered(int.MaxValue));
         _logger.LogInfo($"热键已执行全量文本扫描，并刷新 {changed} 个已记住的目标。");
     }
 

@@ -327,6 +327,26 @@ export interface MemoryDiagnosticsSnapshot {
   TextureRecordCount: number;
   ReplacementTextureCount: number;
   TexturePngBytes: number;
+  TextChangeHookEventCount: number;
+  TextChangeHookQueuedCount: number;
+  TextChangeHookMergedCount: number;
+  TextChangeHookDroppedCount: number;
+  TextChangeRawPrefilteredCount: number;
+  TextChangeQueueProcessedCount: number;
+  TextChangeQueueMilliseconds: number;
+  TextTargetMetadataBuildCount: number;
+  CacheLookupCount: number;
+  GlobalTextScanRequestCount: number;
+  GlobalTextScanCount: number;
+  GlobalTextScanTargetCount: number;
+  GlobalTextScanMilliseconds: number;
+  RememberedReapplyCheckCount: number;
+  RememberedReapplyAppliedCount: number;
+  FontApplicationCount: number;
+  FontApplicationSkippedCount: number;
+  LayoutApplicationCount: number;
+  LayoutApplicationSkippedCount: number;
+  TmpMeshForceUpdateCount: number;
 }
 
 export interface ControlPanelState {

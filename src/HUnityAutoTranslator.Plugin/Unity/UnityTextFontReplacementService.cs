@@ -4,6 +4,7 @@ using System.Reflection;
 using BepInEx.Logging;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
+using HUnityAutoTranslator.Core.Control;
 using UnityEngine;
 
 namespace HUnityAutoTranslator.Plugin.Unity;
@@ -130,14 +131,17 @@ internal sealed class UnityTextFontReplacementService : IDisposable
     private readonly ManualLogSource _logger;
     private readonly Func<RuntimeConfig> _configProvider;
     private readonly Action<string?, string?> _automaticFontFallbackReporter;
+    private readonly ControlPanelMetrics? _metrics;
     private readonly Dictionary<string, Font> _unityFonts = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, object> _tmpFontAssets = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<int, UnityEngine.Object> _uguiFontTargets = new();
     private readonly Dictionary<int, object?> _uguiOriginalFonts = new();
     private readonly Dictionary<int, object?> _uguiReplacementFonts = new();
+    private readonly Dictionary<int, string> _uguiAppliedFontStates = new();
     private readonly Dictionary<int, UnityEngine.Object> _tmpFontTargets = new();
     private readonly Dictionary<int, object?> _tmpOriginalFonts = new();
     private readonly Dictionary<int, object?> _tmpReplacementFonts = new();
+    private readonly Dictionary<int, string> _tmpAppliedFontStates = new();
     private readonly Dictionary<int, Color> _tmpVisibleColors = new();
     private readonly Dictionary<string, string> _failedTmpFontAssetKeys = new(StringComparer.OrdinalIgnoreCase);
     private readonly Queue<string> _failedTmpFontAssetKeyOrder = new();
@@ -173,12 +177,14 @@ internal sealed class UnityTextFontReplacementService : IDisposable
         ITranslationCache cache,
         ManualLogSource logger,
         Func<RuntimeConfig> configProvider,
-        Action<string?, string?> automaticFontFallbackReporter)
+        Action<string?, string?> automaticFontFallbackReporter,
+        ControlPanelMetrics? metrics = null)
     {
         _cache = cache;
         _logger = logger;
         _configProvider = configProvider;
         _automaticFontFallbackReporter = automaticFontFallbackReporter;
+        _metrics = metrics;
     }
 
     public void InstallStartupFallbacks()
@@ -217,9 +223,19 @@ internal sealed class UnityTextFontReplacementService : IDisposable
         }
 
         var hasComponentFontOverride = HasComponentFontOverride(key, context);
+        var stateKey = BuildAppliedFontStateKey("ugui", key, context, translatedText, config, hasComponentFontOverride);
+        var componentId = component.GetInstanceID();
+        if (_uguiAppliedFontStates.TryGetValue(componentId, out var previousState) &&
+            string.Equals(previousState, stateKey, StringComparison.Ordinal))
+        {
+            _metrics?.RecordFontApplicationSkipped();
+            return;
+        }
+
         if (!hasComponentFontOverride && OriginalUguiFontCanRenderText(component, translatedText))
         {
-            RestoreUgui(component);
+            RestoreUgui(component, forgetAppliedState: false);
+            _uguiAppliedFontStates[componentId] = stateKey;
             return;
         }
 
@@ -231,17 +247,36 @@ internal sealed class UnityTextFontReplacementService : IDisposable
         }
 
         RememberFontTarget(component, _uguiFontTargets, _uguiOriginalFonts);
-        _uguiReplacementFonts[component.GetInstanceID()] = resolved.Font;
+        _uguiReplacementFonts[componentId] = resolved.Font;
         if (SetProperty(component, "font", resolved.Font))
         {
+            _uguiAppliedFontStates[componentId] = stateKey;
+            _metrics?.RecordFontApplication();
             LogUguiReplacement(resolved);
         }
     }
 
     public void RestoreUgui(UnityEngine.Object component)
     {
+        RestoreUgui(component, forgetAppliedState: true);
+    }
+
+    private void RestoreUgui(UnityEngine.Object component, bool forgetAppliedState)
+    {
+        var componentId = component.GetInstanceID();
+        if (!_uguiOriginalFonts.ContainsKey(componentId) &&
+            !_uguiReplacementFonts.ContainsKey(componentId) &&
+            !_uguiAppliedFontStates.ContainsKey(componentId))
+        {
+            return;
+        }
+
         RestoreKnownFont(component, _uguiOriginalFonts);
         ForgetFontTarget(component, _uguiFontTargets, _uguiOriginalFonts, _uguiReplacementFonts);
+        if (forgetAppliedState)
+        {
+            _uguiAppliedFontStates.Remove(componentId);
+        }
     }
 
     public void ApplyToTmp(UnityEngine.Object component, TranslationCacheKey key, TranslationCacheContext context, string translatedText)
@@ -260,16 +295,26 @@ internal sealed class UnityTextFontReplacementService : IDisposable
             return;
         }
 
+        var hasComponentFontOverride = HasComponentFontOverride(key, context);
+        var stateKey = BuildAppliedFontStateKey("tmp", key, context, translatedText, config, hasComponentFontOverride);
+        var componentId = component.GetInstanceID();
+        if (_tmpAppliedFontStates.TryGetValue(componentId, out var previousState) &&
+            string.Equals(previousState, stateKey, StringComparison.Ordinal))
+        {
+            _metrics?.RecordFontApplicationSkipped();
+            return;
+        }
+
         RevealTmpTranslatedText(component, translatedText);
         var componentMaterial = GetTmpComponentMaterial(component);
         var visibleColor = ResolveTmpVisibleColor(component, componentMaterial);
-        var hasComponentFontOverride = HasComponentFontOverride(key, context);
         var requiresTmpFallbackGlyphs = BuildFontProbeText(translatedText).Length != 0;
         if (!hasComponentFontOverride &&
             !requiresTmpFallbackGlyphs &&
             OriginalTmpFontCanRenderText(component, translatedText))
         {
-            RestoreTmp(component);
+            RestoreTmp(component, forgetAppliedState: false);
+            _tmpAppliedFontStates[componentId] = stateKey;
             ApplyVisibleTmpColorToTmpSubTextMaterials(component, visibleColor);
             return;
         }
@@ -301,16 +346,36 @@ internal sealed class UnityTextFontReplacementService : IDisposable
 
         MarkTmpTextDirty(component);
         ForceTmpMeshUpdate(component);
+        _metrics?.RecordTmpMeshForceUpdate();
         ApplyVisibleTmpColorToTmpSubTextMaterials(component, visibleColor);
+        _tmpAppliedFontStates[componentId] = stateKey;
+        _metrics?.RecordFontApplication();
         WarnTmpFallbackSubTextMeshEmpty(config, context, component, translatedText);
         LogTmpSubTextDiagnosticsIfNeeded(config, component, context, translatedText);
     }
 
     public void RestoreTmp(UnityEngine.Object component)
     {
+        RestoreTmp(component, forgetAppliedState: true);
+    }
+
+    private void RestoreTmp(UnityEngine.Object component, bool forgetAppliedState)
+    {
+        var componentId = component.GetInstanceID();
+        if (!_tmpOriginalFonts.ContainsKey(componentId) &&
+            !_tmpReplacementFonts.ContainsKey(componentId) &&
+            !_tmpAppliedFontStates.ContainsKey(componentId))
+        {
+            return;
+        }
+
         RestoreKnownTmpFont(component);
         ForgetFontTarget(component, _tmpFontTargets, _tmpOriginalFonts, _tmpReplacementFonts);
         ForgetTmpVisibleColor(component);
+        if (forgetAppliedState)
+        {
+            _tmpAppliedFontStates.Remove(componentId);
+        }
     }
 
     private void ForgetTmpVisibleColor(UnityEngine.Object component)
@@ -383,6 +448,7 @@ internal sealed class UnityTextFontReplacementService : IDisposable
         }
 
         TryRequestCharactersOnce(resolved, displayedText, fontSize);
+        _metrics?.RecordFontApplication();
         return drawStyle.HasExplicitStyle && drawStyle.Style != null
             ? ImguiFontScope.ForStyle(drawStyle.Style, resolved.Font)
             : ImguiFontScope.ForSkin(skin, resolved.Font);
@@ -438,6 +504,34 @@ internal sealed class UnityTextFontReplacementService : IDisposable
             _ownedTmpFallbacks.Count);
     }
 
+    private static string BuildAppliedFontStateKey(
+        string targetKind,
+        TranslationCacheKey key,
+        TranslationCacheContext context,
+        string translatedText,
+        RuntimeConfig config,
+        bool hasComponentFontOverride)
+    {
+        return string.Join(
+            "\u001f",
+            targetKind,
+            key.SourceText,
+            key.TargetLanguage,
+            key.PromptPolicyVersion,
+            context.SceneName ?? string.Empty,
+            context.ComponentHierarchy ?? string.Empty,
+            context.ComponentType ?? string.Empty,
+            translatedText,
+            config.EnableFontReplacement ? "font-on" : "font-off",
+            config.ReplaceUguiFonts ? "ugui-on" : "ugui-off",
+            config.ReplaceTmpFonts ? "tmp-on" : "tmp-off",
+            hasComponentFontOverride ? "row-font" : "global-font",
+            config.AutoUseCjkFallbackFonts ? "auto-cjk" : "manual-cjk",
+            config.ReplacementFontName ?? string.Empty,
+            config.ReplacementFontFile ?? string.Empty,
+            config.FontSamplingPointSize.ToString(System.Globalization.CultureInfo.InvariantCulture));
+    }
+
     public void Dispose()
     {
         if (_disposed)
@@ -452,9 +546,11 @@ internal sealed class UnityTextFontReplacementService : IDisposable
         _uguiFontTargets.Clear();
         _uguiOriginalFonts.Clear();
         _uguiReplacementFonts.Clear();
+        _uguiAppliedFontStates.Clear();
         _tmpFontTargets.Clear();
         _tmpOriginalFonts.Clear();
         _tmpReplacementFonts.Clear();
+        _tmpAppliedFontStates.Clear();
         _tmpVisibleColors.Clear();
         _imguiFontResolutions.Clear();
         _imguiFontResolutionOrder.Clear();
@@ -526,11 +622,15 @@ internal sealed class UnityTextFontReplacementService : IDisposable
             originalFonts.Remove(item.Key);
             replacementFonts.Remove(item.Key);
             _tmpVisibleColors.Remove(item.Key);
+            _uguiAppliedFontStates.Remove(item.Key);
+            _tmpAppliedFontStates.Remove(item.Key);
         }
     }
 
     private int RestoreOriginalFontTargets()
     {
+        _uguiAppliedFontStates.Clear();
+        _tmpAppliedFontStates.Clear();
         return RestoreFontTargets(_uguiFontTargets, _uguiOriginalFonts, _uguiReplacementFonts) +
             RestoreTmpFontTargets(_tmpFontTargets, _tmpOriginalFonts, _tmpReplacementFonts) +
             RestoreImguiFont();
@@ -538,6 +638,8 @@ internal sealed class UnityTextFontReplacementService : IDisposable
 
     private int ApplyReplacementFontTargets()
     {
+        _uguiAppliedFontStates.Clear();
+        _tmpAppliedFontStates.Clear();
         return ApplyFontTargets(_uguiFontTargets, _uguiOriginalFonts, _uguiReplacementFonts) +
             ApplyTmpFontTargets(_tmpFontTargets, _tmpOriginalFonts, _tmpReplacementFonts) +
             ApplyImguiReplacementFont();

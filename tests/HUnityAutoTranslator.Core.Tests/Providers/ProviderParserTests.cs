@@ -65,6 +65,26 @@ public sealed class ProviderParserTests
         texts.Should().ContainSingle().Which.Should().Be("\u8bbe\u7f6e");
     }
 
+    [Theory]
+    [InlineData("[\u0022\u8bd1\u6587\u0022\uff3d")]
+    [InlineData("\uff3b\u0022\u8bd1\u6587\u0022]")]
+    public void AssistantTextParser_normalizes_mixed_width_json_array_delimiters(string assistantText)
+    {
+        var texts = ProviderJsonParsers.ParseAssistantTextAsList(assistantText, expectedCount: 1);
+
+        texts.Should().ContainSingle().Which.Should().Be("\u8bd1\u6587");
+    }
+
+    [Theory]
+    [InlineData("\uff5b\u0022text_index\u0022:0,\u0022text\u0022:\u0022\u8bd1\u6587\u0022}")]
+    [InlineData("{\u0022text_index\u0022:0,\u0022text\u0022:\u0022\u8bd1\u6587\u0022\uff5d")]
+    public void AssistantTextParser_normalizes_mixed_width_json_object_delimiters(string assistantText)
+    {
+        var texts = ProviderJsonParsers.ParseAssistantTextAsList(assistantText, expectedCount: 1);
+
+        texts.Should().ContainSingle().Which.Should().Be("\u8bd1\u6587");
+    }
+
     [Fact]
     public void AssistantTextParser_extracts_single_indexed_translation_object()
     {

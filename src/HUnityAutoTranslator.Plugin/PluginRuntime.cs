@@ -1,5 +1,6 @@
 using BepInEx;
 using BepInEx.Logging;
+using System.Diagnostics;
 using System.Reflection;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
@@ -20,7 +21,14 @@ namespace HUnityAutoTranslator.Plugin;
 internal sealed class PluginRuntime : IDisposable
 {
     private const float HighlighterSnapshotIntervalSeconds = 0.15f;
-    private const float ReflectionScanIntervalWhenTextHooksEnabledSeconds = 2f;
+    private const float TextHookIdleGlobalScanSeconds = 20f;
+    private const float TextHookDiscoveryScanIntervalSeconds = 3f;
+    private const float GlobalTextScanDebounceSeconds = 0.75f;
+    private const int TextHookGlobalScanTargetLimit = 128;
+    private const int TextHookDiscoveryScanTargetLimit = 64;
+    private const int TextHookQueueMaxItemsPerTick = 64;
+    private const int TextHookQueueMaxMillisecondsPerTick = 2;
+    private const float FastStaticTextRetrySeconds = 0.1f;
 
     private readonly ManualLogSource _logger;
     private readonly string? _pluginDirectory;
@@ -44,10 +52,15 @@ internal sealed class PluginRuntime : IDisposable
     private LlamaCppModelDownloadManager? _llamaCppModelDownloads;
     private SelfCheckService? _selfCheck;
     private UnityTextChangeHookInstaller? _textChangeHook;
+    private UnityTextChangeQueue? _textChangeQueue;
+    private UnityTextTargetRegistry? _textTargetRegistry;
+    private UnityTextTargetProcessor? _textTargetProcessor;
     private float _nextScanTime;
     private float _nextReflectionScanTime;
+    private float _requestedGlobalTextScanTime;
     private float _nextHighlighterSnapshotTime;
     private float _nextSkippedWritebackLogTime;
+    private bool _globalTextScanRequested;
     private bool _openedControlPanel;
     private bool _hotkeyTickFailureLogged;
     private bool _pendingAutomaticSelfCheck;
@@ -97,7 +110,7 @@ internal sealed class PluginRuntime : IDisposable
             _glossary = new SqliteGlossaryStore(glossaryPath);
             _queue = new TranslationJobQueue();
             _dispatcher = new ResultDispatcher();
-            _resultApplier = new UnityMainThreadResultApplier(_controlPanel.GetConfig, message => _logger.LogInfo(message));
+            _resultApplier = new UnityMainThreadResultApplier(_controlPanel.GetConfig, message => _logger.LogInfo(message), _metrics);
             _highlighter = new UnityTextHighlighter(_resultApplier, _logger);
             _textureOverrides = new TextureOverrideStore(textureOverridesPath);
             _textureTextAnalysis = new TextureTextAnalysisStore(Path.Combine(textureCatalogPath, "text-analysis.json"));
@@ -110,16 +123,37 @@ internal sealed class PluginRuntime : IDisposable
             var pluginDirectory = _pluginDirectory ?? Path.GetDirectoryName(typeof(PluginRuntime).Assembly.Location) ?? Paths.PluginPath;
             _llamaCppServer = new LlamaCppServerManager(pluginDirectory, _logger);
             _llamaCppModelDownloads = new LlamaCppModelDownloadManager(Path.Combine(pluginDirectory, "models"));
-            _fontReplacement = new UnityTextFontReplacementService(_cache, _logger, _controlPanel.GetConfig, _controlPanel.SetAutomaticFontFallbacks);
+            _fontReplacement = new UnityTextFontReplacementService(_cache, _logger, _controlPanel.GetConfig, _controlPanel.SetAutomaticFontFallbacks, _metrics);
             _resultApplier.SetFontReplacementService(_fontReplacement);
             _fontReplacement.InstallStartupFallbacks();
             var pipeline = new TextPipeline(_cache, _queue, _controlPanel.GetConfig, _metrics, _glossary);
             var textStabilityGate = new UnityTextStabilityGate();
-            _textChangeHook = new UnityTextChangeHookInstaller(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate);
+            var textTargetRegistry = new UnityTextTargetRegistry(_metrics);
+            _textTargetRegistry = textTargetRegistry;
+            _textChangeQueue = new UnityTextChangeQueue(_metrics);
+            _textTargetProcessor = new UnityTextTargetProcessor(
+                pipeline,
+                _resultApplier,
+                _controlPanel.GetConfig,
+                _fontReplacement,
+                RunTextChangeSuppressed,
+                textStabilityGate,
+                textTargetRegistry,
+                _metrics);
+            _textChangeHook = new UnityTextChangeHookInstaller(
+                pipeline,
+                _resultApplier,
+                _logger,
+                _controlPanel.GetConfig,
+                _fontReplacement,
+                textStabilityGate,
+                RequestGlobalTextScan,
+                _metrics,
+                _textChangeQueue);
             _captureCoordinator = new TextCaptureCoordinator(new ITextCaptureModule[]
             {
-                new UguiTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate),
-                new TmpTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate),
+                new UguiTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate, textTargetRegistry, _textChangeQueue),
+                new TmpTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate, textTargetRegistry, _textChangeQueue),
                 new ImguiHookInstaller(pipeline, _cache, _logger, _controlPanel.GetConfig, _fontReplacement)
             });
             _textChangeHook?.Start();
@@ -240,6 +274,7 @@ internal sealed class PluginRuntime : IDisposable
         var text = _resultApplier?.GetMemoryDiagnostics();
         var font = _fontReplacement?.GetMemoryDiagnostics();
         var texture = _textureReplacement?.GetMemoryDiagnostics();
+        var metrics = _metrics?.Snapshot();
         return new MemoryDiagnosticsSnapshot(
             ManagedMemoryBytes: GC.GetTotalMemory(forceFullCollection: false),
             UnityAllocatedMemoryBytes: TryReadUnityProfilerValue("GetTotalAllocatedMemoryLong"),
@@ -254,7 +289,27 @@ internal sealed class PluginRuntime : IDisposable
             ImguiFontResolutionCacheCount: font?.ImguiFontResolutionCacheCount ?? 0,
             TextureRecordCount: texture?.TextureRecordCount ?? 0,
             ReplacementTextureCount: texture?.ReplacementTextureCount ?? 0,
-            TexturePngBytes: texture?.RetainedSourcePngBytes ?? 0);
+            TexturePngBytes: texture?.RetainedSourcePngBytes ?? 0,
+            TextChangeHookEventCount: metrics?.TextChangeHookEventCount ?? 0,
+            TextChangeHookQueuedCount: metrics?.TextChangeHookQueuedCount ?? 0,
+            TextChangeHookMergedCount: metrics?.TextChangeHookMergedCount ?? 0,
+            TextChangeHookDroppedCount: metrics?.TextChangeHookDroppedCount ?? 0,
+            TextChangeRawPrefilteredCount: metrics?.TextChangeRawPrefilteredCount ?? 0,
+            TextChangeQueueProcessedCount: metrics?.TextChangeQueueProcessedCount ?? 0,
+            TextChangeQueueMilliseconds: metrics?.TextChangeQueueMilliseconds ?? 0,
+            TextTargetMetadataBuildCount: metrics?.TextTargetMetadataBuildCount ?? 0,
+            CacheLookupCount: metrics?.CacheLookupCount ?? 0,
+            GlobalTextScanRequestCount: metrics?.GlobalTextScanRequestCount ?? 0,
+            GlobalTextScanCount: metrics?.GlobalTextScanCount ?? 0,
+            GlobalTextScanTargetCount: metrics?.GlobalTextScanTargetCount ?? 0,
+            GlobalTextScanMilliseconds: metrics?.GlobalTextScanMilliseconds ?? 0,
+            RememberedReapplyCheckCount: metrics?.RememberedReapplyCheckCount ?? 0,
+            RememberedReapplyAppliedCount: metrics?.RememberedReapplyAppliedCount ?? 0,
+            FontApplicationCount: metrics?.FontApplicationCount ?? 0,
+            FontApplicationSkippedCount: metrics?.FontApplicationSkippedCount ?? 0,
+            LayoutApplicationCount: metrics?.LayoutApplicationCount ?? 0,
+            LayoutApplicationSkippedCount: metrics?.LayoutApplicationSkippedCount ?? 0,
+            TmpMeshForceUpdateCount: metrics?.TmpMeshForceUpdateCount ?? 0);
     }
 
     private void LogMemoryDiagnostics(MemoryDiagnosticsSnapshot diagnostics)
@@ -266,6 +321,9 @@ internal sealed class PluginRuntime : IDisposable
             $"队列 {diagnostics.QueueCount}，写回 {diagnostics.WritebackQueueCount}，" +
             $"文本目标 {diagnostics.RegisteredTextTargetCount}，" +
             $"字体缓存 {diagnostics.FontCacheCount}/{diagnostics.TmpFontAssetCacheCount}，" +
+            $"Hook {diagnostics.TextChangeHookEventCount}/{diagnostics.TextChangeHookQueuedCount}/{diagnostics.TextChangeHookMergedCount}，" +
+            $"脏队列 {diagnostics.TextChangeQueueProcessedCount} 项/{diagnostics.TextChangeQueueMilliseconds} ms，" +
+            $"缓存查找 {diagnostics.CacheLookupCount}，" +
             $"IMGUI 字体解析 {diagnostics.ImguiFontResolutionCacheCount}，" +
             $"纹理记录 {diagnostics.TextureRecordCount}，替换纹理 {diagnostics.ReplacementTextureCount}。");
     }
@@ -322,18 +380,35 @@ internal sealed class PluginRuntime : IDisposable
         _selfCheck?.Tick();
         StartPendingAutomaticSelfCheck();
         TryTickHotkeys(config);
+        DrainTextChangeQueue();
         var scanned = false;
         if (_captureCoordinator != null && Time.unscaledTime >= _nextScanTime)
         {
             var textHooksEnabled = _textChangeHook?.IsEnabled == true;
-            var runReflectionScan = !textHooksEnabled || Time.unscaledTime >= _nextReflectionScanTime;
-            _captureCoordinator.Tick(skipGlobalObjectScanners: textHooksEnabled && !runReflectionScan);
+            var requestedGlobalScanReady = _globalTextScanRequested && Time.unscaledTime >= _requestedGlobalTextScanTime;
+            var staticDiscoveryScanReady = textHooksEnabled && Time.unscaledTime >= _nextReflectionScanTime;
+            var hookIdleFallbackReady = textHooksEnabled &&
+                _textChangeQueue?.HasRecentHookEvent(Time.unscaledTime, TextHookIdleGlobalScanSeconds) != true &&
+                Time.unscaledTime >= _nextReflectionScanTime;
+            var runReflectionScan = !textHooksEnabled || requestedGlobalScanReady || staticDiscoveryScanReady || hookIdleFallbackReady;
+            var globalScanTargetLimit = requestedGlobalScanReady ? TextHookGlobalScanTargetLimit : TextHookDiscoveryScanTargetLimit;
+            var stopwatch = Stopwatch.StartNew();
+            var processedTargets = _captureCoordinator.Tick(
+                skipGlobalObjectScanners: textHooksEnabled && !runReflectionScan,
+                maxGlobalObjectScanTargets: textHooksEnabled ? globalScanTargetLimit : null);
+            stopwatch.Stop();
             _nextScanTime = Time.unscaledTime + (float)config.ScanInterval.TotalSeconds;
             if (runReflectionScan)
             {
-                _nextReflectionScanTime = Time.unscaledTime + Math.Max(
-                    ReflectionScanIntervalWhenTextHooksEnabledSeconds,
-                    (float)config.ScanInterval.TotalSeconds);
+                if (requestedGlobalScanReady || !textHooksEnabled)
+                {
+                    _globalTextScanRequested = false;
+                }
+
+                _metrics?.RecordGlobalTextScan(stopwatch.Elapsed, processedTargets);
+                _nextReflectionScanTime = Time.unscaledTime + (textHooksEnabled
+                    ? TextHookDiscoveryScanIntervalSeconds
+                    : Math.Max(1f, (float)config.ScanInterval.TotalSeconds));
             }
 
             scanned = true;
@@ -346,6 +421,51 @@ internal sealed class PluginRuntime : IDisposable
         }
 
         _textureReplacement?.Tick();
+    }
+
+    private void DrainTextChangeQueue()
+    {
+        if (_textChangeQueue == null || _textTargetProcessor == null)
+        {
+            return;
+        }
+
+        _textChangeQueue.Drain(
+            ProcessQueuedTextChange,
+            TextHookQueueMaxItemsPerTick,
+            TextHookQueueMaxMillisecondsPerTick);
+    }
+
+    private void ProcessQueuedTextChange(UnityTextChangeWorkItem item)
+    {
+        try
+        {
+            var result = UnityTextProcessResult.Ignored;
+            RunTextChangeSuppressed(() => result = _textTargetProcessor?.Process(
+                item.Component,
+                item.TextProperty,
+                item.TargetKind,
+                item.ObservedText) ?? UnityTextProcessResult.Ignored);
+            if (result == UnityTextProcessResult.WaitForStability)
+            {
+                _textChangeQueue?.RequeueForStability(item, Time.unscaledTime + FastStaticTextRetrySeconds);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning($"即时文本队列处理失败，将由低频扫描兜底：{ex.Message}");
+        }
+    }
+
+    private void RequestGlobalTextScan()
+    {
+        var now = Time.unscaledTime;
+        _globalTextScanRequested = true;
+        _requestedGlobalTextScanTime = Math.Max(_requestedGlobalTextScanTime, now + GlobalTextScanDebounceSeconds);
+        _nextScanTime = Math.Min(_nextScanTime, _requestedGlobalTextScanTime);
+        _metrics?.RecordGlobalTextScanRequest();
+        _textTargetRegistry?.InvalidateMetadata();
+        _resultApplier?.MarkAllTargetsForReapply();
     }
 
     private void StartPendingAutomaticSelfCheck()
@@ -409,7 +529,7 @@ internal sealed class PluginRuntime : IDisposable
             RunTextChangeSuppressed(() => applied = _resultApplier.Apply(results));
             if (config.ReapplyRememberedTranslations)
             {
-                RunTextChangeSuppressed(() => _resultApplier.ReapplyRemembered(config.MaxWritebacksPerFrame));
+                RunTextChangeSuppressed(() => _resultApplier.ReapplyDirtyRemembered(config.MaxWritebacksPerFrame));
             }
 
             if (applied > 0)

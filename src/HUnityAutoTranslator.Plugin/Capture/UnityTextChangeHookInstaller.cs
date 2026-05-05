@@ -1,11 +1,13 @@
 using System.Reflection;
 using BepInEx.Logging;
 using HarmonyLib;
+using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Runtime;
 using HUnityAutoTranslator.Plugin.Unity;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace HUnityAutoTranslator.Plugin.Capture;
 
@@ -22,7 +24,9 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
 
     private readonly ManualLogSource _logger;
     private readonly Func<RuntimeConfig> _configProvider;
-    private readonly UnityTextTargetProcessor _processor;
+    private readonly UnityTextChangeQueue _changeQueue;
+    private readonly Action _requestGlobalTextScan;
+    private readonly ControlPanelMetrics? _metrics;
     private readonly HashSet<MethodBase> _patchedMethods = new();
     private Harmony? _harmony;
     private Type? _uguiTextType;
@@ -32,6 +36,7 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
     private int _suppressDepth;
     private bool _enabled;
     private bool _warned;
+    private bool _sceneLoadedHooked;
 
     public UnityTextChangeHookInstaller(
         TextPipeline pipeline,
@@ -39,11 +44,16 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
         ManualLogSource logger,
         Func<RuntimeConfig> configProvider,
         UnityTextFontReplacementService? fontReplacement = null,
-        UnityTextStabilityGate? stabilityGate = null)
+        UnityTextStabilityGate? stabilityGate = null,
+        Action? requestGlobalTextScan = null,
+        ControlPanelMetrics? metrics = null,
+        UnityTextChangeQueue? changeQueue = null)
     {
         _logger = logger;
         _configProvider = configProvider;
-        _processor = new UnityTextTargetProcessor(pipeline, applier, configProvider, fontReplacement, RunSuppressed, stabilityGate);
+        _changeQueue = changeQueue ?? new UnityTextChangeQueue(metrics);
+        _requestGlobalTextScan = requestGlobalTextScan ?? (() => { });
+        _metrics = metrics;
     }
 
     public void Start()
@@ -53,12 +63,12 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
             _instance = this;
             _harmony = new Harmony(HarmonyId);
             _logger.LogInfo("正在安装 UGUI/TMP 即时文本变化捕获。");
-            var patched = 0;
-            patched += PatchUguiTextSetter();
-            patched += PatchTmpTextEntryPoints();
+            var patched = PatchUguiTextSetter() + PatchTmpTextEntryPoints();
+            _ = PatchGameObjectSetActive();
             _enabled = patched > 0;
             if (_enabled)
             {
+                HookSceneLoaded();
                 _logger.LogInfo($"UGUI/TMP 即时文本变化捕获已启用，已安装 {patched} 个入口。");
             }
             else
@@ -114,6 +124,31 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
         return patched;
     }
 
+    private int PatchGameObjectSetActive()
+    {
+        var method = typeof(GameObject).GetMethod(
+            nameof(GameObject.SetActive),
+            BindingFlags.Instance | BindingFlags.Public,
+            binder: null,
+            types: new[] { typeof(bool) },
+            modifiers: null);
+        if (method == null || _harmony == null || !_patchedMethods.Add(method))
+        {
+            return 0;
+        }
+
+        try
+        {
+            _harmony.Patch(method, postfix: new HarmonyMethod(typeof(UnityTextChangeHookInstaller), nameof(PostfixGameObjectSetActive)));
+            return 1;
+        }
+        catch (Exception ex)
+        {
+            WarnOnce("GameObject.SetActive activation hook failed: " + ex.Message);
+            return 0;
+        }
+    }
+
     private int PatchTextMethod(MethodBase? method)
     {
         if (method == null || _harmony == null || !_patchedMethods.Add(method))
@@ -144,7 +179,7 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
         return parameters.Length > 0 && parameters[0].ParameterType == typeof(string);
     }
 
-    private static void PostfixTextChanged(object __instance)
+    private static void PostfixTextChanged(object __instance, object[] __args)
     {
         if (_instance == null ||
             !_instance._enabled ||
@@ -154,16 +189,71 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
             return;
         }
 
-        _instance.ProcessChangedText(component);
+        _instance._metrics?.RecordTextChangeHookEvent();
+        if (!TryGetChangedText(__args, out var changedText))
+        {
+            changedText = null;
+        }
+
+        _instance.EnqueueChangedText(component, changedText);
+    }
+
+    private static void PostfixGameObjectSetActive(bool value)
+    {
+        if (_instance == null ||
+            !_instance._enabled ||
+            !value)
+        {
+            return;
+        }
+
+        _instance._requestGlobalTextScan();
     }
 
     private bool IsSuppressed => _suppressDepth > 0;
 
-    private void ProcessChangedText(UnityEngine.Object component)
+    private void HookSceneLoaded()
+    {
+        if (_sceneLoadedHooked)
+        {
+            return;
+        }
+
+        SceneManager.sceneLoaded += OnSceneLoaded;
+        _sceneLoadedHooked = true;
+    }
+
+    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        _requestGlobalTextScan();
+    }
+
+    private static bool TryGetChangedText(object[] args, out string? changedText)
+    {
+        changedText = null;
+        foreach (var arg in args)
+        {
+            if (arg is string value)
+            {
+                changedText = value;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private void EnqueueChangedText(UnityEngine.Object component, string? changedText)
     {
         var config = _configProvider();
         if (!config.Enabled)
         {
+            return;
+        }
+
+        if (changedText != null && UnityTextTargetProcessor.ShouldSkipRawText(changedText, config))
+        {
+            _metrics?.RecordTextChangeRawPrefiltered();
             return;
         }
 
@@ -174,7 +264,7 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
                 config.EnableUgui &&
                 _uguiTextType.IsInstanceOfType(component))
             {
-                _processor.Process(component, _uguiTextProperty, UnityTextTargetKind.Ugui);
+                _changeQueue.Enqueue(component, _uguiTextProperty, UnityTextTargetKind.Ugui, changedText);
                 return;
             }
 
@@ -183,7 +273,7 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
                 config.EnableTmp &&
                 _tmpTextType.IsInstanceOfType(component))
             {
-                _processor.Process(component, _tmpTextProperty, UnityTextTargetKind.Tmp);
+                _changeQueue.Enqueue(component, _tmpTextProperty, UnityTextTargetKind.Tmp, changedText);
             }
         }
         catch (Exception ex)
@@ -207,6 +297,12 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
 
     public void Dispose()
     {
+        if (_sceneLoadedHooked)
+        {
+            SceneManager.sceneLoaded -= OnSceneLoaded;
+            _sceneLoadedHooked = false;
+        }
+
         _harmony?.UnpatchSelf();
         if (ReferenceEquals(_instance, this))
         {

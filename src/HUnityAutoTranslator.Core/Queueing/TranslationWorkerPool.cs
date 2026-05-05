@@ -265,7 +265,7 @@ public sealed class TranslationWorkerPool
         {
             if (failures.TryGetValue(i, out var failure))
             {
-                if (failure.IsQualityFailure && jobs[i].QualityRetryCount < maxQualityRetryCount)
+                if (ShouldRetryFinalFailure(jobs[i], failure, maxQualityRetryCount))
                 {
                     var retryJob = jobs[i] with { QualityRetryCount = jobs[i].QualityRetryCount + 1 };
                     retryJobs.Add(retryJob);
@@ -273,20 +273,28 @@ public sealed class TranslationWorkerPool
                         jobs[i],
                         failure,
                         $"重试：{retryJob.QualityRetryCount}/{maxQualityRetryCount}，已加入等待翻译队列。");
+                    continue;
                 }
-                else
+                if (failure.IsQualityFailure)
                 {
-                    if (failure.IsQualityFailure)
-                    {
-                        _qualityRetryLimitReporter?.Invoke(jobs[i]);
-                    }
-
-                    var retryStatus = failure.IsQualityFailure
-                        ? $"重试：{jobs[i].QualityRetryCount}/{maxQualityRetryCount}，已达上限，保留为待翻译。"
-                        : null;
-                    ReportFinalFailure(jobs[i], failure, retryStatus);
+                    _qualityRetryLimitReporter?.Invoke(jobs[i]);
                 }
 
+                if (CanPublishFinalFailureFallback(failure))
+                {
+                    publishJobs.Add(jobs[i]);
+                    publishTexts.Add(failure.CandidateTranslation);
+                    ReportFinalFailure(
+                        jobs[i],
+                        failure,
+                        $"重试：{jobs[i].QualityRetryCount}/{maxQualityRetryCount}，已达上限，强制使用最后译文。");
+                    continue;
+                }
+
+                var retryStatus = failure.IsQualityFailure
+                    ? $"重试：{jobs[i].QualityRetryCount}/{maxQualityRetryCount}，已达上限，保留为待翻译。"
+                    : null;
+                ReportFinalFailure(jobs[i], failure, retryStatus);
                 continue;
             }
 
@@ -300,6 +308,19 @@ public sealed class TranslationWorkerPool
         }
 
         return retryJobs;
+    }
+
+    private static bool ShouldRetryFinalFailure(
+        TranslationJob job,
+        TranslationFinalFailure failure,
+        int maxRetryCount)
+    {
+        return CanPublishFinalFailureFallback(failure) && job.QualityRetryCount < maxRetryCount;
+    }
+
+    private static bool CanPublishFinalFailureFallback(TranslationFinalFailure failure)
+    {
+        return !string.IsNullOrWhiteSpace(failure.CandidateTranslation);
     }
 
     private Dictionary<int, TranslationFinalFailure> ValidateFinalTranslations(

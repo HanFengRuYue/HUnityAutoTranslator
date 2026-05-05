@@ -52,6 +52,7 @@ public sealed class TextPipeline
 
         var key = TranslationCacheKey.Create(capturedText.SourceText, config.TargetLanguage, config.Provider, GetPromptPolicyVersion(config));
         _metrics?.RecordCaptured(key);
+        _metrics?.RecordCacheLookup();
         if (config.EnableCacheLookup &&
             _cache.TryGet(key, capturedText.Context, out var translatedText))
         {
@@ -105,6 +106,7 @@ public sealed class TextPipeline
         }
 
         var key = TranslationCacheKey.Create(capturedText.SourceText, config.TargetLanguage, config.Provider, GetPromptPolicyVersion(config));
+        _metrics?.RecordCacheLookup();
         if (_cache.TryGet(key, capturedText.Context, out var translatedText) &&
             CachedTranslationSatisfiesGlossary(capturedText.SourceText, translatedText, config) &&
             ValidateCachedTranslation(capturedText, translatedText, config).IsValid)
@@ -122,6 +124,26 @@ public sealed class TextPipeline
         {
             _cache.Set(key, reusableTranslatedText, capturedText.Context);
             return PipelineDecision.UseCachedTranslation(reusableTranslatedText);
+        }
+
+        return PipelineDecision.Ignored();
+    }
+
+    public PipelineDecision ResolveExactCachedTranslation(CapturedText capturedText)
+    {
+        var config = _configProvider();
+        if (!ShouldProcess(capturedText, config) || !config.EnableCacheLookup)
+        {
+            return PipelineDecision.Ignored();
+        }
+
+        var key = TranslationCacheKey.Create(capturedText.SourceText, config.TargetLanguage, config.Provider, GetPromptPolicyVersion(config));
+        _metrics?.RecordCacheLookup();
+        if (_cache.TryGet(key, capturedText.Context, out var translatedText) &&
+            CachedTranslationSatisfiesGlossary(capturedText.SourceText, translatedText, config) &&
+            ValidateCachedTranslation(capturedText, translatedText, config).IsValid)
+        {
+            return PipelineDecision.UseCachedTranslation(translatedText);
         }
 
         return PipelineDecision.Ignored();

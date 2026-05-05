@@ -108,6 +108,146 @@ public sealed class ComponentRefreshSourceTests
     }
 
     [Fact]
+    public void Ugui_tmp_paths_try_exact_cache_hits_before_stability_wait()
+    {
+        AssertExactCacheHitPrecedesStabilityWait(File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs")));
+        AssertExactCacheHitPrecedesStabilityWait(File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs")));
+        AssertExactCacheHitPrecedesStabilityWait(File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs")));
+    }
+
+    [Fact]
+    public void Unity_text_change_hook_keeps_global_reflection_scans_throttled()
+    {
+        var hookSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextChangeHookInstaller.cs"));
+        var runtimeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+        var queueSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextChangeQueue.cs"));
+        var textChangedBlock = hookSource[
+            hookSource.IndexOf("private static void PostfixTextChanged", StringComparison.Ordinal)..
+            hookSource.IndexOf("private static void PostfixGameObjectSetActive", StringComparison.Ordinal)];
+
+        hookSource.Should().Contain("Action _requestGlobalTextScan");
+        textChangedBlock.Should().NotContain("_requestGlobalTextScan();");
+        textChangedBlock.Should().Contain("TryGetChangedText(__args, out var changedText)");
+        textChangedBlock.Should().Contain("EnqueueChangedText(component, changedText)");
+        hookSource.Should().Contain("_changeQueue.Enqueue(");
+        textChangedBlock.Should().NotContain("ProcessChangedText(component)");
+        queueSource.Should().Contain("public int Drain(");
+        queueSource.Should().Contain("Stopwatch.StartNew()");
+        hookSource.Should().Contain("PatchGameObjectSetActive");
+        hookSource.Should().Contain("PostfixGameObjectSetActive");
+        hookSource.Should().Contain("PostfixGameObjectSetActive(bool value)");
+        hookSource.Should().NotContain("PostfixGameObjectSetActive(bool active)");
+        runtimeSource.Should().Contain("RequestGlobalTextScan");
+        runtimeSource.Should().Contain("GlobalTextScanDebounceSeconds");
+        runtimeSource.Should().Contain("TextHookIdleGlobalScanSeconds");
+        runtimeSource.Should().Contain("hookIdleFallbackReady");
+        runtimeSource.Should().NotContain("Time.unscaledTime < _fastReflectionScanUntil");
+        runtimeSource.Should().Contain("textHooksEnabled && !runReflectionScan");
+        runtimeSource.Should().NotContain("ReflectionScanIntervalWhenTextHooksEnabledSeconds = 2f");
+    }
+
+    [Fact]
+    public void Text_change_hook_prefilters_raw_text_before_reflection_target_creation()
+    {
+        var hookSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextChangeHookInstaller.cs"));
+        var processorSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs"));
+        var processorBlock = processorSource[
+            processorSource.IndexOf("public UnityTextProcessResult Process(", StringComparison.Ordinal)..
+            processorSource.IndexOf("private void RunSuppressed", StringComparison.Ordinal)];
+
+        hookSource.Should().Contain("TryGetChangedText(__args, out var changedText)");
+        hookSource.Should().Contain("UnityTextTargetProcessor.ShouldSkipRawText(changedText, config)");
+        processorSource.Should().Contain("public static bool ShouldSkipRawText(string? text, RuntimeConfig config)");
+        processorBlock.Should().Contain("if (observedText != null && ShouldSkipRawText(observedText, config))");
+        processorBlock.IndexOf("ShouldSkipRawText(observedText, config)", StringComparison.Ordinal)
+            .Should().BeLessThan(processorBlock.IndexOf("GetOrCreateTarget", StringComparison.Ordinal));
+        processorBlock.Should().NotContain("new ReflectionTextTarget(component, textProperty)");
+    }
+
+    [Fact]
+    public void Queued_text_changes_retry_after_stability_wait_without_global_scan()
+    {
+        var runtimeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+        var queueSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextChangeQueue.cs"));
+        var processorSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs"));
+
+        processorSource.Should().Contain("UnityTextProcessResult.WaitForStability");
+        processorSource.Should().Contain("return UnityTextProcessResult.WaitForStability;");
+        queueSource.Should().Contain("RequeueForStability");
+        queueSource.Should().Contain("ReadyTime");
+        queueSource.Should().Contain("item.ReadyTime > now");
+        runtimeSource.Should().Contain("FastStaticTextRetrySeconds");
+        runtimeSource.Should().Contain("_textTargetProcessor?.Process(");
+        runtimeSource.Should().Contain("if (result == UnityTextProcessResult.WaitForStability)");
+        runtimeSource.Should().Contain("RequeueForStability(item, Time.unscaledTime + FastStaticTextRetrySeconds)");
+        runtimeSource.Should().NotContain("RequestGlobalTextScan();\r\n        _textChangeQueue.RequeueForStability");
+    }
+
+    [Fact]
+    public void Global_scanners_requeue_static_text_after_stability_wait()
+    {
+        var runtimeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+        var tmpSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs"));
+        var uguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs"));
+
+        AssertScannerRequeuesStabilityWait(tmpSource, "UnityTextTargetKind.Tmp");
+        AssertScannerRequeuesStabilityWait(uguiSource, "UnityTextTargetKind.Ugui");
+        runtimeSource.Should().Contain("new UguiTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate, textTargetRegistry, _textChangeQueue)");
+        runtimeSource.Should().Contain("new TmpTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate, textTargetRegistry, _textChangeQueue)");
+    }
+
+    [Fact]
+    public void Text_targets_cache_metadata_and_reflection_members_for_repeated_hook_processing()
+    {
+        var registrySource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetRegistry.cs"));
+        var targetSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "ReflectionTextTarget.cs"));
+        var processorSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs"));
+
+        registrySource.Should().Contain("_targets");
+        registrySource.Should().Contain("GetOrCreateTarget");
+        registrySource.Should().Contain("InvalidateMetadata");
+        registrySource.Should().Contain("RecordTextTargetMetadataBuild");
+        processorSource.Should().Contain("_targetRegistry.GetOrCreateTarget(component, textProperty)");
+        targetSource.Should().Contain("_cachedSceneName");
+        targetSource.Should().Contain("_cachedHierarchyPath");
+        targetSource.Should().Contain("InvalidateMetadata()");
+        targetSource.Should().Contain("ReflectionTextMemberCache");
+        targetSource.Should().Contain("_memberCache");
+    }
+
+    [Fact]
+    public void Repeated_font_and_layout_state_is_skipped_for_same_target_text_and_config()
+    {
+        var applierSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));
+        var fontSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityTextFontReplacementService.cs"));
+
+        applierSource.Should().Contain("AppliedUnityTextStateCache");
+        applierSource.Should().Contain("_layoutStateCache.TrySkip");
+        applierSource.Should().Contain("_metrics?.RecordLayoutApplicationSkipped()");
+        applierSource.Should().Contain("_metrics?.RecordLayoutApplication()");
+        fontSource.Should().Contain("_uguiAppliedFontStates");
+        fontSource.Should().Contain("_tmpAppliedFontStates");
+        fontSource.Should().Contain("RecordFontApplicationSkipped");
+        fontSource.Should().Contain("RecordTmpMeshForceUpdate");
+        fontSource.Should().Contain("BuildAppliedFontStateKey");
+    }
+
+    [Fact]
+    public void Unity_applier_skips_repeated_layout_work_for_unchanged_registered_targets()
+    {
+        var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));
+        var registerBlock = source[
+            source.IndexOf("public void Register(IUnityTextTarget target)", StringComparison.Ordinal)..
+            source.IndexOf("public IReadOnlyList<TranslationHighlightTarget> SnapshotTargets()", StringComparison.Ordinal)];
+
+        source.Should().Contain("_registeredTextSnapshots");
+        registerBlock.Should().Contain("IsSameRegisteredText(target.Id, currentText)");
+        registerBlock.Should().Contain("return;");
+        registerBlock.Should().Contain("RememberRegisteredText(target.Id, currentText)");
+        registerBlock.Should().NotContain("ApplyCurrentFontSizeState(target);\r\n        TryApplyPendingComponentRefresh(target);");
+    }
+
+    [Fact]
     public void Text_change_processor_passes_translated_text_to_component_font_replacement()
     {
         var source = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs"));
@@ -351,5 +491,35 @@ public sealed class ComponentRefreshSourceTests
         source.Should().Contain("StableTextDecisionKind.RefreshCachedTranslation");
         source.Should().Contain("_pipeline.ResolveCachedTranslationOnly(");
         source.Should().Contain("PipelineDecisionKind.UseCachedTranslation");
+    }
+
+    private static void AssertExactCacheHitPrecedesStabilityWait(string source)
+    {
+        var exactCacheIndex = source.IndexOf("TryApplyExactCachedTranslation", StringComparison.Ordinal);
+        exactCacheIndex.Should().BeGreaterThanOrEqualTo(0);
+        source.IndexOf("_pipeline.ResolveExactCachedTranslation(", exactCacheIndex, StringComparison.Ordinal)
+            .Should().BeGreaterThan(exactCacheIndex);
+        source.IndexOf("RememberAndApply(target, text, decision.TranslatedText)", exactCacheIndex, StringComparison.Ordinal)
+            .Should().BeGreaterThan(exactCacheIndex);
+
+        var stableIndex = source.IndexOf("var stableDecision = EvaluateStableText", StringComparison.Ordinal);
+        stableIndex.Should().BeGreaterThan(exactCacheIndex);
+    }
+
+    private static void AssertScannerRequeuesStabilityWait(string source, string targetKind)
+    {
+        source.Should().Contain("UnityTextChangeQueue? _changeQueue");
+        source.Should().Contain("QueueStabilityRetry(component, text);");
+        source.Should().Contain("new UnityTextChangeWorkItem(");
+        source.Should().Contain(targetKind);
+        source.Should().Contain("Time.unscaledTime + FastStaticTextRetrySeconds");
+        source.Should().Contain("preferFastStaticRelease: true");
+
+        var waitIndex = source.IndexOf("if (stableDecision == StableTextDecisionKind.Wait)", StringComparison.Ordinal);
+        waitIndex.Should().BeGreaterThanOrEqualTo(0);
+        source.IndexOf("QueueStabilityRetry(component, text);", waitIndex, StringComparison.Ordinal)
+            .Should().BeGreaterThan(waitIndex);
+        source.IndexOf("_pipeline.Process(capturedText)", StringComparison.Ordinal)
+            .Should().BeGreaterThan(waitIndex);
     }
 }

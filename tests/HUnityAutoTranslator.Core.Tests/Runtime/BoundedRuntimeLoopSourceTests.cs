@@ -19,7 +19,7 @@ public sealed class BoundedRuntimeLoopSourceTests
 
         tmpSource.Should().Contain("RoundRobinCursor");
         tmpSource.Should().Contain("public bool UsesGlobalObjectScan => true;");
-        tmpSource.Should().Contain("var maxTargets = forceFullScan ? objects.Length : _configProvider().MaxScanTargetsPerTick");
+        tmpSource.Should().Contain("maxTargetsOverride ?? configuredMaxTargets");
         tmpSource.Should().Contain("_scanCursor.TakeWindow(objects, maxTargets)");
         tmpSource.Should().Contain("UnityObjectFinder.FindObjects(_textType)");
         tmpSource.Should().NotContain("for (var i = 0; i < count; i++)");
@@ -27,7 +27,7 @@ public sealed class BoundedRuntimeLoopSourceTests
 
         uguiSource.Should().Contain("RoundRobinCursor");
         uguiSource.Should().Contain("public bool UsesGlobalObjectScan => true;");
-        uguiSource.Should().Contain("var maxTargets = forceFullScan ? objects.Length : _configProvider().MaxScanTargetsPerTick");
+        uguiSource.Should().Contain("maxTargetsOverride ?? configuredMaxTargets");
         uguiSource.Should().Contain("_scanCursor.TakeWindow(objects, maxTargets)");
         uguiSource.Should().Contain("UnityObjectFinder.FindObjects(_textType)");
         uguiSource.Should().NotContain("for (var i = 0; i < count; i++)");
@@ -53,12 +53,16 @@ public sealed class BoundedRuntimeLoopSourceTests
     }
 
     [Fact]
-    public void Plugin_honors_reapply_remembered_translations_setting_without_full_per_frame_reapply()
+    public void Plugin_late_tick_reapplies_only_dirty_remembered_targets()
     {
         var pluginSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+        var lateTickBlock = pluginSource[
+            pluginSource.IndexOf("public void LateTick()", StringComparison.Ordinal)..
+            pluginSource.IndexOf("public void RenderGui()", StringComparison.Ordinal)];
 
         pluginSource.Should().Contain("if (config.ReapplyRememberedTranslations)");
-        pluginSource.Should().Contain("_resultApplier.ReapplyRemembered(config.MaxWritebacksPerFrame)");
+        lateTickBlock.Should().Contain("_resultApplier.ReapplyDirtyRemembered(config.MaxWritebacksPerFrame)");
+        lateTickBlock.Should().NotContain("_resultApplier.ReapplyRemembered(config.MaxWritebacksPerFrame)");
         pluginSource.Should().NotContain("_resultApplier.ReapplyRemembered(int.MaxValue)");
     }
 
@@ -78,20 +82,53 @@ public sealed class BoundedRuntimeLoopSourceTests
         var hookSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextChangeHookInstaller.cs"));
         var runtimeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
         var processorSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextTargetProcessor.cs"));
+        var queueSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UnityTextChangeQueue.cs"));
 
         hookSource.Should().Contain("HarmonyId");
         hookSource.Should().Contain("PatchUguiTextSetter");
         hookSource.Should().Contain("PatchTmpTextEntryPoints");
         hookSource.Should().Contain("PostfixTextChanged");
         hookSource.Should().Contain("IsSuppressed");
-        hookSource.Should().Contain("UnityTextTargetProcessor");
-        processorSource.Should().Contain("RunSuppressed");
+        hookSource.Should().Contain("UnityTextChangeQueue");
+        hookSource.Should().Contain("_changeQueue.Enqueue(");
+        hookSource.Should().NotContain("_processor.Process(");
+        queueSource.Should().Contain("_queuedByComponentId");
+        queueSource.Should().Contain("RecordTextChangeHookMerged");
+        queueSource.Should().Contain("RecordTextChangeHookDropped");
+        processorSource.Should().Contain("ShouldSkipRawText(");
         runtimeSource.Should().Contain("UnityTextChangeHookInstaller");
         runtimeSource.Should().Contain("_textChangeHook?.Start();");
         hookSource.Should().Contain("public bool IsEnabled => _enabled;");
-        runtimeSource.Should().Contain("ReflectionScanIntervalWhenTextHooksEnabledSeconds");
+        runtimeSource.Should().Contain("_textChangeQueue.Drain(");
+        runtimeSource.Should().Contain("ProcessQueuedTextChange");
+        runtimeSource.Should().Contain("TextHookIdleGlobalScanSeconds");
+        runtimeSource.Should().Contain("TextHookDiscoveryScanIntervalSeconds");
         runtimeSource.Should().Contain("_textChangeHook?.IsEnabled == true");
         runtimeSource.Should().Contain("skipGlobalObjectScanners: textHooksEnabled && !runReflectionScan");
+        runtimeSource.Should().Contain("TextHookGlobalScanTargetLimit = 128");
+        runtimeSource.Should().Contain("TextHookDiscoveryScanTargetLimit = 64");
+        runtimeSource.Should().Contain("FastStaticTextRetrySeconds");
+        runtimeSource.Should().Contain("maxGlobalObjectScanTargets: textHooksEnabled ? globalScanTargetLimit : null");
+        runtimeSource.Should().NotContain("ReflectionScanIntervalWhenTextHooksEnabledSeconds = 2f");
+        runtimeSource.Should().NotContain("FastReflectionScanWindowSeconds");
+    }
+
+    [Fact]
+    public void Hook_enabled_runtime_keeps_low_frequency_static_text_discovery_slices()
+    {
+        var runtimeSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "PluginRuntime.cs"));
+        var tickBlock = runtimeSource[
+            runtimeSource.IndexOf("public void Tick()", StringComparison.Ordinal)..
+            runtimeSource.IndexOf("private void DrainTextChangeQueue", StringComparison.Ordinal)];
+
+        runtimeSource.Should().Contain("TextHookDiscoveryScanIntervalSeconds");
+        runtimeSource.Should().Contain("TextHookDiscoveryScanTargetLimit");
+        tickBlock.Should().Contain("staticDiscoveryScanReady");
+        tickBlock.Should().Contain("requestedGlobalScanReady || staticDiscoveryScanReady || hookIdleFallbackReady");
+        tickBlock.Should().Contain("var globalScanTargetLimit = requestedGlobalScanReady ? TextHookGlobalScanTargetLimit : TextHookDiscoveryScanTargetLimit;");
+        tickBlock.Should().Contain("maxGlobalObjectScanTargets: textHooksEnabled ? globalScanTargetLimit : null");
+        tickBlock.Should().Contain("_nextReflectionScanTime = Time.unscaledTime + (textHooksEnabled");
+        tickBlock.Should().NotContain("textHooksEnabled && !runReflectionScan,\r\n                maxGlobalObjectScanTargets: textHooksEnabled ? TextHookGlobalScanTargetLimit : null");
     }
 
     [Fact]
@@ -128,13 +165,20 @@ public sealed class BoundedRuntimeLoopSourceTests
         var uguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs"));
 
         runtimeSource.Should().Contain("var textStabilityGate = new UnityTextStabilityGate();");
-        runtimeSource.Should().Contain("new UnityTextChangeHookInstaller(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate)");
-        runtimeSource.Should().Contain("new UguiTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate)");
-        runtimeSource.Should().Contain("new TmpTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate)");
+        runtimeSource.Should().Contain("var textTargetRegistry = new UnityTextTargetRegistry(_metrics);");
+        runtimeSource.Should().Contain("new UnityTextChangeHookInstaller(");
+        runtimeSource.Should().Contain("textStabilityGate,");
+        runtimeSource.Should().Contain("textTargetRegistry,");
+        runtimeSource.Should().Contain("RequestGlobalTextScan");
+        runtimeSource.Should().Contain("new UguiTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate, textTargetRegistry, _textChangeQueue)");
+        runtimeSource.Should().Contain("new TmpTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate, textTargetRegistry, _textChangeQueue)");
 
         AssertUsesStabilityGateBeforePipeline(processorSource);
         AssertUsesStabilityGateBeforePipeline(tmpSource);
         AssertUsesStabilityGateBeforePipeline(uguiSource);
+        processorSource.Should().Contain("preferFastStaticRelease: true");
+        tmpSource.Should().Contain("preferFastStaticRelease: true");
+        uguiSource.Should().Contain("preferFastStaticRelease: true");
     }
 
     [Fact]
@@ -147,6 +191,7 @@ public sealed class BoundedRuntimeLoopSourceTests
         pluginSource.Should().Contain("_hotkeys?.Tick(config);");
         hotkeySource.Should().Contain("SystemBrowserLauncher.TryOpen(_httpServer.Url, _logger);");
         hotkeySource.Should().Contain("_captureCoordinator.Tick(forceFullScan: true);");
+        hotkeySource.Should().Contain("_resultApplier.MarkAllTargetsForReapply();");
         hotkeySource.Should().Contain("_resultApplier.SetTranslatedTextMode(");
         hotkeySource.Should().Contain("_fontReplacement.SetReplacementFontsEnabledForRuntime(");
         var applierSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Unity", "UnityMainThreadResultApplier.cs"));
@@ -204,11 +249,11 @@ public sealed class BoundedRuntimeLoopSourceTests
         var tmpSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "TmpTextScanner.cs"));
         var uguiSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Capture", "UguiTextScanner.cs"));
 
-        moduleSource.Should().Contain("void Tick(bool forceFullScan = false);");
-        coordinatorSource.Should().Contain("public void Tick(bool forceFullScan = false, bool skipGlobalObjectScanners = false)");
-        coordinatorSource.Should().Contain("module.Tick(forceFullScan)");
-        tmpSource.Should().Contain("forceFullScan ? objects.Length : _configProvider().MaxScanTargetsPerTick");
-        uguiSource.Should().Contain("forceFullScan ? objects.Length : _configProvider().MaxScanTargetsPerTick");
+        moduleSource.Should().Contain("int Tick(bool forceFullScan = false, int? maxTargetsOverride = null);");
+        coordinatorSource.Should().Contain("maxGlobalObjectScanTargets");
+        coordinatorSource.Should().Contain("module.Tick(");
+        tmpSource.Should().Contain("maxTargetsOverride ?? configuredMaxTargets");
+        uguiSource.Should().Contain("maxTargetsOverride ?? configuredMaxTargets");
     }
 
     [Fact]
@@ -259,6 +304,18 @@ public sealed class BoundedRuntimeLoopSourceTests
         resumeBlock.Should().Contain("ImguiTextClassifier.ShouldSkipTranslation(row.SourceText, row.TargetLanguage)");
         resumeBlock.IndexOf("IsIgnoredImguiPendingRow(row)", StringComparison.Ordinal)
             .Should().BeLessThan(resumeBlock.IndexOf("_queue.Enqueue(TranslationJob.Create", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void Worker_host_waits_on_queue_signal_instead_of_polling_empty_queue_only()
+    {
+        var hostSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "TranslationWorkerHost.cs"));
+        var queueSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Core", "Queueing", "TranslationJobQueue.cs"));
+
+        hostSource.Should().Contain("_queue.WaitForPendingAsync(TimeSpan.FromMilliseconds(40), cancellationToken)");
+        queueSource.Should().Contain("WaitForPendingAsync");
+        queueSource.Should().Contain("_pendingSignal.Release()");
+        queueSource.Should().Contain("_pendingSignal.WaitAsync(timeout, cancellationToken)");
     }
 
     private static string FindRepositoryFile(params string[] relativeSegments)

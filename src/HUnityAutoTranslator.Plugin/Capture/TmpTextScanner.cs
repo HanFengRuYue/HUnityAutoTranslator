@@ -11,6 +11,8 @@ namespace HUnityAutoTranslator.Plugin.Capture;
 
 internal sealed class TmpTextScanner : ITextCaptureModule
 {
+    private const float FastStaticTextRetrySeconds = 0.1f;
+
     private static readonly string[] CandidateTypeNames =
     {
         "TMPro.TMP_Text, Unity.TextMeshPro",
@@ -24,6 +26,8 @@ internal sealed class TmpTextScanner : ITextCaptureModule
     private readonly Func<RuntimeConfig> _configProvider;
     private readonly UnityTextFontReplacementService? _fontReplacement;
     private readonly UnityTextStabilityGate _stabilityGate;
+    private readonly UnityTextTargetRegistry _targetRegistry;
+    private readonly UnityTextChangeQueue? _changeQueue;
     private readonly RoundRobinCursor _scanCursor = new();
     private Type? _textType;
     private PropertyInfo? _textProperty;
@@ -41,7 +45,9 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         ManualLogSource logger,
         Func<RuntimeConfig> configProvider,
         UnityTextFontReplacementService? fontReplacement = null,
-        UnityTextStabilityGate? stabilityGate = null)
+        UnityTextStabilityGate? stabilityGate = null,
+        UnityTextTargetRegistry? targetRegistry = null,
+        UnityTextChangeQueue? changeQueue = null)
     {
         _pipeline = pipeline;
         _applier = applier;
@@ -49,6 +55,8 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         _configProvider = configProvider;
         _fontReplacement = fontReplacement;
         _stabilityGate = stabilityGate ?? new UnityTextStabilityGate();
+        _targetRegistry = targetRegistry ?? new UnityTextTargetRegistry();
+        _changeQueue = changeQueue;
     }
 
     public string Name => "TextMeshPro";
@@ -79,27 +87,36 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         _logger.LogInfo($"TMP 捕获已启用，类型：{_textType!.FullName}。");
     }
 
-    public void Tick(bool forceFullScan = false)
+    public int Tick(bool forceFullScan = false, int? maxTargetsOverride = null)
     {
         if (_textType == null || _textProperty == null)
         {
-            return;
+            return 0;
         }
 
         try
         {
             var objects = UnityObjectFinder.FindObjects(_textType);
-            var maxTargets = forceFullScan ? objects.Length : _configProvider().MaxScanTargetsPerTick;
+            var configuredMaxTargets = _configProvider().MaxScanTargetsPerTick;
+            var maxTargets = forceFullScan
+                ? objects.Length
+                : Math.Min(configuredMaxTargets, maxTargetsOverride ?? configuredMaxTargets);
+            var processed = 0;
             foreach (var component in _scanCursor.TakeWindow(objects, maxTargets))
             {
                 Process(component);
+                processed++;
             }
+
+            return processed;
         }
         catch (Exception ex)
         {
             _enabled = false;
             WarnOnce($"TMP 扫描失败，TMP 捕获已关闭：{ex.Message}");
         }
+
+        return 0;
     }
 
     public void Dispose()
@@ -108,7 +125,7 @@ internal sealed class TmpTextScanner : ITextCaptureModule
 
     private void Process(UnityEngine.Object component)
     {
-        var target = new ReflectionTextTarget(component, _textProperty!);
+        var target = _targetRegistry.GetOrCreateTarget(component, _textProperty!);
         var text = target.GetText();
         if (string.IsNullOrWhiteSpace(text))
         {
@@ -147,10 +164,16 @@ internal sealed class TmpTextScanner : ITextCaptureModule
             return;
         }
 
+        if (TryApplyExactCachedTranslation(component, target, text, context, key))
+        {
+            return;
+        }
+
         var stableDecision = EvaluateStableText(target, text, context, config);
         if (stableDecision == StableTextDecisionKind.Wait)
         {
             _fontReplacement?.RestoreTmp(component);
+            QueueStabilityRetry(component, text);
             return;
         }
 
@@ -176,6 +199,54 @@ internal sealed class TmpTextScanner : ITextCaptureModule
         }
     }
 
+    private bool TryApplyExactCachedTranslation(
+        UnityEngine.Object component,
+        ReflectionTextTarget target,
+        string text,
+        TranslationCacheContext context,
+        TranslationCacheKey key)
+    {
+        if (!target.IsVisible)
+        {
+            return false;
+        }
+
+        var decision = _pipeline.ResolveExactCachedTranslation(new CapturedText(target.Id, text, isVisible: true, context));
+        if (decision.Kind != PipelineDecisionKind.UseCachedTranslation || decision.TranslatedText == null)
+        {
+            return false;
+        }
+
+        if (_applier.RememberAndApply(target, text, decision.TranslatedText))
+        {
+            _fontReplacement?.ApplyToTmp(component, key, context, decision.TranslatedText);
+            _applier.ApplyCurrentTextLayoutState(target);
+        }
+        else
+        {
+            _fontReplacement?.RestoreTmp(component);
+        }
+
+        return true;
+    }
+
+    private void QueueStabilityRetry(UnityEngine.Object component, string text)
+    {
+        if (_changeQueue == null || _textProperty == null)
+        {
+            return;
+        }
+
+        _changeQueue.RequeueForStability(
+            new UnityTextChangeWorkItem(
+                component,
+                _textProperty,
+                UnityTextTargetKind.Tmp,
+                text,
+            Time.unscaledTime),
+            Time.unscaledTime + FastStaticTextRetrySeconds);
+    }
+
     private StableTextDecisionKind EvaluateStableText(
         ReflectionTextTarget target,
         string text,
@@ -191,7 +262,8 @@ internal sealed class TmpTextScanner : ITextCaptureModule
                 context.ComponentHierarchy,
                 context.ComponentType),
             text,
-            Time.unscaledTime);
+            Time.unscaledTime,
+            preferFastStaticRelease: true);
     }
 
     private void WarnOnce(string message)

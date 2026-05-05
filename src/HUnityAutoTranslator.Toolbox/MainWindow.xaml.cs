@@ -1,14 +1,19 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Input;
+using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Toolbox.Core.Database;
 using HUnityAutoTranslator.Toolbox.Core.Installation;
 using Microsoft.Web.WebView2.Core;
+using WinForms = System.Windows.Forms;
 
 namespace HUnityAutoTranslator.Toolbox;
 
@@ -83,12 +88,56 @@ public partial class MainWindow : Window
         }
     }
 
-    private static Task<object?> HandleCommandAsync(ToolboxBridgeRequest request)
+    private Task<object?> HandleCommandAsync(ToolboxBridgeRequest request)
     {
+        if (TryHandleWindowCommand(request.Command, out var windowResult))
+        {
+            return Task.FromResult(windowResult);
+        }
+
         return Task.FromResult(HandleCommand(request));
     }
 
-    private static object? HandleCommand(ToolboxBridgeRequest request)
+    private bool TryHandleWindowCommand(string command, out object? result)
+    {
+        result = null;
+        switch (command)
+        {
+            case "windowMinimize":
+                WindowState = WindowState.Minimized;
+                return true;
+            case "windowToggleMaximize":
+                WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
+                return true;
+            case "windowClose":
+                Close();
+                return true;
+            case "windowDrag":
+                TryDragWindow();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private void TryDragWindow()
+    {
+        if (Mouse.LeftButton != MouseButtonState.Pressed)
+        {
+            return;
+        }
+
+        try
+        {
+            DragMove();
+        }
+        catch (InvalidOperationException)
+        {
+            // WebView2 can deliver the bridge call just after the mouse state changes.
+        }
+    }
+
+    private object? HandleCommand(ToolboxBridgeRequest request)
     {
         var payload = request.Payload;
         return request.Command switch
@@ -99,11 +148,67 @@ public partial class MainWindow : Window
                 Version = typeof(MainWindow).Assembly.GetName().Version?.ToString() ?? "0.1.1"
             },
             "inspectGame" => GameInspector.Inspect(ReadString(payload, "gameRoot")),
+            "pickGameDirectory" => PickGameDirectory(payload),
+            "pickFontFile" => PickFontFile(),
             "createInstallPlan" => CreateInstallPlan(payload),
             "loadPluginConfig" => LoadPluginConfig(payload),
+            "savePluginConfig" => SavePluginConfig(payload),
+            "queryTranslations" => QueryTranslations(payload),
+            "getTranslationFilterOptions" => GetTranslationFilterOptions(payload),
+            "updateTranslation" => UpdateTranslation(payload),
+            "deleteTranslations" => DeleteTranslations(payload),
+            "exportTranslations" => ExportTranslations(payload),
+            "importTranslations" => ImportTranslations(payload),
             "runDatabaseMaintenance" => RunDatabaseMaintenance(payload),
             _ => throw new InvalidOperationException("未知工具箱命令：" + request.Command)
         };
+    }
+
+    private static string PickGameDirectory(JsonElement payload)
+    {
+        using var dialog = new WinForms.FolderBrowserDialog
+        {
+            Description = "选择 Unity 游戏根目录",
+            UseDescriptionForTitle = true,
+            ShowNewFolderButton = false
+        };
+
+        var initialDirectory = ReadString(payload, "initialDirectory");
+        if (!string.IsNullOrWhiteSpace(initialDirectory) && Directory.Exists(initialDirectory))
+        {
+            dialog.InitialDirectory = initialDirectory;
+        }
+
+        return dialog.ShowDialog() == WinForms.DialogResult.OK ? dialog.SelectedPath : string.Empty;
+    }
+
+    private static FontPickResult PickFontFile()
+    {
+        using var dialog = new WinForms.OpenFileDialog
+        {
+            Title = "选择替换字体文件",
+            Filter = "字体文件 (*.ttf;*.otf)|*.ttf;*.otf|TrueType 字体 (*.ttf)|*.ttf|OpenType 字体 (*.otf)|*.otf",
+            CheckFileExists = true,
+            CheckPathExists = true,
+            Multiselect = false,
+            RestoreDirectory = true
+        };
+
+        if (dialog.ShowDialog() != WinForms.DialogResult.OK)
+        {
+            return FontPickResult.Cancelled();
+        }
+
+        var path = dialog.FileName;
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
+        {
+            return FontPickResult.Error("未能读取所选字体文件路径。");
+        }
+
+        var fontName = FontNameReader.TryReadFamilyName(path, out var parsedName)
+            ? parsedName
+            : Path.GetFileNameWithoutExtension(path);
+        return FontPickResult.Selected(path, fontName);
     }
 
     private static InstallPlan CreateInstallPlan(JsonElement payload)
@@ -120,8 +225,29 @@ public partial class MainWindow : Window
 
     private static object LoadPluginConfig(JsonElement payload)
     {
-        var gameRoot = ReadString(payload, "gameRoot");
-        var settingsPath = Path.Combine(gameRoot, "BepInEx", "config", "com.hanfeng.hunityautotranslator.cfg");
+        return LoadPluginConfigForGame(RequireGameRoot(payload));
+    }
+
+    private static object SavePluginConfig(JsonElement payload)
+    {
+        var gameRoot = RequireGameRoot(payload);
+        var settingsPath = GetPluginSettingsPath(gameRoot);
+        var store = new CfgControlPanelSettingsStore(settingsPath);
+        var settings = store.Load();
+        if (payload.ValueKind == JsonValueKind.Object &&
+            payload.TryGetProperty("config", out var configElement) &&
+            configElement.ValueKind == JsonValueKind.Object)
+        {
+            settings.Config = JsonSerializer.Deserialize<UpdateConfigRequest>(configElement.GetRawText(), JsonOptions) ?? settings.Config;
+        }
+
+        store.Save(settings);
+        return LoadPluginConfigForGame(gameRoot);
+    }
+
+    private static object LoadPluginConfigForGame(string gameRoot)
+    {
+        var settingsPath = GetPluginSettingsPath(gameRoot);
         var store = new CfgControlPanelSettingsStore(settingsPath);
         var settings = store.Load();
         return new
@@ -133,10 +259,85 @@ public partial class MainWindow : Window
         };
     }
 
+    private static TranslationCachePage QueryTranslations(JsonElement payload)
+    {
+        using var cache = OpenTranslationCache(payload);
+        var query = new TranslationCacheQuery(
+            ReadString(payload, "search"),
+            ReadString(payload, "sort", "updated_utc"),
+            string.Equals(ReadString(payload, "direction", "desc"), "desc", StringComparison.OrdinalIgnoreCase),
+            ReadInt(payload, "offset", 0),
+            Math.Clamp(ReadInt(payload, "limit", 100), 1, 500),
+            ReadColumnFilters(payload));
+        return cache.Query(query);
+    }
+
+    private static TranslationCacheFilterOptionPage GetTranslationFilterOptions(JsonElement payload)
+    {
+        using var cache = OpenTranslationCache(payload);
+        var query = new TranslationCacheFilterOptionsQuery(
+            ReadString(payload, "column"),
+            ReadString(payload, "search"),
+            ReadColumnFilters(payload),
+            ReadString(payload, "optionSearch"),
+            Math.Clamp(ReadInt(payload, "limit", 80), 1, 200));
+        return cache.GetFilterOptions(query);
+    }
+
+    private static TranslationCacheEntry UpdateTranslation(JsonElement payload)
+    {
+        using var cache = OpenTranslationCache(payload);
+        var entry = ReadEntry(payload, "entry");
+        cache.Update(entry);
+        return entry;
+    }
+
+    private static object DeleteTranslations(JsonElement payload)
+    {
+        using var cache = OpenTranslationCache(payload);
+        var deleted = 0;
+        if (payload.ValueKind == JsonValueKind.Object &&
+            payload.TryGetProperty("entries", out var entriesElement) &&
+            entriesElement.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var entryElement in entriesElement.EnumerateArray())
+            {
+                var entry = JsonSerializer.Deserialize<TranslationCacheEntry>(entryElement.GetRawText(), JsonOptions);
+                if (entry == null)
+                {
+                    continue;
+                }
+
+                cache.Delete(entry);
+                deleted++;
+            }
+        }
+
+        return new { DeletedCount = deleted };
+    }
+
+    private static string ExportTranslations(JsonElement payload)
+    {
+        using var cache = OpenTranslationCache(payload);
+        return cache.Export(ReadString(payload, "format", "json"));
+    }
+
+    private static TranslationCacheImportResult ImportTranslations(JsonElement payload)
+    {
+        using var cache = OpenTranslationCache(payload);
+        return cache.Import(ReadString(payload, "content"), ReadString(payload, "format", "json"));
+    }
+
     private static DatabaseMaintenanceResult RunDatabaseMaintenance(JsonElement payload)
     {
+        var databasePath = ReadString(payload, "databasePath");
+        if (string.IsNullOrWhiteSpace(databasePath))
+        {
+            databasePath = ResolveTranslationDatabasePath(payload);
+        }
+
         return TranslationDatabaseService.RunMaintenance(new DatabaseMaintenanceRequest(
-            DatabasePath: ReadString(payload, "databasePath"),
+            DatabasePath: databasePath,
             CreateBackup: ReadBool(payload, "createBackup", fallback: true),
             RunIntegrityCheck: ReadBool(payload, "runIntegrityCheck", fallback: true),
             Reindex: ReadBool(payload, "reindex"),
@@ -147,6 +348,85 @@ public partial class MainWindow : Window
     {
         var json = JsonSerializer.Serialize(response, JsonOptions);
         WebView.CoreWebView2.PostWebMessageAsJson(json);
+    }
+
+    private static string RequireGameRoot(JsonElement payload)
+    {
+        var gameRoot = ReadString(payload, "gameRoot");
+        if (string.IsNullOrWhiteSpace(gameRoot))
+        {
+            throw new InvalidOperationException("请先选择游戏目录。");
+        }
+
+        return Path.GetFullPath(gameRoot);
+    }
+
+    private static string GetPluginSettingsPath(string gameRoot)
+    {
+        return Path.Combine(gameRoot, "BepInEx", "config", "com.hanfeng.hunityautotranslator.cfg");
+    }
+
+    private static string ResolveTranslationDatabasePath(JsonElement payload)
+    {
+        var databasePath = ReadString(payload, "databasePath");
+        if (string.IsNullOrWhiteSpace(databasePath))
+        {
+            var gameRoot = RequireGameRoot(payload);
+            databasePath = Path.Combine(gameRoot, "BepInEx", "config", "HUnityAutoTranslator", "translation-cache.sqlite");
+        }
+
+        databasePath = Path.GetFullPath(databasePath);
+        if (!File.Exists(databasePath))
+        {
+            throw new FileNotFoundException("未找到翻译缓存数据库。", databasePath);
+        }
+
+        return databasePath;
+    }
+
+    private static SqliteTranslationCache OpenTranslationCache(JsonElement payload)
+    {
+        return new SqliteTranslationCache(ResolveTranslationDatabasePath(payload));
+    }
+
+    private static TranslationCacheEntry ReadEntry(JsonElement payload, string propertyName)
+    {
+        if (payload.ValueKind != JsonValueKind.Object ||
+            !payload.TryGetProperty(propertyName, out var value) ||
+            value.ValueKind != JsonValueKind.Object)
+        {
+            throw new InvalidOperationException("缺少译文行数据。");
+        }
+
+        return JsonSerializer.Deserialize<TranslationCacheEntry>(value.GetRawText(), JsonOptions)
+            ?? throw new InvalidOperationException("译文行数据格式无效。");
+    }
+
+    private static IReadOnlyList<TranslationCacheColumnFilter> ReadColumnFilters(JsonElement payload)
+    {
+        if (payload.ValueKind != JsonValueKind.Object ||
+            !payload.TryGetProperty("columnFilters", out var filtersElement) ||
+            filtersElement.ValueKind != JsonValueKind.Object)
+        {
+            return Array.Empty<TranslationCacheColumnFilter>();
+        }
+
+        var filters = new List<TranslationCacheColumnFilter>();
+        foreach (var property in filtersElement.EnumerateObject())
+        {
+            if (property.Value.ValueKind != JsonValueKind.Array)
+            {
+                continue;
+            }
+
+            var values = property.Value
+                .EnumerateArray()
+                .Select(item => item.ValueKind == JsonValueKind.Null ? null : item.GetString())
+                .ToArray();
+            filters.Add(new TranslationCacheColumnFilter(property.Name, values));
+        }
+
+        return filters;
     }
 
     private static string ReadString(JsonElement payload, string propertyName, string fallback = "")
@@ -175,6 +455,24 @@ public partial class MainWindow : Window
             JsonValueKind.False => false,
             _ => fallback
         };
+    }
+
+    private static int ReadInt(JsonElement payload, string propertyName, int fallback = 0)
+    {
+        if (payload.ValueKind != JsonValueKind.Object ||
+            !payload.TryGetProperty(propertyName, out var value))
+        {
+            return fallback;
+        }
+
+        if (value.ValueKind == JsonValueKind.Number && value.TryGetInt32(out var number))
+        {
+            return number;
+        }
+
+        return value.ValueKind == JsonValueKind.String && int.TryParse(value.GetString(), out var parsed)
+            ? parsed
+            : fallback;
     }
 
     private static TEnum ReadEnum<TEnum>(JsonElement payload, string propertyName, TEnum fallback)
