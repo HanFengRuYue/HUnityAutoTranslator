@@ -1,6 +1,6 @@
 param(
     [string]$Configuration = "Release",
-    [string]$PackageVersion = "0.1.0",
+    [string]$PackageVersion = "0.1.1",
     [ValidateSet("BepInEx5", "Mono", "IL2CPP", "All")]
     [string]$Runtime = "All",
     [ValidateSet("None", "Cuda13", "Vulkan", "All")]

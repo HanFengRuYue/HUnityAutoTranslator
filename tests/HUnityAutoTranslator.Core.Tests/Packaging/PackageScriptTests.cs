@@ -10,7 +10,7 @@ public sealed class PackageScriptTests
     {
         var script = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "build", "package.ps1"));
 
-        script.Should().Contain("[string]$PackageVersion = \"0.1.0\"");
+        script.Should().Contain("[string]$PackageVersion = \"0.1.1\"");
         script.Should().Contain("$outputRoot = Resolve-Path -LiteralPath $PSScriptRoot");
         script.Should().Contain("$packageRoot = Join-Path $outputRoot \"HUnityAutoTranslator\"");
         script.Should().Contain("$bepInEx5PackageRoot = Join-Path $outputRoot \"HUnityAutoTranslator-bepinex5\"");
@@ -118,8 +118,8 @@ public sealed class PackageScriptTests
         script.Should().Contain("$llamaTargetRoot = Join-Path $llamaPackageRoot \"BepInEx\\plugins\\HUnityAutoTranslator\"");
         script.Should().Contain("Add-LlamaCppBackend -Variant $Variant -TargetRoot $llamaTargetRoot");
         script.Should().Contain("foreach ($variant in Get-LlamaCppPackageVariants -Variant $LlamaCppVariant)");
-        script.Should().NotContain("HUnityAutoTranslator-0.1.0-cuda13.zip");
-        script.Should().NotContain("HUnityAutoTranslator-0.1.0-vulkan.zip");
+        script.Should().NotContain("HUnityAutoTranslator-0.1.1-cuda13.zip");
+        script.Should().NotContain("HUnityAutoTranslator-0.1.1-vulkan.zip");
         script.Should().NotContain("Add-LlamaCppBackend -Variant $LlamaCppVariant -PluginRoot $pluginRoot");
         script.Should().Contain("if ($GeneratePanelOnly)");
     }
@@ -169,7 +169,7 @@ public sealed class PackageScriptTests
                 """
                 param(
                     [string]$Configuration = "Release",
-                    [string]$PackageVersion = "0.1.0",
+                    [string]$PackageVersion = "0.1.1",
                     [ValidateSet("BepInEx5", "Mono", "IL2CPP", "All")]
                     [string]$Runtime = "All",
                     [ValidateSet("None", "Cuda13", "Vulkan", "All")]

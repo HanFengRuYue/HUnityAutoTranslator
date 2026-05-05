@@ -5,10 +5,10 @@
     <AssemblyName Condition="'$(TargetFramework)' != 'net6.0'">HUnityAutoTranslator.Plugin</AssemblyName>
     <AssemblyName Condition="'$(TargetFramework)' == 'net6.0'">HUnityAutoTranslator.Plugin.IL2CPP</AssemblyName>
     <Product>HUnityAutoTranslator</Product>
-    <Version>0.1.0</Version>
+    <Version>0.1.1</Version>
     <BepInExPluginGuid>com.hanfeng.hunityautotranslator</BepInExPluginGuid>
     <BepInExPluginName>HUnityAutoTranslator</BepInExPluginName>
-    <BepInExPluginVersion>0.1.0</BepInExPluginVersion>
+    <BepInExPluginVersion>0.1.1</BepInExPluginVersion>
     <NoWarn>$(NoWarn);BepInEx002</NoWarn>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
