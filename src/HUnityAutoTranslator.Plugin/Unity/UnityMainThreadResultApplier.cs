@@ -25,7 +25,9 @@ internal sealed class UnityMainThreadResultApplier
     private readonly Action<string>? _fontSizeAdjustmentLogger;
     private readonly Dictionary<string, float> _originalFontSizes = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TmpAutoSizeState> _originalTmpAutoSizeStates = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, TextLayoutBaseline> _originalTextLayoutBaselines = new(StringComparer.Ordinal);
     private readonly HashSet<string> _loggedFontSizeAdjustmentTargets = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _loggedLineSpacingAdjustmentTargets = new(StringComparer.Ordinal);
     private readonly Dictionary<string, TranslationResult> _pendingComponentRefreshes = new(StringComparer.Ordinal);
     private readonly RoundRobinCursor _reapplyCursor = new();
     private int _fontSizeAdjustmentLogCount;
@@ -52,6 +54,7 @@ internal sealed class UnityMainThreadResultApplier
     {
         _targets[target.Id] = target;
         RememberOriginalFontSize(target);
+        RememberOriginalTextLayoutBaseline(target);
         ApplyCurrentFontSizeState(target);
         TryApplyPendingComponentRefresh(target);
     }
@@ -212,6 +215,45 @@ internal sealed class UnityMainThreadResultApplier
         return applied;
     }
 
+    public int ReapplyTextLayoutState(int maxCount)
+    {
+        if (maxCount <= 0)
+        {
+            return 0;
+        }
+
+        var applied = 0;
+        foreach (var target in _reapplyCursor.TakeFullRound(_targets.Values.ToArray()))
+        {
+            if (applied >= maxCount)
+            {
+                break;
+            }
+
+            if (!target.IsAlive)
+            {
+                ForgetTarget(target.Id);
+                continue;
+            }
+
+            ApplyCurrentFontSizeState(target);
+            applied++;
+        }
+
+        return applied;
+    }
+
+    public void ApplyCurrentTextLayoutState(IUnityTextTarget target)
+    {
+        if (!target.IsAlive)
+        {
+            ForgetTarget(target.Id);
+            return;
+        }
+
+        ApplyCurrentFontSizeState(target);
+    }
+
     private bool TryFindTarget(TranslationResult result, out IUnityTextTarget target)
     {
         if (!string.IsNullOrEmpty(result.TargetId))
@@ -295,8 +337,10 @@ internal sealed class UnityMainThreadResultApplier
         }
 
         RestoreTmpAutoSizeState(target);
+        RestoreOriginalTextLayoutState(target);
         RestoreOriginalFontSize(target);
         _loggedFontSizeAdjustmentTargets.Remove(target.Id);
+        _loggedLineSpacingAdjustmentTargets.Remove(target.Id);
         return true;
     }
 
@@ -518,6 +562,7 @@ internal sealed class UnityMainThreadResultApplier
     private void ApplyFontSizeState(IUnityTextTarget target, bool translatedTextIsActive)
     {
         RememberOriginalFontSize(target);
+        RememberOriginalTextLayoutBaseline(target);
         if (!_originalFontSizes.TryGetValue(target.Id, out var originalSize))
         {
             return;
@@ -527,6 +572,7 @@ internal sealed class UnityMainThreadResultApplier
         if (!translatedTextIsActive)
         {
             RestoreTmpAutoSizeState(target);
+            RestoreOriginalTextLayoutState(target);
             RestoreOriginalFontSize(target);
             return;
         }
@@ -555,6 +601,12 @@ internal sealed class UnityMainThreadResultApplier
         else
         {
             target.TrySetFontSize(desiredSize);
+        }
+
+        ApplyTranslatedTextLayoutState(target, desiredSize);
+        if (IsUguiTarget(target.ComponentType))
+        {
+            TryAutoShrinkUguiOverflowingTranslatedText(target, originalSize);
         }
 
         if (config.EnableTmpNativeAutoSize &&
@@ -634,6 +686,195 @@ internal sealed class UnityMainThreadResultApplier
         RefreshTmpLayout(target.Component);
     }
 
+    private void RememberOriginalTextLayoutBaseline(IUnityTextTarget target)
+    {
+        if (_originalTextLayoutBaselines.ContainsKey(target.Id))
+        {
+            return;
+        }
+
+        var fontSize = target.TryGetFontSize(out var capturedFontSize) ? capturedFontSize : 0f;
+        var lineSpacing = target.TryGetLineSpacing(out var capturedLineSpacing) ? capturedLineSpacing : (float?)null;
+        var fontLineHeight = target.TryGetFontLineHeight(out var capturedFontLineHeight) ? capturedFontLineHeight : (float?)null;
+        var preferredHeight = target.TryGetPreferredHeight(out var capturedPreferredHeight) ? capturedPreferredHeight : (float?)null;
+        var renderedHeight = target.TryGetRenderedHeight(out var capturedRenderedHeight) ? capturedRenderedHeight : (float?)null;
+        var rectHeight = target.TryGetRectHeight(out var capturedRectHeight) ? capturedRectHeight : (float?)null;
+        var tmpParagraphSpacing = IsTmpTarget(target.ComponentType) &&
+            target.Component != null &&
+            ReadTmpFloatValue(target.Component, "paragraphSpacing", out var capturedParagraphSpacing)
+                ? capturedParagraphSpacing
+                : (float?)null;
+        var tmpLineSpacingAdjustment = IsTmpTarget(target.ComponentType) &&
+            target.Component != null &&
+            ReadTmpFloatValue(target.Component, "lineSpacingAdjustment", out var capturedLineSpacingAdjustment)
+                ? capturedLineSpacingAdjustment
+                : (float?)null;
+
+        _originalTextLayoutBaselines[target.Id] = new TextLayoutBaseline(
+            fontSize,
+            lineSpacing,
+            fontLineHeight,
+            preferredHeight,
+            renderedHeight,
+            rectHeight,
+            tmpParagraphSpacing,
+            tmpLineSpacingAdjustment);
+    }
+
+    private void ApplyTranslatedTextLayoutState(IUnityTextTarget target, float desiredSize)
+    {
+        if (!_originalTextLayoutBaselines.TryGetValue(target.Id, out var baseline))
+        {
+            return;
+        }
+
+        var preferredHeight = target.TryGetPreferredHeight(out var capturedPreferredHeight) ? capturedPreferredHeight : (float?)null;
+        var renderedHeight = target.TryGetRenderedHeight(out var capturedRenderedHeight) ? capturedRenderedHeight : (float?)null;
+        if (!TextLayoutCompensation.IsLikelyMultiline(target.GetText(), desiredSize, preferredHeight, renderedHeight))
+        {
+            return;
+        }
+
+        if (IsUguiTarget(target.ComponentType))
+        {
+            TryApplyUguiLineSpacingCompensation(target, baseline);
+        }
+        else if (IsTmpTarget(target.ComponentType))
+        {
+            TryApplyTmpLineSpacingCompensation(target, baseline);
+        }
+    }
+
+    private bool TryApplyUguiLineSpacingCompensation(IUnityTextTarget target, TextLayoutBaseline baseline)
+    {
+        if (!baseline.LineSpacing.HasValue ||
+            !baseline.FontLineHeight.HasValue ||
+            !target.TryGetFontLineHeight(out var currentFontLineHeight) ||
+            !TextLayoutCompensation.TryCalculateUguiLineSpacing(
+                baseline.LineSpacing.Value,
+                baseline.FontLineHeight.Value,
+                currentFontLineHeight,
+                out var adjustedLineSpacing))
+        {
+            return false;
+        }
+
+        if (target.TryGetLineSpacing(out var currentLineSpacing))
+        {
+            var restoringOriginalSpacing = adjustedLineSpacing <= baseline.LineSpacing.Value + 0.001f;
+            if (!restoringOriginalSpacing && currentLineSpacing >= adjustedLineSpacing - 0.001f)
+            {
+                return false;
+            }
+
+            if (restoringOriginalSpacing && currentLineSpacing <= adjustedLineSpacing + 0.001f)
+            {
+                return false;
+            }
+        }
+
+        if (!target.TrySetLineSpacing(adjustedLineSpacing))
+        {
+            return false;
+        }
+
+        RefreshUguiLayout(target.Component);
+        LogLineSpacingAdjustment(target, adjustedLineSpacing);
+        return true;
+    }
+
+    private bool TryApplyTmpLineSpacingCompensation(IUnityTextTarget target, TextLayoutBaseline baseline)
+    {
+        if (!baseline.LineSpacing.HasValue || target.Component == null)
+        {
+            return false;
+        }
+
+        var adjustedLineSpacing = 0f;
+        var hasAdjustedLineSpacing = baseline.FontLineHeight.HasValue &&
+            target.TryGetFontLineHeight(out var currentFontLineHeight) &&
+            TextLayoutCompensation.TryCalculateTmpLineSpacing(
+                baseline.LineSpacing.Value,
+                baseline.FontLineHeight.Value,
+                currentFontLineHeight,
+                out adjustedLineSpacing);
+        if (!hasAdjustedLineSpacing)
+        {
+            var currentPreferredHeight = target.TryGetPreferredHeight(out var capturedPreferredHeight)
+                ? capturedPreferredHeight
+                : (float?)null;
+            var estimatedLineCount = TextLayoutCompensation.EstimateLineCount(
+                target.GetText(),
+                baseline.FontSize,
+                currentPreferredHeight);
+            hasAdjustedLineSpacing = baseline.PreferredHeight.HasValue &&
+                currentPreferredHeight.HasValue &&
+                estimatedLineCount > 1 &&
+                TextLayoutCompensation.TryCalculatePreferredHeightLineSpacing(
+                    baseline.LineSpacing.Value,
+                    baseline.PreferredHeight.Value,
+                    currentPreferredHeight.Value,
+                    estimatedLineCount,
+                    out adjustedLineSpacing);
+        }
+
+        if (!hasAdjustedLineSpacing)
+        {
+            return false;
+        }
+
+        if (target.TryGetLineSpacing(out var currentLineSpacing) &&
+            currentLineSpacing >= adjustedLineSpacing - 0.001f)
+        {
+            return false;
+        }
+
+        if (!target.TrySetLineSpacing(adjustedLineSpacing))
+        {
+            return false;
+        }
+
+        RefreshTmpLayout(target.Component);
+        LogLineSpacingAdjustment(target, adjustedLineSpacing);
+        return true;
+    }
+
+    private void RestoreOriginalTextLayoutState(IUnityTextTarget target)
+    {
+        if (!_originalTextLayoutBaselines.TryGetValue(target.Id, out var baseline))
+        {
+            return;
+        }
+
+        var changed = false;
+        if (baseline.LineSpacing.HasValue)
+        {
+            changed |= target.TrySetLineSpacing(baseline.LineSpacing.Value);
+        }
+
+        if (IsTmpTarget(target.ComponentType) && target.Component != null)
+        {
+            if (baseline.TmpParagraphSpacing.HasValue)
+            {
+                changed |= TrySetTmpValue(target.Component, "paragraphSpacing", baseline.TmpParagraphSpacing.Value);
+            }
+
+            if (baseline.TmpLineSpacingAdjustment.HasValue)
+            {
+                changed |= TrySetTmpValue(target.Component, "lineSpacingAdjustment", baseline.TmpLineSpacingAdjustment.Value);
+            }
+
+            if (changed)
+            {
+                RefreshTmpLayout(target.Component);
+            }
+        }
+        else if (changed)
+        {
+            RefreshUguiLayout(target.Component);
+        }
+    }
+
     private bool TryAutoShrinkTmpOverflowingTranslatedText(IUnityTextTarget target, float originalSize)
     {
         if (!IsTmpTarget(target.ComponentType) ||
@@ -681,6 +922,33 @@ internal sealed class UnityMainThreadResultApplier
 
         RefreshTmpLayout(target.Component);
         LogTmpOverflowFontSizeAdjustment(target, currentSize, shrunkSize);
+        return true;
+    }
+
+    private bool TryAutoShrinkUguiOverflowingTranslatedText(IUnityTextTarget target, float originalSize)
+    {
+        if (!IsUguiTarget(target.ComponentType) ||
+            !target.TryGetFontSize(out var currentSize) ||
+            !target.TryGetPreferredHeight(out var preferredHeight) ||
+            !target.TryGetRectHeight(out var rectHeight) ||
+            !TextLayoutCompensation.TryCalculateHeightFitFontSize(
+                currentSize,
+                originalSize,
+                preferredHeight,
+                rectHeight,
+                TextLayoutCompensation.DefaultFitRatio,
+                TextLayoutCompensation.DefaultMinimumScale,
+                out var shrunkSize))
+        {
+            return false;
+        }
+
+        if (!target.TrySetFontSize(shrunkSize))
+        {
+            return false;
+        }
+
+        RefreshUguiLayout(target.Component);
         return true;
     }
 
@@ -790,6 +1058,19 @@ internal sealed class UnityMainThreadResultApplier
         InvokeTmpMethodIfAvailable(component, "ForceMeshUpdate", preferTrueForBool: true);
     }
 
+    private static void RefreshUguiLayout(UnityEngine.Object? component)
+    {
+        if (component == null)
+        {
+            return;
+        }
+
+        InvokeTmpMethodIfAvailable(component, "SetVerticesDirty");
+        InvokeTmpMethodIfAvailable(component, "SetLayoutDirty");
+        InvokeTmpMethodIfAvailable(component, "SetMaterialDirty");
+        InvokeTmpMethodIfAvailable(component, "SetAllDirty");
+    }
+
     private static void SetTmpValue(UnityEngine.Object component, string name, object value)
     {
         _ = TrySetTmpValue(component, name, value);
@@ -887,7 +1168,9 @@ internal sealed class UnityMainThreadResultApplier
         _writebacks.Forget(targetId);
         _originalFontSizes.Remove(targetId);
         _originalTmpAutoSizeStates.Remove(targetId);
+        _originalTextLayoutBaselines.Remove(targetId);
         _loggedFontSizeAdjustmentTargets.Remove(targetId);
+        _loggedLineSpacingAdjustmentTargets.Remove(targetId);
     }
 
     private void LogFontSizeAdjustment(
@@ -934,9 +1217,33 @@ internal sealed class UnityMainThreadResultApplier
             $"TMP 译文字号已自动缩小以避免裁切：{target.ComponentType} {originalSize:0.##} -> {adjustedSize:0.##}。");
     }
 
+    private void LogLineSpacingAdjustment(IUnityTextTarget target, float adjustedLineSpacing)
+    {
+        if (_fontSizeAdjustmentLogger == null ||
+            _fontSizeAdjustmentLogCount >= MaxFontSizeAdjustmentLogCount ||
+            !_loggedLineSpacingAdjustmentTargets.Add(target.Id))
+        {
+            return;
+        }
+
+        _fontSizeAdjustmentLogCount++;
+        _fontSizeAdjustmentLogger(
+            $"译文行距已自动补偿：{target.ComponentType} -> {adjustedLineSpacing:0.##}。");
+    }
+
     private sealed record TmpAutoSizeState(
         bool EnableAutoSizing,
         float FontSize,
         float FontSizeMin,
         float FontSizeMax);
+
+    private sealed record TextLayoutBaseline(
+        float FontSize,
+        float? LineSpacing,
+        float? FontLineHeight,
+        float? PreferredHeight,
+        float? RenderedHeight,
+        float? RectHeight,
+        float? TmpParagraphSpacing,
+        float? TmpLineSpacingAdjustment);
 }

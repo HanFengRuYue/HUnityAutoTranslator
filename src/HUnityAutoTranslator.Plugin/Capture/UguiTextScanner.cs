@@ -119,6 +119,7 @@ internal sealed class UguiTextScanner : ITextCaptureModule
                     config.Provider,
                     TextPipeline.GetPromptPolicyVersion(config));
                 _fontReplacement?.ApplyToUgui(component, rememberedKey, context, text);
+                _applier.ApplyCurrentTextLayoutState(target);
             }
             else
             {
@@ -144,6 +145,7 @@ internal sealed class UguiTextScanner : ITextCaptureModule
             if (_applier.RememberAndApply(target, text, decision.TranslatedText))
             {
                 _fontReplacement?.ApplyToUgui(component, key, context, decision.TranslatedText);
+                _applier.ApplyCurrentTextLayoutState(target);
             }
             else
             {
