@@ -116,8 +116,54 @@ public sealed class TextureOverrideStore
         return stream.ToArray();
     }
 
+    public void ExportArchive(
+        Stream output,
+        IReadOnlyList<TextureCatalogItem> catalog,
+        Action<TextureCatalogItem, Stream> pngWriter,
+        string? gameTitle)
+    {
+        var manifestItems = catalog
+            .OrderBy(item => item.TextureName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(item => item.SourceHash, StringComparer.OrdinalIgnoreCase)
+            .Select(TextureManifestItem.FromCatalogItem)
+            .ToArray();
+        var manifest = new TextureExportManifest(
+            TextureExportManifest.CurrentFormatVersion,
+            string.IsNullOrWhiteSpace(gameTitle) ? null : gameTitle,
+            DateTimeOffset.UtcNow,
+            manifestItems);
+
+        using var archive = new ZipArchive(output, ZipArchiveMode.Create, leaveOpen: true);
+        var manifestEntry = archive.CreateEntry(ManifestEntryName);
+        using (var writer = new StreamWriter(manifestEntry.Open()))
+        {
+            writer.Write(TextureManifestSerializer.Serialize(manifest));
+        }
+
+        foreach (var item in catalog)
+        {
+            var entryName = TextureArchiveNaming.IsSafeArchivePath(item.FileName)
+                ? item.FileName
+                : TextureArchiveNaming.BuildTextureEntryName(item.SourceHash, item.TextureName);
+            var entry = archive.CreateEntry(entryName, CompressionLevel.Optimal);
+            using var entryStream = entry.Open();
+            pngWriter(item, entryStream);
+        }
+    }
+
     public TextureImportResult ImportArchive(byte[] archiveBytes, IReadOnlyList<TextureCatalogItem> currentCatalog)
     {
+        using var stream = new MemoryStream(archiveBytes);
+        return ImportArchive(stream, currentCatalog);
+    }
+
+    public TextureImportResult ImportArchive(Stream archiveStream, IReadOnlyList<TextureCatalogItem> currentCatalog)
+    {
+        if (!archiveStream.CanSeek)
+        {
+            return ImportArchiveFromNonSeekableStream(archiveStream, currentCatalog);
+        }
+
         var errors = new List<string>();
         var imported = 0;
         var catalogByHash = currentCatalog
@@ -128,8 +174,7 @@ public sealed class TextureOverrideStore
 
         try
         {
-            using var stream = new MemoryStream(archiveBytes);
-            using var archive = new ZipArchive(stream, ZipArchiveMode.Read);
+            using var archive = new ZipArchive(archiveStream, ZipArchiveMode.Read, leaveOpen: true);
             var manifest = ReadManifest(archive);
             if (manifest == null)
             {
@@ -207,6 +252,37 @@ public sealed class TextureOverrideStore
         catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException or JsonException)
         {
             return new TextureImportResult(0, 0, new[] { $"贴图导入失败：{ex.Message}" });
+        }
+    }
+
+    private TextureImportResult ImportArchiveFromNonSeekableStream(Stream archiveStream, IReadOnlyList<TextureCatalogItem> currentCatalog)
+    {
+        var tempPath = Path.Combine(Path.GetTempPath(), $"hunity-texture-import-{Guid.NewGuid():N}.zip");
+        try
+        {
+            using (var temp = File.Open(tempPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None))
+            {
+                archiveStream.CopyTo(temp);
+                temp.Position = 0;
+                return ImportArchive(temp, currentCatalog);
+            }
+        }
+        catch (Exception ex) when (ex is InvalidDataException or IOException or UnauthorizedAccessException)
+        {
+            return new TextureImportResult(0, 0, new[] { "贴图导入失败：" + ex.Message });
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+            }
+            catch
+            {
+            }
         }
     }
 
@@ -302,7 +378,20 @@ public sealed class TextureOverrideStore
     {
         using var output = new MemoryStream();
         using var input = entry.Open();
-        input.CopyTo(output);
+        var buffer = new byte[81920];
+        long total = 0;
+        int read;
+        while ((read = input.Read(buffer, 0, buffer.Length)) > 0)
+        {
+            total += read;
+            if (total > MaxTextureEntryBytes)
+            {
+                throw new InvalidDataException("Texture entry is too large.");
+            }
+
+            output.Write(buffer, 0, read);
+        }
+
         return output.ToArray();
     }
 

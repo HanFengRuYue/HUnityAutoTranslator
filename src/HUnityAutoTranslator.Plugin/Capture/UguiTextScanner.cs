@@ -48,6 +48,8 @@ internal sealed class UguiTextScanner : ITextCaptureModule
 
     public bool IsEnabled => _enabled && _configProvider().EnableUgui;
 
+    public bool UsesGlobalObjectScan => true;
+
     public void Start()
     {
         _textType = Type.GetType("UnityEngine.UI.Text, UnityEngine.UI");

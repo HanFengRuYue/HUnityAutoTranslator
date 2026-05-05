@@ -1,4 +1,5 @@
 using FluentAssertions;
+using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Prompts;
@@ -45,6 +46,42 @@ public sealed class ControlPanelServiceTests
         state.RecentTranslations[0].TranslatedText.Should().Be("Start translated");
         state.RecentTranslations[0].ProviderProfileName.Should().Be("OpenAI 主配置");
         state.RecentTranslations[0].ProviderProfileKind.Should().Be("OpenAI");
+    }
+
+    [Fact]
+    public void Snapshot_reports_memory_diagnostics()
+    {
+        var metrics = new ControlPanelMetrics();
+        var config = RuntimeConfig.CreateDefault();
+        var service = ControlPanelService.CreateDefault(metrics);
+        metrics.RecordCaptured(TranslationCacheKey.Create("Start", config.TargetLanguage, config.Provider, "policy"));
+
+        var state = service.GetState(
+            queueCount: 7,
+            cacheCount: 11,
+            writebackQueueCount: 3,
+            memoryDiagnostics: new MemoryDiagnosticsSnapshot(
+                ManagedMemoryBytes: 1024,
+                UnityAllocatedMemoryBytes: 2048,
+                UnityReservedMemoryBytes: 4096,
+                UnityMonoHeapBytes: 512,
+                QueueCount: 0,
+                WritebackQueueCount: 0,
+                CapturedKeyTrackerCount: 0,
+                RegisteredTextTargetCount: 4,
+                FontCacheCount: 5,
+                TmpFontAssetCacheCount: 6,
+                ImguiFontResolutionCacheCount: 7,
+                TextureRecordCount: 8,
+                ReplacementTextureCount: 9,
+                TexturePngBytes: 10));
+
+        state.MemoryDiagnostics.Should().NotBeNull();
+        state.MemoryDiagnostics!.QueueCount.Should().Be(7);
+        state.MemoryDiagnostics.WritebackQueueCount.Should().Be(3);
+        state.MemoryDiagnostics.CapturedKeyTrackerCount.Should().Be(1);
+        state.MemoryDiagnostics.FontCacheCount.Should().Be(5);
+        state.MemoryDiagnostics.TextureRecordCount.Should().Be(8);
     }
 
     [Fact]

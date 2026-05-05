@@ -55,6 +55,8 @@ internal sealed class TmpTextScanner : ITextCaptureModule
 
     public bool IsEnabled => _enabled && _configProvider().EnableTmp;
 
+    public bool UsesGlobalObjectScan => true;
+
     public void Start()
     {
         foreach (var candidate in CandidateTypeNames)

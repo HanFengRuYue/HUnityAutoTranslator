@@ -136,6 +136,24 @@ public sealed class TextureCatalogStore
         return bytes.Length > 0;
     }
 
+    public bool WriteSourceBytes(string sourceHash, Stream destination)
+    {
+        if (!IsSafeSourceHash(sourceHash))
+        {
+            return false;
+        }
+
+        var path = SourcePath(sourceHash);
+        if (!File.Exists(path))
+        {
+            return false;
+        }
+
+        using var input = File.OpenRead(path);
+        input.CopyTo(destination);
+        return input.Length > 0;
+    }
+
     public void Save()
     {
         lock (_gate)

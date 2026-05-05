@@ -92,7 +92,8 @@ public sealed class ControlPanelService
         int queueCount = 0,
         int cacheCount = 0,
         int writebackQueueCount = 0,
-        SelfCheckReport? selfCheck = null)
+        SelfCheckReport? selfCheck = null,
+        MemoryDiagnosticsSnapshot? memoryDiagnostics = null)
     {
         lock (_gate)
         {
@@ -102,6 +103,8 @@ public sealed class ControlPanelService
             var providerProfiles = BuildProviderProfileStates(activeProfile?.Id);
             var activeTextureProfile = ResolveActiveTextureImageProviderProfile();
             var textureProfiles = BuildTextureImageProviderProfileStates();
+            var effectiveMemoryDiagnostics = (memoryDiagnostics ?? MemoryDiagnosticsSnapshot.Empty)
+                .WithRuntimeCounts(queueCount, writebackQueueCount, metrics.CapturedKeyTrackerCount);
             return new ControlPanelState(
                 config.Enabled,
                 config.TargetLanguage,
@@ -199,7 +202,8 @@ public sealed class ControlPanelService
                 activeTextureProfile?.Id,
                 activeTextureProfile?.Name,
                 activeTextureProfile?.ImageModel,
-                selfCheck);
+                selfCheck,
+                effectiveMemoryDiagnostics);
         }
     }
 

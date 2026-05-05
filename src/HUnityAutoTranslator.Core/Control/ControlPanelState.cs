@@ -100,4 +100,5 @@ public sealed record ControlPanelState(
     string? ActiveTextureImageProviderProfileId = null,
     string? ActiveTextureImageProviderProfileName = null,
     string? ActiveTextureImageProviderProfileModel = null,
-    SelfCheckReport? SelfCheck = null);
+    SelfCheckReport? SelfCheck = null,
+    MemoryDiagnosticsSnapshot? MemoryDiagnostics = null);

@@ -73,6 +73,8 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
         }
     }
 
+    public bool IsEnabled => _enabled;
+
     private int PatchUguiTextSetter()
     {
         _uguiTextType = Type.GetType("UnityEngine.UI.Text, UnityEngine.UI");

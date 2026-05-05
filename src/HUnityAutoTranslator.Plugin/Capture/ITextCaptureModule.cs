@@ -6,6 +6,8 @@ internal interface ITextCaptureModule : IDisposable
 
     bool IsEnabled { get; }
 
+    bool UsesGlobalObjectScan { get; }
+
     void Start();
 
     void Tick(bool forceFullScan = false);

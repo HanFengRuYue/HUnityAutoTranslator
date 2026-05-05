@@ -60,6 +60,8 @@ internal sealed class ImguiHookInstaller : ITextCaptureModule
 
     public bool IsEnabled => _enabled && _enableImguiForDraw;
 
+    public bool UsesGlobalObjectScan => false;
+
     public void Start()
     {
         try
