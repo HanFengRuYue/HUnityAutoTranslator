@@ -290,13 +290,21 @@ internal static class RichTextMarkupParser
 
     public static IReadOnlyList<string> ExtractTagNames(string value)
     {
-        return TagRegex.Matches(value ?? string.Empty)
-            .Select(match =>
-            {
-                var closePrefix = match.Groups[1].Value == "/" ? "/" : string.Empty;
-                return closePrefix + match.Groups[2].Value.ToLowerInvariant();
-            })
-            .ToArray();
+        var matches = TagRegex.Matches(value ?? string.Empty);
+        if (matches.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var names = new string[matches.Count];
+        for (var i = 0; i < matches.Count; i++)
+        {
+            var match = matches[i];
+            var closePrefix = match.Groups[1].Value == "/" ? "/" : string.Empty;
+            names[i] = closePrefix + match.Groups[2].Value.ToLowerInvariant();
+        }
+
+        return names;
     }
 
     private static void AddTextElements(

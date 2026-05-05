@@ -565,10 +565,13 @@ public sealed class TranslationWorkerPool
         string sourceText,
         IReadOnlyList<string> translatedSegments)
     {
-        var parts = Regex.Matches(sourceText, @"[^\r\n]+|(?:\r\n|\r|\n)+")
-            .Cast<Match>()
-            .Select(match => match.Value)
-            .ToArray();
+        var matches = Regex.Matches(sourceText, @"[^\r\n]+|(?:\r\n|\r|\n)+");
+        var parts = new string[matches.Count];
+        for (var i = 0; i < matches.Count; i++)
+        {
+            parts[i] = matches[i].Value;
+        }
+
         var sourceTextPartCount = parts.Count(part => !IsLineBreakRun(part));
         if (sourceTextPartCount != translatedSegments.Count)
         {

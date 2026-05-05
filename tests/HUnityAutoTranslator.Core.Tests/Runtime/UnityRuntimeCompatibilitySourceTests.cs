@@ -19,7 +19,8 @@ public sealed partial class UnityRuntimeCompatibilitySourceTests
             (Pattern: ParameterlessTrimStartEndPattern(), Reason: "parameterless TrimStart/TrimEnd overload"),
             (Pattern: CharStringOverloadPattern(), Reason: "char-based string overload"),
             (Pattern: StringComparisonReplaceContainsPattern(), Reason: "StringComparison Replace/Contains overload"),
-            (Pattern: KnownMissingBclHelperPattern(), Reason: "newer BCL helper")
+            (Pattern: KnownMissingBclHelperPattern(), Reason: "newer BCL helper"),
+            (Pattern: RegexMatchCollectionLinqPattern(), Reason: "LINQ over Regex MatchCollection")
         };
 
         var matches = sourceRoots
@@ -85,4 +86,7 @@ public sealed partial class UnityRuntimeCompatibilitySourceTests
 
     [GeneratedRegex(@"\b(?:Math\.Clamp|Path\.GetRelativePath|Random\.Shared|Task\.WaitAsync|Convert\.ToHexString)\b", RegexOptions.CultureInvariant)]
     private static partial Regex KnownMissingBclHelperPattern();
+
+    [GeneratedRegex(@"\.Matches\s*\([^;]*?\)\s*\.\s*(?:Select|Cast\s*<\s*Match\s*>|OfType\s*<\s*Match\s*>)\s*\(", RegexOptions.CultureInvariant)]
+    private static partial Regex RegexMatchCollectionLinqPattern();
 }

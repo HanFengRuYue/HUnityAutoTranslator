@@ -24,6 +24,18 @@ public static class PlaceholderProtector
 
     public static IReadOnlyList<string> ExtractPlaceholders(string value)
     {
-        return PlaceholderRegex.Matches(value).Select(match => match.Value).ToArray();
+        var matches = PlaceholderRegex.Matches(value);
+        if (matches.Count == 0)
+        {
+            return Array.Empty<string>();
+        }
+
+        var placeholders = new string[matches.Count];
+        for (var i = 0; i < matches.Count; i++)
+        {
+            placeholders[i] = matches[i].Value;
+        }
+
+        return placeholders;
     }
 }
