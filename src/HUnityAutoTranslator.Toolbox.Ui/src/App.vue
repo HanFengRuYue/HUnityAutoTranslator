@@ -1590,6 +1590,13 @@ onMounted(() => {
 </script>
 
 <template>
+  <div class="aurora-bg" aria-hidden="true">
+    <div class="aurora-orb-3"></div>
+    <div class="aurora-orb-4"></div>
+    <div class="aurora-mesh"></div>
+    <div class="aurora-beam aurora-beam-1"></div>
+    <div class="aurora-beam aurora-beam-2"></div>
+  </div>
   <div class="shell" :class="[{ 'sidebar-collapsed': sidebarCollapsed }, libraryClass]">
     <header class="window-titlebar" @mousedown.left="dragWindow" @dblclick="toggleWindowMaximize">
       <div class="window-brand">

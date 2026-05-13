@@ -39,9 +39,9 @@
   --aurora-stop-3: #03060f;
   --backdrop-veil: rgba(3, 6, 15, 0.55);
 
-  /* Type system */
-  --font-sans: 'Inter', 'Noto Sans SC', 'Microsoft YaHei', 'Segoe UI', system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', 'Consolas', 'SF Mono', Menlo, monospace;
+  /* Type system — system fonts only (no remote/CDN dependency) */
+  --font-sans: "Segoe UI Variable", "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, monospace;
 
   /* Legacy aliases used across existing components */
   --bg: var(--bg-0);
