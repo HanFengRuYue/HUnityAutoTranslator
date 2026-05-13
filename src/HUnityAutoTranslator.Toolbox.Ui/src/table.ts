@@ -28,12 +28,36 @@ export const defaultColumns: TableColumn[] = [
   { key: "UpdatedUtc", label: "更新时间", sort: "updated_utc", editable: false, width: 190 }
 ];
 
+function readStoredValue(storageKey: string): string | null {
+  try {
+    return window.localStorage.getItem(storageKey);
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredValue(storageKey: string, value: string): void {
+  try {
+    window.localStorage.setItem(storageKey, value);
+  } catch {
+    // WebView2 NavigateToString can reject storage access before Vue mounts.
+  }
+}
+
+function removeStoredValue(storageKey: string): void {
+  try {
+    window.localStorage.removeItem(storageKey);
+  } catch {
+    // WebView2 NavigateToString can reject storage access before Vue mounts.
+  }
+}
+
 function readStringArray(key: string, fallback: string[]): string[] {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(key) ?? "null");
+    const parsed = JSON.parse(readStoredValue(key) ?? "null");
     return Array.isArray(parsed) ? parsed.filter((value) => typeof value === "string") : fallback;
   } catch {
-    window.localStorage.removeItem(key);
+    removeStoredValue(key);
     return fallback;
   }
 }
@@ -47,7 +71,7 @@ export function loadVisibleColumns(): string[] {
 }
 
 export function saveVisibleColumns(keys: string[]): void {
-  window.localStorage.setItem(visibleColumnStorageKey, JSON.stringify(keys));
+  writeStoredValue(visibleColumnStorageKey, JSON.stringify(keys));
 }
 
 export function loadColumnOrder(): string[] {
@@ -55,13 +79,13 @@ export function loadColumnOrder(): string[] {
 }
 
 export function saveColumnOrder(keys: string[]): void {
-  window.localStorage.setItem(columnOrderStorageKey, JSON.stringify(keys));
+  writeStoredValue(columnOrderStorageKey, JSON.stringify(keys));
 }
 
 export function loadColumnWidths(): Record<string, number> {
   const fallback = defaultColumnWidths();
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(columnWidthStorageKey) ?? "{}");
+    const parsed = JSON.parse(readStoredValue(columnWidthStorageKey) ?? "{}");
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
       return fallback;
     }
@@ -75,7 +99,7 @@ export function loadColumnWidths(): Record<string, number> {
     }
     return widths;
   } catch {
-    window.localStorage.removeItem(columnWidthStorageKey);
+    removeStoredValue(columnWidthStorageKey);
     return fallback;
   }
 }
@@ -85,23 +109,23 @@ export function saveColumnWidths(widths: Record<string, number>): void {
   const clean = Object.fromEntries(
     Object.entries(widths).filter(([key, value]) => knownKeys.has(key) && Number.isFinite(value) && value > 0)
   );
-  window.localStorage.setItem(columnWidthStorageKey, JSON.stringify(clean));
+  writeStoredValue(columnWidthStorageKey, JSON.stringify(clean));
 }
 
 export function loadColumnFilters(): Record<string, string[]> {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(columnFilterStorageKey) ?? "{}");
+    const parsed = JSON.parse(readStoredValue(columnFilterStorageKey) ?? "{}");
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
       ? Object.fromEntries(Object.entries(parsed).filter(([, value]) => Array.isArray(value))) as Record<string, string[]>
       : {};
   } catch {
-    window.localStorage.removeItem(columnFilterStorageKey);
+    removeStoredValue(columnFilterStorageKey);
     return {};
   }
 }
 
 export function persistColumnFilters(filters: Record<string, string[]>): void {
-  window.localStorage.setItem(columnFilterStorageKey, JSON.stringify(filters));
+  writeStoredValue(columnFilterStorageKey, JSON.stringify(filters));
 }
 
 export function rowKey(row: TranslationCacheEntry): string {

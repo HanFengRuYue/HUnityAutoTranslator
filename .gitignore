@@ -22,3 +22,5 @@ publish/
 *.user
 *.suo
 *.tmp
+/CLAUDE.md
+/.claude/

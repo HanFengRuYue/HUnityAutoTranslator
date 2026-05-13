@@ -56,9 +56,9 @@ public sealed class ControlPanelVueSourceTests
         aboutPageSource.Should().NotContain("访问范围");
         aboutPageSource.Should().NotContain("面板实现");
         aboutPageSource.Should().NotContain("缓存与术语");
-        CssBlock(cssSource, @"\.about-stage").Should().Contain("grid-template-columns").And.Contain("min-height: calc(100vh - 112px)");
-        CssBlock(cssSource, @"\.about-logo-mark").Should().Contain("animation: about-logo-float");
-        CssBlock(cssSource, @"\.about-version-list").Should().Contain("display: grid;");
+        CssBlock(cssSource, @"\.about-hero").Should().Contain("grid-template-columns").And.Contain("align-items: center");
+        CssBlock(cssSource, @"\.about-card-grid").Should().Contain("repeat(auto-fill, minmax(240px, 1fr))");
+        CssBlock(cssSource, @"\.about-card").Should().Contain("display: grid;");
         cssSource.Should().Contain("@media (prefers-reduced-motion: reduce)");
     }
 

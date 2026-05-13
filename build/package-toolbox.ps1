@@ -24,6 +24,37 @@ function Invoke-CheckedNative([string]$Command, [string[]]$Arguments) {
     }
 }
 
+function Invoke-ToolboxNpmInstall {
+    if (-not (Test-Path -LiteralPath "package-lock.json")) {
+        Invoke-CheckedNative "npm" @("install")
+        return
+    }
+
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $ciOutput = & npm @("ci") 2>&1
+        $ciExitCode = $LASTEXITCODE
+    }
+    finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+
+    if ($ciExitCode -eq 0) {
+        $ciOutput | ForEach-Object { Write-Host $_ }
+        return
+    }
+
+    if ($ciExitCode -eq -4048 -and (Test-Path -LiteralPath "node_modules")) {
+        Write-Warning "npm ci could not remove a locked native dependency. Retrying with npm install without cleaning node_modules."
+        Invoke-CheckedNative "npm" @("install", "--no-audit", "--no-fund")
+        return
+    }
+
+    $ciOutput | ForEach-Object { Write-Host $_ }
+    throw "Command failed with exit code ${ciExitCode}: npm ci"
+}
+
 function Normalize-Newlines([string]$Value) {
     return ($Value -replace "`r`n", "`n") -replace "`r", "`n"
 }
@@ -202,12 +233,7 @@ function Build-ToolboxUi {
     Push-Location $toolboxUiRoot
     try {
         if (-not $SkipNpmInstall) {
-            if (Test-Path -LiteralPath "package-lock.json") {
-                Invoke-CheckedNative "npm" @("ci")
-            }
-            else {
-                Invoke-CheckedNative "npm" @("install")
-            }
+            Invoke-ToolboxNpmInstall
         }
 
         Invoke-CheckedNative "npm" @("run", "build")

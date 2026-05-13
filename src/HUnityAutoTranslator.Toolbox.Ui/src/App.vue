@@ -396,7 +396,7 @@ function readStoredOption<T extends string>(key: string, allowed: readonly T[], 
 
 function readStoredGames(): GameLibraryEntry[] {
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(gameLibraryStorageKey) ?? "[]");
+    const parsed = JSON.parse(readStoredString(gameLibraryStorageKey) || "[]");
     if (!Array.isArray(parsed)) {
       return [];
     }
@@ -412,7 +412,7 @@ function readStoredGames(): GameLibraryEntry[] {
         Inspection: item.Inspection ?? null
       }));
   } catch {
-    window.localStorage.removeItem(gameLibraryStorageKey);
+    writeStoredString(gameLibraryStorageKey, "");
     return [];
   }
 }

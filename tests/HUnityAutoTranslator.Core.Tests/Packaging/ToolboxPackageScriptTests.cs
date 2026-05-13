@@ -67,6 +67,22 @@ public sealed class ToolboxPackageScriptTests
     }
 
     [Fact]
+    public void Toolbox_package_script_recovers_when_npm_ci_hits_locked_windows_native_dependency()
+    {
+        var root = FindRepositoryRoot();
+        var script = File.ReadAllText(Path.Combine(root, "build", "package-toolbox.ps1"));
+
+        script.Should().Contain("function Invoke-ToolboxNpmInstall");
+        script.Should().Contain("$previousErrorActionPreference = $ErrorActionPreference");
+        script.Should().Contain("$ErrorActionPreference = \"Continue\"");
+        script.Should().Contain("$ciOutput = & npm @(\"ci\") 2>&1");
+        script.Should().Contain("$ciExitCode -eq -4048");
+        script.Should().Contain("Test-Path -LiteralPath \"node_modules\"");
+        script.Should().Contain("Invoke-CheckedNative \"npm\" @(\"install\", \"--no-audit\", \"--no-fund\")");
+        script.Should().Contain("Invoke-ToolboxNpmInstall");
+    }
+
+    [Fact]
     public void Generated_toolbox_html_uses_webview_compatible_script_position()
     {
         var root = FindRepositoryRoot();
@@ -107,6 +123,33 @@ public sealed class ToolboxPackageScriptTests
         ui.Should().Contain("catch");
         ui.Should().NotContain("const saved = localStorage.getItem(themeStorageKey);");
         ui.Should().NotContain("localStorage.setItem(themeStorageKey, theme.value);");
+    }
+
+    [Fact]
+    public void Toolbox_game_library_storage_is_guarded_for_webview_string_documents()
+    {
+        var root = FindRepositoryRoot();
+        var ui = File.ReadAllText(Path.Combine(root, "src", "HUnityAutoTranslator.Toolbox.Ui", "src", "App.vue"));
+
+        ui.Should().Contain("const parsed = JSON.parse(readStoredString(gameLibraryStorageKey) || \"[]\");");
+        ui.Should().Contain("writeStoredString(gameLibraryStorageKey, \"\");");
+        ui.Should().NotContain("window.localStorage.removeItem(gameLibraryStorageKey);");
+    }
+
+    [Fact]
+    public void Toolbox_table_storage_is_guarded_for_webview_string_documents()
+    {
+        var root = FindRepositoryRoot();
+        var table = File.ReadAllText(Path.Combine(root, "src", "HUnityAutoTranslator.Toolbox.Ui", "src", "table.ts"));
+
+        table.Should().Contain("function readStoredValue");
+        table.Should().Contain("function writeStoredValue");
+        table.Should().Contain("function removeStoredValue");
+        table.Should().NotContain("window.localStorage.removeItem(key);");
+        table.Should().NotContain("window.localStorage.setItem(visibleColumnStorageKey");
+        table.Should().NotContain("window.localStorage.setItem(columnOrderStorageKey");
+        table.Should().NotContain("window.localStorage.setItem(columnWidthStorageKey");
+        table.Should().NotContain("window.localStorage.setItem(columnFilterStorageKey");
     }
 
     [Fact]
