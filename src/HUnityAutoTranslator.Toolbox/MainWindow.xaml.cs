@@ -2,12 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 using System.Windows;
-using System.Windows.Input;
+using System.Windows.Interop;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Toolbox.Core.Database;
@@ -22,9 +23,12 @@ public partial class MainWindow : Window
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = null,
+        PropertyNameCaseInsensitive = true,
         Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping,
         Converters = { new JsonStringEnumConverter() }
     };
+
+    private bool _isShuttingDown;
 
     public MainWindow()
     {
@@ -40,6 +44,14 @@ public partial class MainWindow : Window
 
             var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder).ConfigureAwait(true);
             await WebView.EnsureCoreWebView2Async(environment).ConfigureAwait(true);
+            try
+            {
+                WebView.CoreWebView2.Settings.IsNonClientRegionSupportEnabled = true;
+            }
+            catch (NotImplementedException)
+            {
+                // 老版本 WebView2 Runtime 不支持，自定义标题栏仍可渲染，仅拖动失效。
+            }
             WebView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
             WebView.CoreWebView2.Settings.AreDevToolsEnabled = true;
             WebView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
@@ -65,6 +77,77 @@ public partial class MainWindow : Window
         return Path.Combine(localAppData, "HUnityAutoTranslator", "Toolbox", "WebView2");
     }
 
+    private void OnSourceInitialized(object? sender, EventArgs e)
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        var source = HwndSource.FromHwnd(handle);
+        source?.AddHook(WindowProc);
+    }
+
+    private void OnWindowStateChanged(object? sender, EventArgs e)
+    {
+        PushWindowState();
+    }
+
+    private void PushWindowState()
+    {
+        var coreWebView = WebView?.CoreWebView2;
+        if (coreWebView is null)
+        {
+            return;
+        }
+
+        var json = JsonSerializer.Serialize(new
+        {
+            type = "windowStateChanged",
+            state = DescribeWindowState()
+        }, JsonOptions);
+        try
+        {
+            coreWebView.PostWebMessageAsJson(json);
+        }
+        catch
+        {
+            // WebView2 在关闭过程中可能拒绝消息，忽略以免阻塞窗口状态变更。
+        }
+    }
+
+    private string DescribeWindowState()
+    {
+        return WindowState == WindowState.Maximized ? "maximized" : "normal";
+    }
+
+    private object? InvokeWindowAction(Action action)
+    {
+        Dispatcher.Invoke(action);
+        return null;
+    }
+
+    protected override void OnClosed(EventArgs e)
+    {
+        if (_isShuttingDown)
+        {
+            return;
+        }
+
+        _isShuttingDown = true;
+        base.OnClosed(e);
+
+        try
+        {
+            WebView?.Dispose();
+        }
+        catch
+        {
+            // WebView2 disposal can race with native teardown; ignore so shutdown still completes.
+        }
+
+        Application.Current?.Shutdown();
+
+        // WebView2 occasionally keeps background threads alive past Shutdown; force the process to exit.
+        Environment.Exit(0);
+    }
+
     private async void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
     {
         ToolboxBridgeRequest? request = null;
@@ -76,7 +159,7 @@ public partial class MainWindow : Window
                 return;
             }
 
-            var result = await HandleCommandAsync(request).ConfigureAwait(true);
+            var result = await Task.FromResult(HandleCommand(request)).ConfigureAwait(true);
             PostResponse(new ToolboxBridgeResponse(request.Id, true, result, null));
         }
         catch (Exception ex)
@@ -85,55 +168,6 @@ public partial class MainWindow : Window
             {
                 PostResponse(new ToolboxBridgeResponse(request.Id, false, null, ex.Message));
             }
-        }
-    }
-
-    private Task<object?> HandleCommandAsync(ToolboxBridgeRequest request)
-    {
-        if (TryHandleWindowCommand(request.Command, out var windowResult))
-        {
-            return Task.FromResult(windowResult);
-        }
-
-        return Task.FromResult(HandleCommand(request));
-    }
-
-    private bool TryHandleWindowCommand(string command, out object? result)
-    {
-        result = null;
-        switch (command)
-        {
-            case "windowMinimize":
-                WindowState = WindowState.Minimized;
-                return true;
-            case "windowToggleMaximize":
-                WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized;
-                return true;
-            case "windowClose":
-                Close();
-                return true;
-            case "windowDrag":
-                TryDragWindow();
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    private void TryDragWindow()
-    {
-        if (Mouse.LeftButton != MouseButtonState.Pressed)
-        {
-            return;
-        }
-
-        try
-        {
-            DragMove();
-        }
-        catch (InvalidOperationException)
-        {
-            // WebView2 can deliver the bridge call just after the mouse state changes.
         }
     }
 
@@ -160,6 +194,10 @@ public partial class MainWindow : Window
             "exportTranslations" => ExportTranslations(payload),
             "importTranslations" => ImportTranslations(payload),
             "runDatabaseMaintenance" => RunDatabaseMaintenance(payload),
+            "windowMinimize" => InvokeWindowAction(() => WindowState = WindowState.Minimized),
+            "windowMaximizeRestore" => InvokeWindowAction(() => WindowState = WindowState == WindowState.Maximized ? WindowState.Normal : WindowState.Maximized),
+            "windowClose" => InvokeWindowAction(Close),
+            "getWindowState" => DescribeWindowState(),
             _ => throw new InvalidOperationException("未知工具箱命令：" + request.Command)
         };
     }
@@ -482,6 +520,84 @@ public partial class MainWindow : Window
         return Enum.TryParse<TEnum>(value, ignoreCase: true, out var parsed) ? parsed : fallback;
     }
 
+    private const int WM_GETMINMAXINFO = 0x0024;
+
+    private static IntPtr WindowProc(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (msg == WM_GETMINMAXINFO)
+        {
+            AdjustMaximizedBounds(hwnd, lParam);
+            handled = true;
+        }
+
+        return IntPtr.Zero;
+    }
+
+    private static void AdjustMaximizedBounds(IntPtr hwnd, IntPtr lParam)
+    {
+        var monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        if (monitor == IntPtr.Zero)
+        {
+            return;
+        }
+
+        var info = new MONITORINFO { cbSize = Marshal.SizeOf<MONITORINFO>() };
+        if (!GetMonitorInfo(monitor, ref info))
+        {
+            return;
+        }
+
+        var mmi = Marshal.PtrToStructure<MINMAXINFO>(lParam);
+        mmi.ptMaxPosition.X = info.rcWork.Left - info.rcMonitor.Left;
+        mmi.ptMaxPosition.Y = info.rcWork.Top - info.rcMonitor.Top;
+        mmi.ptMaxSize.X = info.rcWork.Right - info.rcWork.Left;
+        mmi.ptMaxSize.Y = info.rcWork.Bottom - info.rcWork.Top;
+        Marshal.StructureToPtr(mmi, lParam, true);
+    }
+
+    private const uint MONITOR_DEFAULTTONEAREST = 0x00000002;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref MONITORINFO lpmi);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct POINT
+    {
+        public int X;
+        public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MONITORINFO
+    {
+        public int cbSize;
+        public RECT rcMonitor;
+        public RECT rcWork;
+        public uint dwFlags;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MINMAXINFO
+    {
+        public POINT ptReserved;
+        public POINT ptMaxSize;
+        public POINT ptMaxPosition;
+        public POINT ptMinTrackSize;
+        public POINT ptMaxTrackSize;
+    }
+
     private const string BridgeScript = """
 (() => {
   if (window.ToolboxBridge) {
@@ -490,8 +606,10 @@ public partial class MainWindow : Window
 
   let nextId = 1;
   const pending = new Map();
+  const events = new EventTarget();
 
   window.ToolboxBridge = {
+    events,
     invoke(command, payload = {}) {
       return new Promise((resolve, reject) => {
         const id = String(nextId++);
@@ -502,23 +620,37 @@ public partial class MainWindow : Window
   };
 
   window.chrome.webview.addEventListener("message", (event) => {
-    const response = event.data;
-    const callbacks = pending.get(response.id);
-    if (!callbacks) {
+    const data = event.data;
+    if (data && typeof data === "object" && data.id) {
+      const callbacks = pending.get(data.id);
+      if (!callbacks) {
+        return;
+      }
+
+      pending.delete(data.id);
+      if (data.succeeded) {
+        callbacks.resolve(data.payload);
+      } else {
+        callbacks.reject(new Error(data.error || "工具箱命令失败"));
+      }
       return;
     }
 
-    pending.delete(response.id);
-    if (response.succeeded) {
-      callbacks.resolve(response.payload);
-    } else {
-      callbacks.reject(new Error(response.error || "工具箱命令失败"));
+    if (data && typeof data === "object" && typeof data.type === "string") {
+      events.dispatchEvent(new CustomEvent(data.type, { detail: data }));
     }
   });
 })();
 """;
 
-    private sealed record ToolboxBridgeRequest(string Id, string Command, JsonElement Payload);
+    private sealed record ToolboxBridgeRequest(
+        [property: JsonPropertyName("id")] string Id,
+        [property: JsonPropertyName("command")] string Command,
+        [property: JsonPropertyName("payload")] JsonElement Payload);
 
-    private sealed record ToolboxBridgeResponse(string Id, bool Succeeded, object? Payload, string? Error);
+    private sealed record ToolboxBridgeResponse(
+        [property: JsonPropertyName("id")] string Id,
+        [property: JsonPropertyName("succeeded")] bool Succeeded,
+        [property: JsonPropertyName("payload")] object? Payload,
+        [property: JsonPropertyName("error")] string? Error);
 }

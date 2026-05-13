@@ -5,10 +5,11 @@ import type {
   TranslationCacheFilterOptionPage,
   TranslationCacheImportResult,
   TranslationCachePage
-} from "./types";
+} from "./types/api";
 
 interface NativeBridge {
   invoke<T>(command: string, payload?: unknown): Promise<T>;
+  events?: EventTarget;
 }
 
 declare global {
@@ -29,6 +30,10 @@ export async function invokeToolbox<T>(command: string, payload: unknown = {}): 
 }
 
 function fallbackResponse<T>(command: string, payload: unknown): T {
+  if (command === "getAppInfo") {
+    return { Name: "HUnityAutoTranslator 工具箱", Version: "0.1.1" } as T;
+  }
+
   if (command === "inspectGame") {
     const gameRoot = readPayloadString(payload, "gameRoot");
     if (!gameRoot.trim()) {
@@ -72,6 +77,14 @@ function fallbackResponse<T>(command: string, payload: unknown): T {
 
   if (command === "pickGameDirectory") {
     return "" as T;
+  }
+
+  if (command === "getWindowState") {
+    return "normal" as T;
+  }
+
+  if (command === "windowMinimize" || command === "windowMaximizeRestore" || command === "windowClose") {
+    return null as T;
   }
 
   if (command === "pickFontFile") {
@@ -148,10 +161,6 @@ function fallbackResponse<T>(command: string, payload: unknown): T {
 
   if (command === "importTranslations") {
     return { ImportedCount: 0, Errors: [] } as TranslationCacheImportResult as T;
-  }
-
-  if (command.startsWith("window")) {
-    return {} as T;
   }
 
   return {} as T;
