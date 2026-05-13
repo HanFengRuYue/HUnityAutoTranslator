@@ -26,6 +26,15 @@ const activePageComponent = computed(() => pages[controlPanelStore.activePage]);
 </script>
 
 <template>
+  <div class="aurora-bg" aria-hidden="true">
+    <div class="aurora-orb-3"></div>
+    <div class="aurora-orb-4"></div>
+    <div class="aurora-mesh"></div>
+    <div class="aurora-stars"></div>
+    <div class="aurora-beam aurora-beam-1"></div>
+    <div class="aurora-beam aurora-beam-2"></div>
+    <div class="aurora-beam aurora-beam-3"></div>
+  </div>
   <div class="app-shell" :class="{ 'sidebar-collapsed': sidebarCollapsed }">
     <AppSidebar @update:collapsed="sidebarCollapsed = $event" />
     <main class="workspace">
