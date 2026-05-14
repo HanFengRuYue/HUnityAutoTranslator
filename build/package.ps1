@@ -372,6 +372,28 @@ function Copy-NativeSqlite([string]$BuildOutput, [string]$TargetRoot) {
     }
 }
 
+function Test-UnityEngineModulesCached {
+    # 插件 csproj 的 RestoreAdditionalProjectSources 里只挂了 nuget.samboy.dev，而它只为下载
+    # UnityEngine.Modules 这一个固定版本包。包进了 NuGet 全局缓存后该源就不再需要——调用方据此
+    # 把它从还原源里摘掉，免得它临时 502 时连累浮动版本（BepInEx.Analyzers 1.* 等）的还原（NU1301）。
+    $projectXml = Get-Content -LiteralPath $project -Raw
+    $match = [regex]::Match($projectXml, 'UnityEngine\.Modules"\s+Version="([^"]+)"')
+    if (-not $match.Success) {
+        return $false
+    }
+
+    $nugetPackagesRoot = if ($env:NUGET_PACKAGES) {
+        $env:NUGET_PACKAGES
+    }
+    else {
+        Join-Path $env:USERPROFILE ".nuget\packages"
+    }
+
+    # NuGet 解包完成后才会写入 .nupkg.metadata，用它判断是“完整缓存”而非半截解包。
+    $packageMarker = Join-Path $nugetPackagesRoot "unityengine.modules\$($match.Groups[1].Value)\.nupkg.metadata"
+    return (Test-Path -LiteralPath $packageMarker)
+}
+
 function Build-PluginPackage([hashtable]$Build) {
     $runtimeProject = $Build.Project
     if (-not $runtimeProject) {
@@ -390,6 +412,8 @@ function Build-PluginPackage([hashtable]$Build) {
         "-p:BepInExPluginVersion=$PackageVersion",
         "-p:FileVersion=$PackageVersion",
         "-p:InformationalVersion=$PackageVersion"
+        # 见下方 $unityEngineModulesCached：缓存命中时清空 RestoreAdditionalProjectSources 摘掉 samboy.dev。
+        if ($unityEngineModulesCached) { "-p:RestoreAdditionalProjectSources=" }
     )
 
     $runtimePackageRoot = $Build.PackageRoot
@@ -444,6 +468,15 @@ if ($GeneratePanelOnly) {
 }
 
 New-Item -ItemType Directory -Force -Path $outputRoot | Out-Null
+
+# nuget.samboy.dev 只用来下载 UnityEngine.Modules（固定版本、编译期引用）。该包已缓存时就把这个
+# 第三方源从插件项目的还原里摘掉，避免它临时不可用（如 502 Bad Gateway）时连累整个打包流程；
+# 没缓存时保留它，让 NuGet 照常去拉包，拉不到也会给出准确的源不可达报错。
+$unityEngineModulesCached = Test-UnityEngineModulesCached
+if (-not $unityEngineModulesCached) {
+    Write-Warning "UnityEngine.Modules is not in the NuGet cache; this build still needs nuget.samboy.dev. If that feed is unavailable, run 'dotnet restore' once while it is reachable to populate the cache."
+}
+
 foreach ($pluginBuild in Get-PluginRuntimeBuilds -Runtime $Runtime) {
     Build-PluginPackage -Build $pluginBuild
 }
