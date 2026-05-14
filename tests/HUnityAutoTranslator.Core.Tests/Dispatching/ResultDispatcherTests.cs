@@ -45,4 +45,30 @@ public sealed class ResultDispatcherTests
         dispatcher.Drain(maxCount: 10).Select(item => item.TargetId)
             .Should().Equal("second", "third", "fourth");
     }
+
+    [Fact]
+    public void Drain_returns_empty_when_nothing_is_pending()
+    {
+        var dispatcher = new ResultDispatcher();
+
+        dispatcher.Drain(maxCount: 32).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void Drain_preserves_priority_then_sequence_order_across_multiple_passes()
+    {
+        var dispatcher = new ResultDispatcher();
+        dispatcher.Publish(new TranslationResult("n1", "a", "甲", priority: 0));
+        dispatcher.Publish(new TranslationResult("v1", "b", "乙", priority: 100));
+        dispatcher.Publish(new TranslationResult("n2", "c", "丙", priority: 0));
+        dispatcher.Publish(new TranslationResult("v2", "d", "丁", priority: 100));
+        dispatcher.Publish(new TranslationResult("p1", "e", "戊", priority: -100));
+
+        var first = dispatcher.Drain(maxCount: 2);
+        var second = dispatcher.Drain(maxCount: 10);
+
+        first.Select(item => item.TargetId).Should().Equal("v1", "v2");
+        second.Select(item => item.TargetId).Should().Equal("n1", "n2", "p1");
+        dispatcher.PendingCount.Should().Be(0);
+    }
 }

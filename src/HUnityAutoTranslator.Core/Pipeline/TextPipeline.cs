@@ -82,10 +82,15 @@ public sealed class TextPipeline
             return PipelineDecision.UseCachedTranslation(reusableTranslatedText);
         }
 
+        var priority = capturedText.IsVisible
+            ? TranslationPriority.VisibleUi
+            : capturedText.AllowInvisiblePrefetch
+                ? TranslationPriority.Prefetch
+                : TranslationPriority.Normal;
         var enqueued = _queue.Enqueue(TranslationJob.Create(
             capturedText.TargetId,
             capturedText.SourceText,
-            capturedText.IsVisible ? TranslationPriority.VisibleUi : TranslationPriority.Normal,
+            priority,
             capturedText.Context,
             publishResult: capturedText.PublishResult));
         if (enqueued)
@@ -153,7 +158,7 @@ public sealed class TextPipeline
     {
         return config.Enabled &&
             capturedText.SourceText.Length <= config.MaxSourceTextLength &&
-            (!config.IgnoreInvisibleText || capturedText.IsVisible) &&
+            (!config.IgnoreInvisibleText || capturedText.IsVisible || capturedText.AllowInvisiblePrefetch) &&
             TextFilter.ShouldTranslate(capturedText.SourceText) &&
             !TextFilter.IsAlreadyTargetLanguageSource(capturedText.SourceText, config.TargetLanguage);
     }

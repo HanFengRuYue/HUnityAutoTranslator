@@ -17,6 +17,7 @@ using HUnityAutoTranslator.Plugin.Hotkeys;
 using HUnityAutoTranslator.Plugin.Http;
 using HUnityAutoTranslator.Plugin.Unity;
 using UnityEngine;
+using UnityEngine.SceneManagement;
 
 namespace HUnityAutoTranslator.Plugin;
 
@@ -58,6 +59,7 @@ internal sealed class PluginRuntime : IDisposable
     private UnityTextChangeQueue? _textChangeQueue;
     private UnityTextTargetRegistry? _textTargetRegistry;
     private UnityTextTargetProcessor? _textTargetProcessor;
+    private InactiveTextPrefetchScanner? _inactivePrefetchScanner;
     private float _nextScanTime;
     private float _nextReflectionScanTime;
     private float _requestedGlobalTextScanTime;
@@ -154,14 +156,23 @@ internal sealed class PluginRuntime : IDisposable
                 RequestGlobalTextScan,
                 _metrics,
                 _textChangeQueue);
+            _inactivePrefetchScanner = new InactiveTextPrefetchScanner(
+                pipeline,
+                _resultApplier,
+                _logger,
+                _controlPanel.GetConfig,
+                textTargetRegistry,
+                _metrics);
             _captureCoordinator = new TextCaptureCoordinator(new ITextCaptureModule[]
             {
                 new UguiTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate, textTargetRegistry, _textChangeQueue),
                 new TmpTextScanner(pipeline, _resultApplier, _logger, _controlPanel.GetConfig, _fontReplacement, textStabilityGate, textTargetRegistry, _textChangeQueue),
-                new ImguiHookInstaller(pipeline, _cache, _logger, _controlPanel.GetConfig, _fontReplacement)
+                new ImguiHookInstaller(pipeline, _cache, _logger, _controlPanel.GetConfig, _fontReplacement),
+                _inactivePrefetchScanner
             });
             _textChangeHook?.Start();
             _captureCoordinator.Start();
+            SceneManager.sceneLoaded += OnSceneLoadedForPrefetch;
             _workerHost = new TranslationWorkerHost(_controlPanel, _queue, _dispatcher, _cache, _glossary, _metrics, _logger, _httpTransport, _llamaCppServer);
             _workerHost.Start();
             _selfCheck = new SelfCheckService(
@@ -362,6 +373,7 @@ internal sealed class PluginRuntime : IDisposable
 
     public void Dispose()
     {
+        SceneManager.sceneLoaded -= OnSceneLoadedForPrefetch;
         _textChangeHook?.Dispose();
         _captureCoordinator?.Dispose();
         _workerHost?.Dispose();
@@ -515,9 +527,14 @@ internal sealed class PluginRuntime : IDisposable
             return;
         }
 
+        _nextHighlighterSnapshotTime = Time.unscaledTime + HighlighterSnapshotIntervalSeconds;
+        if (!_highlighter.NeedsTargetSnapshot)
+        {
+            return;
+        }
+
         var targets = _resultApplier.SnapshotTargets();
         _highlighter.RefreshTargetSnapshot(targets);
-        _nextHighlighterSnapshotTime = Time.unscaledTime + HighlighterSnapshotIntervalSeconds;
     }
 
     public void LateTick()
@@ -553,6 +570,11 @@ internal sealed class PluginRuntime : IDisposable
     public void RenderGui()
     {
         _highlighter?.OnGUI();
+    }
+
+    private void OnSceneLoadedForPrefetch(Scene scene, LoadSceneMode mode)
+    {
+        _inactivePrefetchScanner?.RequestDeepScan();
     }
 
     private void RunTextChangeSuppressed(Action action)

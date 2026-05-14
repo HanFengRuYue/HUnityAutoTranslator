@@ -8,9 +8,11 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
 {
     private static readonly object MemberCacheGate = new();
     private static readonly Dictionary<Type, ReflectionTextMemberCache> _memberCache = new();
+    private static readonly object TextAccessorGate = new();
+    private static readonly Dictionary<PropertyInfo, TextPropertyAccessor> _textAccessors = new();
 
     private readonly UnityEngine.Object _component;
-    private PropertyInfo _textProperty;
+    private TextPropertyAccessor _textAccessor;
     private string? _cachedSceneName;
     private string? _cachedHierarchyPath;
     private readonly string _componentType;
@@ -25,7 +27,7 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
     public ReflectionTextTarget(UnityEngine.Object component, PropertyInfo textProperty, int metadataGeneration)
     {
         _component = component;
-        _textProperty = textProperty;
+        _textAccessor = GetTextAccessor(textProperty);
         _metadataGeneration = metadataGeneration;
         _componentType = component.GetType().FullName ?? component.GetType().Name;
         Id = component.GetInstanceID().ToString();
@@ -39,7 +41,7 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
 
     public void UpdateTextProperty(PropertyInfo textProperty)
     {
-        _textProperty = textProperty;
+        _textAccessor = GetTextAccessor(textProperty);
     }
 
     public void RefreshGeneration(int metadataGeneration)
@@ -114,7 +116,7 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
     {
         try
         {
-            return _textProperty.GetValue(_component, null) as string;
+            return _textAccessor.Get(_component);
         }
         catch
         {
@@ -124,7 +126,7 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
 
     public void SetText(string value)
     {
-        _textProperty.SetValue(_component, value, null);
+        _textAccessor.Set(_component, value);
     }
 
     public bool TryGetFontSize(out float fontSize)
@@ -524,6 +526,32 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
         }
     }
 
+    private static TextPropertyAccessor GetTextAccessor(PropertyInfo textProperty)
+    {
+        lock (TextAccessorGate)
+        {
+            if (!_textAccessors.TryGetValue(textProperty, out var accessor))
+            {
+                accessor = new TextPropertyAccessor(textProperty);
+                _textAccessors[textProperty] = accessor;
+            }
+
+            return accessor;
+        }
+    }
+
+    private static Func<object, string?> BuildGetter<TInstance>(MethodInfo getMethod)
+    {
+        var typed = (Func<TInstance, string?>)Delegate.CreateDelegate(typeof(Func<TInstance, string?>), getMethod);
+        return component => typed((TInstance)component);
+    }
+
+    private static Action<object, string> BuildSetter<TInstance>(MethodInfo setMethod)
+    {
+        var typed = (Action<TInstance, string>)Delegate.CreateDelegate(typeof(Action<TInstance, string>), setMethod);
+        return (component, value) => typed((TInstance)component, value);
+    }
+
     private static bool TryGetRectTransformScreenRect(Component component, RectTransform rectTransform, out Rect screenRect)
     {
         var camera = ResolveCanvasCamera(component);
@@ -651,6 +679,92 @@ internal sealed class ReflectionTextTarget : IUnityTextTarget
             field = _type.GetField(memberName, BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
             _fields[memberName] = field;
             return field;
+        }
+    }
+
+    private sealed class TextPropertyAccessor
+    {
+        private readonly PropertyInfo _property;
+        private readonly Func<object, string?>? _getter;
+        private readonly Action<object, string>? _setter;
+
+        public TextPropertyAccessor(PropertyInfo property)
+        {
+            _property = property;
+            _getter = TryBuildGetter(property);
+            _setter = TryBuildSetter(property);
+        }
+
+        public string? Get(object component)
+        {
+            return _getter != null
+                ? _getter(component)
+                : _property.GetValue(component, null) as string;
+        }
+
+        public void Set(object component, string value)
+        {
+            if (_setter != null)
+            {
+                _setter(component, value);
+                return;
+            }
+
+            _property.SetValue(component, value, null);
+        }
+
+        private static Func<object, string?>? TryBuildGetter(PropertyInfo property)
+        {
+            if (property.PropertyType != typeof(string))
+            {
+                return null;
+            }
+
+            var getMethod = property.GetGetMethod();
+            var declaringType = getMethod?.DeclaringType;
+            if (getMethod == null || declaringType == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                var builder = typeof(ReflectionTextTarget)
+                    .GetMethod(nameof(BuildGetter), BindingFlags.NonPublic | BindingFlags.Static)
+                    ?.MakeGenericMethod(declaringType);
+                return builder?.Invoke(null, new object[] { getMethod }) as Func<object, string?>;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private static Action<object, string>? TryBuildSetter(PropertyInfo property)
+        {
+            if (property.PropertyType != typeof(string))
+            {
+                return null;
+            }
+
+            var setMethod = property.GetSetMethod();
+            var declaringType = setMethod?.DeclaringType;
+            if (setMethod == null || declaringType == null)
+            {
+                return null;
+            }
+
+            try
+            {
+                var builder = typeof(ReflectionTextTarget)
+                    .GetMethod(nameof(BuildSetter), BindingFlags.NonPublic | BindingFlags.Static)
+                    ?.MakeGenericMethod(declaringType);
+                return builder?.Invoke(null, new object[] { setMethod }) as Action<object, string>;
+            }
+            catch
+            {
+                return null;
+            }
         }
     }
 }

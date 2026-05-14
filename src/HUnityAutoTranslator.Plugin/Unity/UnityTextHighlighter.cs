@@ -8,6 +8,7 @@ namespace HUnityAutoTranslator.Plugin.Unity;
 internal sealed class UnityTextHighlighter
 {
     private const float HighlightDurationSeconds = 1.6f;
+    private const float ActivitySnapshotWindowSeconds = 30f;
     private const float BorderThickness = 3f;
     private static readonly Color BorderColor = new(1f, 0.72f, 0.05f, 0.95f);
 
@@ -18,6 +19,9 @@ internal sealed class UnityTextHighlighter
     private readonly object _snapshotGate = new();
     private IReadOnlyList<TranslationHighlightTarget> _targetSnapshot = Array.Empty<TranslationHighlightTarget>();
     private float _nextMissingLogTime;
+    private int _highlightActivityPing;
+    private int _observedActivityPing;
+    private float _lastActivityTime = float.NegativeInfinity;
 
     public UnityTextHighlighter(UnityMainThreadResultApplier targets, ManualLogSource logger)
     {
@@ -30,6 +34,23 @@ internal sealed class UnityTextHighlighter
         lock (_snapshotGate)
         {
             _targetSnapshot = targets.ToArray();
+        }
+    }
+
+    // Main-thread only. The snapshot only exists to resolve control-panel highlight requests,
+    // so skip rebuilding it (and its per-target allocations) while nothing is using it.
+    public bool NeedsTargetSnapshot
+    {
+        get
+        {
+            var ping = _highlightActivityPing;
+            if (ping != _observedActivityPing)
+            {
+                _observedActivityPing = ping;
+                _lastActivityTime = Time.unscaledTime;
+            }
+
+            return _active.Count > 0 || Time.unscaledTime <= _lastActivityTime + ActivitySnapshotWindowSeconds;
         }
     }
 
@@ -51,6 +72,7 @@ internal sealed class UnityTextHighlighter
 
     public bool TryResolveTargetId(TranslationHighlightRequest request, out string targetId)
     {
+        Interlocked.Increment(ref _highlightActivityPing);
         targetId = string.Empty;
         if (!TranslationHighlightMatcher.IsSupported(request))
         {

@@ -101,6 +101,46 @@ public sealed class TextPipelineTests
     }
 
     [Fact]
+    public void Process_queues_invisible_prefetch_text_at_prefetch_priority()
+    {
+        var cache = new CountingTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        config.IgnoreInvisibleText.Should().BeTrue();
+        var pipeline = new TextPipeline(cache, queue, config);
+        var context = new TranslationCacheContext("MainMenu", "Canvas/Options/Title", "UnityEngine.UI.Text");
+
+        var decision = pipeline.Process(new CapturedText(
+            "ui-1",
+            "Options",
+            isVisible: false,
+            context,
+            publishResult: true,
+            allowInvisiblePrefetch: true));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.Queued);
+        queue.PendingCount.Should().Be(1);
+        queue.TryDequeueBatch(10, 2000, out var batch).Should().BeTrue();
+        batch[0].Priority.Should().Be(TranslationPriority.Prefetch);
+    }
+
+    [Fact]
+    public void Process_still_ignores_invisible_text_without_the_prefetch_flag()
+    {
+        var cache = new CountingTranslationCache();
+        var queue = new TranslationJobQueue();
+        var config = RuntimeConfig.CreateDefault();
+        config.IgnoreInvisibleText.Should().BeTrue();
+        var pipeline = new TextPipeline(cache, queue, config);
+        var context = new TranslationCacheContext("MainMenu", "Canvas/Options/Title", "UnityEngine.UI.Text");
+
+        var decision = pipeline.Process(new CapturedText("ui-1", "Options", isVisible: false, context));
+
+        decision.Kind.Should().Be(PipelineDecisionKind.Ignored);
+        queue.PendingCount.Should().Be(0);
+    }
+
+    [Fact]
     public void Process_ignores_source_text_that_is_already_simplified_chinese()
     {
         var cache = new CountingTranslationCache();

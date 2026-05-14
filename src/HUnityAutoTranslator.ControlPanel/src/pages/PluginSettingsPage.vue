@@ -36,6 +36,7 @@ const form = reactive({
   MaxSourceTextLength: 2000,
   IgnoreInvisibleText: true,
   SkipNumericSymbolText: true,
+  PreTranslateInactiveText: true,
   EnableCacheLookup: true,
   EnableTranslationDebugLogs: false,
   ManualEditsOverrideAi: true,
@@ -225,6 +226,7 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.MaxSourceTextLength = state.MaxSourceTextLength;
   form.IgnoreInvisibleText = state.IgnoreInvisibleText;
   form.SkipNumericSymbolText = state.SkipNumericSymbolText;
+  form.PreTranslateInactiveText = state.PreTranslateInactiveText;
   form.EnableCacheLookup = state.EnableCacheLookup;
   form.EnableTranslationDebugLogs = state.EnableTranslationDebugLogs;
   form.ManualEditsOverrideAi = state.ManualEditsOverrideAi;
@@ -260,6 +262,7 @@ function readConfig(): UpdateConfigRequest {
     MaxSourceTextLength: numberValue(form.MaxSourceTextLength),
     IgnoreInvisibleText: form.IgnoreInvisibleText,
     SkipNumericSymbolText: form.SkipNumericSymbolText,
+    PreTranslateInactiveText: form.PreTranslateInactiveText,
     EnableCacheLookup: form.EnableCacheLookup,
     EnableTranslationDebugLogs: form.EnableTranslationDebugLogs,
     ManualEditsOverrideAi: form.ManualEditsOverrideAi,
@@ -350,6 +353,7 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
         <div class="checks">
           <label class="check help-target" data-help="跳过当前不可见的 UI 文本，减少隐藏界面和模板文本进入翻译队列。"><input id="ignoreInvisibleText" v-model="form.IgnoreInvisibleText" type="checkbox">忽略不可见文本</label>
           <label class="check help-target" data-help="跳过只有数字、标点或符号的文本，避免无意义请求和错误替换。"><input id="skipNumericSymbolText" v-model="form.SkipNumericSymbolText" type="checkbox">跳过数字/符号文本</label>
+          <label class="check help-target" data-help="提前翻译尚未激活的隐藏 UI 面板（设置、暂停菜单等），打开面板时即时显示译文。注意：会扫描场景里所有隐藏文本并消耗 API 额度，本地 llama.cpp 无此顾虑。"><input id="preTranslateInactiveText" v-model="form.PreTranslateInactiveText" type="checkbox">预翻译未激活 UI 文本</label>
           <label class="check help-target" data-help="优先从本地缓存读取已有译文，命中后不会再次请求 AI。"><input id="enableCacheLookup" v-model="form.EnableCacheLookup" type="checkbox">启用缓存查找</label>
           <label class="check help-target" data-help="在 BepInEx 日志输出请求和响应细节，排查提示词或模型问题时再开启。"><input id="enableTranslationDebugLogs" v-model="form.EnableTranslationDebugLogs" type="checkbox">输出翻译请求调试日志</label>
           <label class="check help-target" data-help="控制面板里手动改过的译文优先于 AI 结果，避免被后续自动翻译覆盖。"><input id="manualEditsOverrideAi" v-model="form.ManualEditsOverrideAi" type="checkbox">手动编辑优先</label>

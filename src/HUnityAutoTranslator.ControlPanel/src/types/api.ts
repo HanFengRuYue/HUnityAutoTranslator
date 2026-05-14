@@ -408,6 +408,7 @@ export interface ControlPanelState {
   MaxSourceTextLength: number;
   IgnoreInvisibleText: boolean;
   SkipNumericSymbolText: boolean;
+  PreTranslateInactiveText: boolean;
   EnableCacheLookup: boolean;
   EnableTranslationDebugLogs: boolean;
   EnableTranslationContext: boolean;
@@ -489,6 +490,7 @@ export interface UpdateConfigRequest {
   MaxSourceTextLength?: number;
   IgnoreInvisibleText?: boolean;
   SkipNumericSymbolText?: boolean;
+  PreTranslateInactiveText?: boolean;
   EnableCacheLookup?: boolean;
   EnableTranslationDebugLogs?: boolean;
   EnableTranslationContext?: boolean;

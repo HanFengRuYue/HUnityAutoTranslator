@@ -4,6 +4,9 @@ public sealed class ResultDispatcher
 {
     private const int DefaultMaxPendingResults = 4096;
 
+    private static readonly Comparison<(TranslationResult Result, long Sequence)> DrainOrder = CompareForDrain;
+    private static readonly Comparison<(TranslationResult Result, long Sequence)> EvictionOrder = CompareForEviction;
+
     private readonly object _gate = new();
     private readonly List<(TranslationResult Result, long Sequence)> _pending = new();
     private readonly int _maxPendingResults;
@@ -43,30 +46,57 @@ public sealed class ResultDispatcher
     {
         lock (_gate)
         {
-            var selected = _pending
-                .OrderByDescending(item => item.Result.Priority)
-                .ThenBy(item => item.Sequence)
-                .Take(Math.Max(0, maxCount))
-                .ToArray();
-
-            foreach (var item in selected)
+            if (maxCount <= 0 || _pending.Count == 0)
             {
-                _pending.Remove(item);
+                return Array.Empty<TranslationResult>();
             }
 
-            return selected.Select(item => item.Result).ToArray();
+            _pending.Sort(DrainOrder);
+            var take = Math.Min(maxCount, _pending.Count);
+            var drained = new TranslationResult[take];
+            for (var i = 0; i < take; i++)
+            {
+                drained[i] = _pending[i].Result;
+            }
+
+            if (take == _pending.Count)
+            {
+                _pending.Clear();
+            }
+            else
+            {
+                _pending.RemoveRange(0, take);
+            }
+
+            return drained;
         }
     }
 
     private void TrimPending()
     {
-        while (_pending.Count > _maxPendingResults)
+        var excess = _pending.Count - _maxPendingResults;
+        if (excess <= 0)
         {
-            var lowest = _pending
-                .OrderBy(item => item.Result.Priority)
-                .ThenBy(item => item.Sequence)
-                .First();
-            _pending.Remove(lowest);
+            return;
         }
+
+        _pending.Sort(EvictionOrder);
+        _pending.RemoveRange(0, excess);
+    }
+
+    private static int CompareForDrain(
+        (TranslationResult Result, long Sequence) left,
+        (TranslationResult Result, long Sequence) right)
+    {
+        var byPriority = right.Result.Priority.CompareTo(left.Result.Priority);
+        return byPriority != 0 ? byPriority : left.Sequence.CompareTo(right.Sequence);
+    }
+
+    private static int CompareForEviction(
+        (TranslationResult Result, long Sequence) left,
+        (TranslationResult Result, long Sequence) right)
+    {
+        var byPriority = left.Result.Priority.CompareTo(right.Result.Priority);
+        return byPriority != 0 ? byPriority : left.Sequence.CompareTo(right.Sequence);
     }
 }

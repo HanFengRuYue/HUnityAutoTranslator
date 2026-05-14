@@ -38,6 +38,7 @@ public sealed record UpdateConfigRequest(
     int? MaxSourceTextLength = null,
     bool? IgnoreInvisibleText = null,
     bool? SkipNumericSymbolText = null,
+    bool? PreTranslateInactiveText = null,
     bool? EnableCacheLookup = null,
     bool? EnableTranslationDebugLogs = null,
     bool? EnableTranslationContext = null,
