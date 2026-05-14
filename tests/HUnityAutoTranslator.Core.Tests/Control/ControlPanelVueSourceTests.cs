@@ -732,6 +732,31 @@ public sealed class ControlPanelVueSourceTests
     }
 
     [Fact]
+    public void Vue_ai_settings_expose_provider_preset_quick_picker()
+    {
+        var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
+        var apiTypesSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "types", "api.ts"));
+
+        apiTypesSource.Should().Contain("export interface ProviderPresetInfo {");
+        apiTypesSource.Should().Contain("SupportsModelList: boolean;");
+        apiTypesSource.Should().Contain("SupportsBalanceQuery: boolean;");
+        apiTypesSource.Should().Contain("PresetId: string | null;");
+        apiTypesSource.Should().Contain("PresetId?: string | null;");
+        apiTypesSource.Should().Contain("ClearPresetId?: boolean;");
+
+        aiPageSource.Should().Contain("const providerPresets = ref<ProviderPresetInfo[]>([]);");
+        aiPageSource.Should().Contain("async function loadProviderPresets(): Promise<void>");
+        aiPageSource.Should().Contain("\"/api/provider-presets\"");
+        aiPageSource.Should().Contain("function applyQuickPreset(presetId: string): void");
+        aiPageSource.Should().Contain("function onQuickPresetChange(): void");
+        aiPageSource.Should().Contain("id=\"providerProfileQuickPreset\"");
+        aiPageSource.Should().Contain("PresetId: profileForm.PresetId || null");
+        aiPageSource.Should().Contain("ClearPresetId: !profileForm.PresetId");
+        aiPageSource.Should().Contain("selectedPresetInfo");
+        aiPageSource.Should().Contain("profileForm.PresetId = profile.PresetId ?? \"\";");
+    }
+
+    [Fact]
     public void Vue_deepseek_profile_defaults_use_current_v4_model_id()
     {
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));

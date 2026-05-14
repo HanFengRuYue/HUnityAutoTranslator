@@ -1036,7 +1036,8 @@ public sealed class ControlPanelService
             string.Equals(profile.Id, activeProfileId, StringComparison.OrdinalIgnoreCase),
             failure?.ConsecutiveFailureCount ?? 0,
             cooldownRemaining,
-            failure?.LastError);
+            failure?.LastError,
+            profile.PresetId);
     }
 
     private ProviderProfileDefinition? ResolveActiveProviderProfile()
@@ -1127,6 +1128,9 @@ public sealed class ControlPanelService
         var extraBodyJson = request.OpenAICompatibleExtraBodyJson == null
             ? current.OpenAICompatibleExtraBodyJson
             : OpenAICompatibleRequestOptions.NormalizeExtraBodyJson(request.OpenAICompatibleExtraBodyJson, current.OpenAICompatibleExtraBodyJson);
+        var presetId = request.ClearPresetId == true
+            ? null
+            : request.PresetId ?? current.PresetId;
 
         return current with
         {
@@ -1148,7 +1152,8 @@ public sealed class ControlPanelService
             OpenAICompatibleCustomHeaders = customHeaders,
             OpenAICompatibleExtraBodyJson = extraBodyJson,
             LlamaCpp = request.LlamaCpp ?? current.LlamaCpp,
-            Temperature = temperature
+            Temperature = temperature,
+            PresetId = presetId
         };
     }
 

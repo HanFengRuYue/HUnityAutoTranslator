@@ -26,4 +26,5 @@ public sealed record ProviderProfileState(
     bool IsActive,
     int ConsecutiveFailureCount,
     int CooldownRemainingSeconds,
-    string? LastError);
+    string? LastError,
+    string? PresetId);

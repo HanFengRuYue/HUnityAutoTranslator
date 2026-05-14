@@ -90,6 +90,7 @@ export interface ProviderProfileState {
   ConsecutiveFailureCount: number;
   CooldownRemainingSeconds: number;
   LastError: string | null;
+  PresetId: string | null;
 }
 
 export interface ProviderProfileUpdateRequest {
@@ -114,6 +115,8 @@ export interface ProviderProfileUpdateRequest {
   LlamaCpp?: LlamaCppConfig | null;
   Temperature?: number | null;
   ClearTemperature?: boolean;
+  PresetId?: string | null;
+  ClearPresetId?: boolean;
 }
 
 export interface ProviderProfileImportResult {
@@ -619,6 +622,23 @@ export interface ProviderBalanceResult {
 export interface ProviderTestResult {
   Succeeded: boolean;
   Message: string;
+}
+
+export interface ProviderPresetInfo {
+  Id: string;
+  DisplayName: string;
+  Group: string;
+  Kind: number | string;
+  BaseUrl: string;
+  Endpoint: string;
+  DefaultModel: string;
+  SuggestedModels: string[];
+  RequestsPerMinute: number;
+  SupportsModelList: boolean;
+  SupportsBalanceQuery: boolean;
+  ConsoleUrl: string;
+  DocsUrl: string;
+  Notes: string;
 }
 
 export interface DeleteResult {

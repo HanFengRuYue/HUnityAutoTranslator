@@ -198,4 +198,91 @@ public sealed class ProviderUtilityClientTests
         result.Message.Should().Contain("/v1/chat/completions");
         result.Message.Should().Contain("API Key 已保存");
     }
+
+    [Fact]
+    public async Task FetchModelsAsync_uses_preset_models_path_when_preset_id_is_supplied()
+    {
+        var transport = new FakeHttpTransport(_ => FakeHttpTransport.Json(
+            """{"object":"list","data":[{"id":"Qwen/Qwen3-8B","owned_by":"qwen"}]}"""));
+        var client = new ProviderUtilityClient(transport, () => "key");
+
+        var result = await client.FetchModelsAsync(PresetProfile("siliconflow"), CancellationToken.None, "siliconflow");
+
+        result.Succeeded.Should().BeTrue();
+        result.Models.Should().ContainSingle(model => model.Id == "Qwen/Qwen3-8B");
+        transport.LastPath.Should().Be("/v1/models");
+    }
+
+    [Fact]
+    public async Task FetchModelsAsync_reports_unsupported_when_preset_has_no_models_endpoint()
+    {
+        var client = new ProviderUtilityClient(FakeHttpTransport.Throwing(), () => "key");
+
+        var result = await client.FetchModelsAsync(PresetProfile("zhipu"), CancellationToken.None, "zhipu");
+
+        result.Succeeded.Should().BeFalse();
+        result.Message.Should().Contain("未提供模型列表接口");
+        result.Models.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task FetchModelsAsync_falls_back_to_provider_kind_when_preset_id_is_unknown()
+    {
+        var transport = new FakeHttpTransport(_ => FakeHttpTransport.Json(
+            """{"object":"list","data":[{"id":"gpt-5.5","owned_by":"openai"}]}"""));
+        var client = new ProviderUtilityClient(transport, () => "key");
+
+        var result = await client.FetchModelsAsync(ProviderProfile.DefaultOpenAi(), CancellationToken.None, "totally-unknown");
+
+        result.Succeeded.Should().BeTrue();
+        transport.LastPath.Should().Be("/v1/models");
+    }
+
+    [Fact]
+    public async Task FetchBalanceAsync_uses_preset_balance_adapter_for_siliconflow()
+    {
+        var transport = new FakeHttpTransport(_ => FakeHttpTransport.Json(
+            """{"code":20000,"data":{"balance":"0.88","chargeBalance":"88.00","totalBalance":"88.88"}}"""));
+        var client = new ProviderUtilityClient(transport, () => "key");
+
+        var result = await client.FetchBalanceAsync(PresetProfile("siliconflow"), CancellationToken.None, "siliconflow");
+
+        result.Succeeded.Should().BeTrue();
+        transport.LastPath.Should().Be("/v1/user/info");
+        result.Balances.Should().ContainSingle(balance =>
+            balance.Currency == "CNY" && balance.TotalBalance == "88.88" && balance.GrantedBalance == "0.88");
+    }
+
+    [Fact]
+    public async Task FetchBalanceAsync_uses_preset_balance_adapter_for_openrouter()
+    {
+        var transport = new FakeHttpTransport(_ => FakeHttpTransport.Json(
+            """{"data":{"total_credits":10,"total_usage":3.5}}"""));
+        var client = new ProviderUtilityClient(transport, () => "key");
+
+        var result = await client.FetchBalanceAsync(PresetProfile("openrouter"), CancellationToken.None, "openrouter");
+
+        result.Succeeded.Should().BeTrue();
+        transport.LastPath.Should().Be("/api/v1/credits");
+        result.Balances.Should().ContainSingle(balance => balance.Currency == "USD" && balance.TotalBalance == "6.5");
+    }
+
+    [Fact]
+    public async Task FetchBalanceAsync_reports_console_fallback_when_preset_has_no_balance_endpoint()
+    {
+        var client = new ProviderUtilityClient(FakeHttpTransport.Throwing(), () => "key");
+
+        var result = await client.FetchBalanceAsync(PresetProfile("groq"), CancellationToken.None, "groq");
+
+        result.Succeeded.Should().BeFalse();
+        result.Message.Should().Contain("未提供余额查询接口");
+        result.Message.Should().Contain("控制台");
+        result.Balances.Should().BeEmpty();
+    }
+
+    private static ProviderProfile PresetProfile(string presetId)
+    {
+        var preset = ProviderPresetCatalog.Resolve(presetId)!;
+        return new ProviderProfile(preset.Kind, preset.BaseUrl, preset.Endpoint, preset.DefaultModel, true);
+    }
 }

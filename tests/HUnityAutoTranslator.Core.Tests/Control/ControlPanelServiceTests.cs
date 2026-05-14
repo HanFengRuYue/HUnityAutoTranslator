@@ -357,6 +357,31 @@ public sealed class ControlPanelServiceTests
     }
 
     [Fact]
+    public void Provider_profile_preset_id_round_trips_and_clears_through_create_and_update()
+    {
+        var service = ControlPanelService.CreateDefault();
+
+        var created = service.CreateProviderProfile(new ProviderProfileUpdateRequest(
+            Name: "硅基流动",
+            Kind: ProviderKind.OpenAICompatible,
+            BaseUrl: "https://api.siliconflow.cn/v1",
+            Endpoint: "/chat/completions",
+            Model: "Qwen/Qwen3-8B",
+            PresetId: "siliconflow"));
+
+        created.PresetId.Should().Be("siliconflow");
+
+        service.UpdateProviderProfile(created.Id, new ProviderProfileUpdateRequest(PresetId: "not-a-real-preset"))
+            .PresetId.Should().BeNull();
+
+        service.UpdateProviderProfile(created.Id, new ProviderProfileUpdateRequest(PresetId: "moonshot"))
+            .PresetId.Should().Be("moonshot");
+
+        service.UpdateProviderProfile(created.Id, new ProviderProfileUpdateRequest(ClearPresetId: true))
+            .PresetId.Should().BeNull();
+    }
+
+    [Fact]
     public void UpdateConfig_changes_to_llamacpp_without_requiring_api_key()
     {
         var service = ControlPanelService.CreateDefault();

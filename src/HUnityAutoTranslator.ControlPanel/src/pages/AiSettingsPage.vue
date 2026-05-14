@@ -56,6 +56,7 @@ import type {
   ProviderBalanceResult,
   ProviderModelInfo,
   ProviderModelsResult,
+  ProviderPresetInfo,
   ProviderProfileImportResult,
   ProviderProfileState,
   ProviderProfileUpdateRequest,
@@ -221,6 +222,7 @@ const form = reactive({
 
 const profileForm = reactive({
   Id: "",
+  PresetId: "",
   Name: "",
   Enabled: true,
   Kind: 0,
@@ -272,6 +274,7 @@ const profileDirty = ref(false);
 const profileBusy = ref(false);
 const utilityBusy = ref(false);
 const profileModelOptions = ref<ProviderModelInfo[]>([]);
+const providerPresets = ref<ProviderPresetInfo[]>([]);
 const importInput = ref<HTMLInputElement | null>(null);
 const textureImageBusy = ref(false);
 const textureImageProfileEditorOpen = ref(false);
@@ -301,6 +304,12 @@ const isProfileDeepSeek = computed(() => profileKind.value === 1);
 const isProfileOpenAiCompatible = computed(() => profileKind.value === 2);
 const isProfileLlamaCpp = computed(() => profileKind.value === 3);
 const profileModelOptionValues = computed(() => new Set(profileModelOptions.value.map((model) => model.Id)));
+const selectedPresetInfo = computed(() => providerPresets.value.find((preset) => preset.Id === profileForm.PresetId) ?? null);
+const providerPresetNames = computed(() => new Set(providerPresets.value.map((preset) => preset.DisplayName)));
+const quickPresetGroups = computed(() => [
+  { label: "国内厂商", presets: providerPresets.value.filter((preset) => preset.Group === "domestic") },
+  { label: "国际厂商", presets: providerPresets.value.filter((preset) => preset.Group === "international") }
+]);
 const profileTemperatureValue = computed(() => {
   const parsed = Number(profileForm.Temperature);
   return Number.isFinite(parsed) ? Math.max(0, Math.min(2, parsed)) : 0.2;
@@ -676,6 +685,7 @@ function applySelectedProfile(force = false): void {
   }
 
   profileForm.Id = profile.Id;
+  profileForm.PresetId = profile.PresetId ?? "";
   profileForm.Name = profile.Name;
   profileForm.Enabled = profile.Enabled;
   profileForm.Kind = providerKindToNumber(profile.Kind);
@@ -776,7 +786,9 @@ function buildProviderProfileRequest(): ProviderProfileUpdateRequest {
     ClearTemperature: profileForm.Temperature === "",
     OpenAICompatibleCustomHeaders: profileForm.OpenAICompatibleCustomHeaders.trim() || null,
     OpenAICompatibleExtraBodyJson: profileForm.OpenAICompatibleExtraBodyJson.trim() || null,
-    LlamaCpp: isProfileLlamaCpp.value ? buildProfileLlamaCppConfig() : null
+    LlamaCpp: isProfileLlamaCpp.value ? buildProfileLlamaCppConfig() : null,
+    PresetId: profileForm.PresetId || null,
+    ClearPresetId: !profileForm.PresetId
   };
 }
 
@@ -982,6 +994,7 @@ function createProfileDefaults(kind = 0): boolean {
 
   const defaults = providerDefaults[kind] ?? providerDefaults[0];
   profileForm.Id = "";
+  profileForm.PresetId = "";
   profileForm.Name = defaults.name;
   profileForm.Enabled = true;
   profileForm.Kind = kind;
@@ -1007,12 +1020,14 @@ function createProfileDefaults(kind = 0): boolean {
 }
 
 function openNewProviderProfile(): void {
+  void loadProviderPresets();
   if (createProfileDefaults(0)) {
     providerEditorOpen.value = true;
   }
 }
 
 function openProviderProfileEditor(profile: ProviderProfileState): void {
+  void loadProviderPresets();
   selectedProfileId.value = profile.Id;
   applySelectedProfile(true);
   providerEditorOpen.value = true;
@@ -1020,7 +1035,7 @@ function openProviderProfileEditor(profile: ProviderProfileState): void {
 
 function shouldReplaceProfileDefaultName(name: string): boolean {
   const trimmed = name.trim();
-  return !trimmed || providerDefaultNames.has(trimmed);
+  return !trimmed || providerDefaultNames.has(trimmed) || providerPresetNames.value.has(trimmed);
 }
 
 function closeProviderProfileEditor(): void {
@@ -1038,6 +1053,7 @@ function closeProviderProfileEditor(): void {
 }
 
 function applyProfileKindDefaults(): void {
+  profileForm.PresetId = "";
   if (profileKind.value === 3 && hasLlamaCppProfile.value && selectedProfile.value?.Id !== profileForm.Id) {
     showToast("只能创建一个本地模型配置。", "warn");
     profileForm.Kind = providerKindToNumber(selectedProfile.value?.Kind ?? 0);
@@ -1061,6 +1077,54 @@ function applyProfileKindDefaults(): void {
   }
   resetProfileModelOptions();
   markProfileDirty();
+}
+
+async function loadProviderPresets(): Promise<void> {
+  if (providerPresets.value.length) {
+    return;
+  }
+
+  try {
+    providerPresets.value = await api<ProviderPresetInfo[]>("/api/provider-presets");
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "读取服务商预设失败。", "warn");
+  }
+}
+
+function applyQuickPreset(presetId: string): void {
+  const preset = providerPresets.value.find((item) => item.Id === presetId);
+  if (!preset) {
+    return;
+  }
+
+  const currentName = profileForm.Name;
+  profileForm.Kind = providerKindToNumber(preset.Kind);
+  profileForm.BaseUrl = preset.BaseUrl;
+  profileForm.Endpoint = preset.Endpoint;
+  profileForm.Model = preset.DefaultModel;
+  profileForm.RequestsPerMinute = preset.RequestsPerMinute;
+  profileForm.ReasoningEffort = "none";
+  profileForm.OutputVerbosity = "low";
+  profileForm.DeepSeekThinkingMode = "disabled";
+  profileForm.Name = shouldReplaceProfileDefaultName(currentName) ? preset.DisplayName : currentName;
+  profileForm.PresetId = preset.Id;
+  resetProfileModelOptions();
+  markProfileDirty();
+}
+
+function onQuickPresetChange(): void {
+  if (profileForm.PresetId) {
+    applyQuickPreset(profileForm.PresetId);
+  } else {
+    markProfileDirty();
+  }
+}
+
+function openPresetConsole(): void {
+  const url = selectedPresetInfo.value?.ConsoleUrl;
+  if (url) {
+    window.open(url, "_blank", "noopener");
+  }
 }
 
 async function createProviderProfile(options: ProviderProfileSaveBehavior = {}): Promise<void> {
@@ -1784,6 +1848,15 @@ watch(selectedProfileId, () => {
               <span class="field-label"><KeyRound class="field-label-icon" />名称</span>
               <input id="providerProfileName" v-model="profileForm.Name" autocomplete="off" @input="markProfileDirty">
             </label>
+            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="选择预设会按官方文档自动填好该服务商的接入信息；选「自定义」则手动配置。">
+              <span class="field-label"><Layers class="field-label-icon" />快速预设</span>
+              <select id="providerProfileQuickPreset" v-model="profileForm.PresetId" @change="onQuickPresetChange">
+                <option value="">自定义 / 手动配置</option>
+                <optgroup v-for="group in quickPresetGroups" :key="group.label" :label="group.label">
+                  <option v-for="preset in group.presets" :key="preset.Id" :value="preset.Id">{{ preset.DisplayName }}</option>
+                </optgroup>
+              </select>
+            </label>
             <label class="field help-target" data-help="在线配置和本地模型配置会按优先级依次尝试；本地模型最多只能创建一个。">
               <span class="field-label"><Bot class="field-label-icon" />服务商</span>
               <select id="providerProfileKind" v-model.number="profileForm.Kind" @change="applyProfileKindDefaults">
@@ -1798,14 +1871,17 @@ watch(selectedProfileId, () => {
               <span class="field-label"><Settings2 class="field-label-icon" />Endpoint</span>
               <input id="providerProfileEndpoint" v-model="profileForm.Endpoint" autocomplete="off" @input="markProfileDirty">
             </label>
-            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="模型名称。">
+            <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="模型名称。选择预设后可从建议列表里挑选，也可直接输入。">
               <span class="field-label"><Brain class="field-label-icon" />模型</span>
               <select v-if="profileModelOptions.length" id="providerProfileModel" v-model="profileForm.Model" @change="markProfileDirty">
                 <option v-for="model in profileModelOptions" :key="model.Id" :value="model.Id">
                   {{ model.OwnedBy ? `${model.Id}（${model.OwnedBy}）` : model.Id }}
                 </option>
               </select>
-              <input v-else id="providerProfileModel" v-model="profileForm.Model" autocomplete="off" @input="markProfileDirty">
+              <input v-else id="providerProfileModel" v-model="profileForm.Model" autocomplete="off" list="providerProfileModelSuggestions" @input="markProfileDirty">
+              <datalist id="providerProfileModelSuggestions">
+                <option v-for="model in selectedPresetInfo?.SuggestedModels ?? []" :key="model" :value="model" />
+              </datalist>
             </label>
             <label v-if="!isProfileLlamaCpp" class="field help-target" data-help="留空表示不修改已保存 Key；新 Key 会进入加密配置文件。">
               <span class="field-label"><KeyRound class="field-label-icon" />API Key</span>
@@ -1950,8 +2026,9 @@ watch(selectedProfileId, () => {
           <div class="actions provider-profile-actions">
             <button class="primary" type="button" :disabled="profileBusy" @click="saveProviderProfile({ closeEditor: true })"><Save class="button-icon" />{{ profileForm.Id ? "保存配置" : "添加配置" }}</button>
             <button class="secondary" type="button" :disabled="utilityBusy" @click="testProfile"><Zap class="button-icon" />测试连接</button>
-            <button v-if="!isProfileLlamaCpp" class="secondary" type="button" :disabled="utilityBusy" @click="fetchProfileModels"><Download class="button-icon" />获取模型</button>
-            <button v-if="!isProfileLlamaCpp" class="secondary" type="button" :disabled="utilityBusy" @click="fetchProfileBalance"><WalletCards class="button-icon" />查询余额</button>
+            <button v-if="!isProfileLlamaCpp && (!selectedPresetInfo || selectedPresetInfo.SupportsModelList)" class="secondary" type="button" :disabled="utilityBusy" @click="fetchProfileModels"><Download class="button-icon" />获取模型</button>
+            <button v-if="!isProfileLlamaCpp && (!selectedPresetInfo || selectedPresetInfo.SupportsBalanceQuery)" class="secondary" type="button" :disabled="utilityBusy" @click="fetchProfileBalance"><WalletCards class="button-icon" />查询余额</button>
+            <button v-else-if="selectedPresetInfo && !selectedPresetInfo.SupportsBalanceQuery" class="secondary" type="button" @click="openPresetConsole"><WalletCards class="button-icon" />前往控制台</button>
           </div>
         </div>
       </section>

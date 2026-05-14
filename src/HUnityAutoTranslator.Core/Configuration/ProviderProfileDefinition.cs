@@ -21,7 +21,8 @@ public sealed record ProviderProfileDefinition(
     string? OpenAICompatibleCustomHeaders,
     string? OpenAICompatibleExtraBodyJson,
     double? Temperature,
-    LlamaCppConfig? LlamaCpp = null)
+    LlamaCppConfig? LlamaCpp = null,
+    string? PresetId = null)
 {
     public static ProviderProfileDefinition CreateDefault(string? name, ProviderKind kind, int priority)
     {
@@ -57,7 +58,8 @@ public sealed record ProviderProfileDefinition(
             OpenAICompatibleCustomHeaders: null,
             OpenAICompatibleExtraBodyJson: null,
             Temperature: null,
-            LlamaCpp: kind == ProviderKind.LlamaCpp ? LlamaCppConfig.Default() : null);
+            LlamaCpp: kind == ProviderKind.LlamaCpp ? LlamaCppConfig.Default() : null,
+            PresetId: null);
     }
 
     public ProviderProfileDefinition Normalize()
@@ -101,7 +103,8 @@ public sealed record ProviderProfileDefinition(
             Temperature = kind == ProviderKind.LlamaCpp
                 ? null
                 : (Temperature.HasValue ? Clamp(Temperature.Value, 0.0, 2.0) : null),
-            LlamaCpp = llamaCpp
+            LlamaCpp = llamaCpp,
+            PresetId = ProviderPresetCatalog.Resolve(PresetId)?.Id
         };
     }
 

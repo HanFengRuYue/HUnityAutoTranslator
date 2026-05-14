@@ -23,4 +23,6 @@ public sealed record ProviderProfileUpdateRequest(
     string? OpenAICompatibleExtraBodyJson = null,
     LlamaCppConfig? LlamaCpp = null,
     double? Temperature = null,
-    bool? ClearTemperature = null);
+    bool? ClearTemperature = null,
+    string? PresetId = null,
+    bool? ClearPresetId = null);

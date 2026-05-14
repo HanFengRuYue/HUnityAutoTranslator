@@ -227,6 +227,12 @@ internal sealed class LocalHttpServer : IDisposable
                     context.Response,
                     _llamaCppModelDownloads.GetPresets()).ConfigureAwait(false);
             }
+            else if (context.Request.HttpMethod == "GET" && path == "/api/provider-presets")
+            {
+                await WriteJsonAsync(
+                    context.Response,
+                    ProviderPresetCatalog.All.Select(preset => preset.ToInfo()).ToArray()).ConfigureAwait(false);
+            }
             else if (context.Request.HttpMethod == "POST" && path == "/api/llamacpp/model/download")
             {
                 var request = await ReadJsonAsync<LlamaCppModelDownloadRequest>(context.Request).ConfigureAwait(false);
@@ -580,7 +586,7 @@ internal sealed class LocalHttpServer : IDisposable
 
                 await WriteJsonAsync(
                     context.Response,
-                    await CreateProviderUtilityClient(active).FetchModelsAsync(active.Profile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+                    await CreateProviderUtilityClient(active).FetchModelsAsync(active.Profile, CancellationToken.None, active.PresetId).ConfigureAwait(false)).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "GET" && path == "/api/provider/balance")
             {
@@ -593,7 +599,7 @@ internal sealed class LocalHttpServer : IDisposable
 
                 await WriteJsonAsync(
                     context.Response,
-                    await CreateProviderUtilityClient(active).FetchBalanceAsync(active.Profile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+                    await CreateProviderUtilityClient(active).FetchBalanceAsync(active.Profile, CancellationToken.None, active.PresetId).ConfigureAwait(false)).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/provider/test")
             {
@@ -865,13 +871,13 @@ internal sealed class LocalHttpServer : IDisposable
 
         if (request.HttpMethod == "GET" && action == "models")
         {
-            await WriteJsonAsync(response, await utilityClient.FetchModelsAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+            await WriteJsonAsync(response, await utilityClient.FetchModelsAsync(profile.Profile, CancellationToken.None, profile.PresetId).ConfigureAwait(false)).ConfigureAwait(false);
             return;
         }
 
         if (request.HttpMethod == "GET" && action == "balance")
         {
-            await WriteJsonAsync(response, await utilityClient.FetchBalanceAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+            await WriteJsonAsync(response, await utilityClient.FetchBalanceAsync(profile.Profile, CancellationToken.None, profile.PresetId).ConfigureAwait(false)).ConfigureAwait(false);
             return;
         }
 
@@ -909,13 +915,13 @@ internal sealed class LocalHttpServer : IDisposable
 
         if (action == "models")
         {
-            await WriteJsonAsync(response, await utilityClient.FetchModelsAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+            await WriteJsonAsync(response, await utilityClient.FetchModelsAsync(profile.Profile, CancellationToken.None, profile.PresetId).ConfigureAwait(false)).ConfigureAwait(false);
             return;
         }
 
         if (action == "balance")
         {
-            await WriteJsonAsync(response, await utilityClient.FetchBalanceAsync(profile.Profile, CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
+            await WriteJsonAsync(response, await utilityClient.FetchBalanceAsync(profile.Profile, CancellationToken.None, profile.PresetId).ConfigureAwait(false)).ConfigureAwait(false);
             return;
         }
 

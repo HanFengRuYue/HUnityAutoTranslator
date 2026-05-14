@@ -17,7 +17,10 @@ public sealed class ProviderUtilityClient
         _apiKeyProvider = apiKeyProvider;
     }
 
-    public async Task<ProviderModelsResult> FetchModelsAsync(ProviderProfile profile, CancellationToken cancellationToken)
+    public async Task<ProviderModelsResult> FetchModelsAsync(
+        ProviderProfile profile,
+        CancellationToken cancellationToken,
+        string? presetId = null)
     {
         if (profile.Kind == ProviderKind.LlamaCpp)
         {
@@ -27,7 +30,17 @@ public sealed class ProviderUtilityClient
                 new[] { new ProviderModelInfo(profile.Model, "llama.cpp") });
         }
 
-        var path = profile.Kind == ProviderKind.DeepSeek ? "/models" : "/v1/models";
+        var preset = ProviderPresetCatalog.Resolve(presetId);
+        if (preset != null && string.IsNullOrWhiteSpace(preset.ModelsPath))
+        {
+            return new ProviderModelsResult(
+                false,
+                $"{preset.DisplayName} 未提供模型列表接口，请手动填写模型名。",
+                Array.Empty<ProviderModelInfo>());
+        }
+
+        var path = preset?.ModelsPath
+            ?? (profile.Kind == ProviderKind.DeepSeek ? "/models" : "/v1/models");
         var request = CreateGet(profile, path);
         var response = await _transport.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
@@ -76,11 +89,20 @@ public sealed class ProviderUtilityClient
         return new ProviderTestResult(true, $"模型已返回测试回复：{TrimForMessage(reply)}");
     }
 
-    public async Task<ProviderBalanceResult> FetchBalanceAsync(ProviderProfile profile, CancellationToken cancellationToken)
+    public async Task<ProviderBalanceResult> FetchBalanceAsync(
+        ProviderProfile profile,
+        CancellationToken cancellationToken,
+        string? presetId = null)
     {
         if (profile.Kind == ProviderKind.LlamaCpp)
         {
             return new ProviderBalanceResult(true, "本地模型不适用账户余额查询。", Array.Empty<ProviderBalanceInfo>());
+        }
+
+        var preset = ProviderPresetCatalog.Resolve(presetId);
+        if (preset != null)
+        {
+            return await FetchPresetBalanceAsync(profile, preset, cancellationToken).ConfigureAwait(false);
         }
 
         var path = profile.Kind == ProviderKind.DeepSeek
@@ -130,6 +152,45 @@ public sealed class ProviderUtilityClient
             .ToArray();
 
         return new ProviderBalanceResult(true, "已获取最近 7 天成本。OpenAI 成本接口通常需要管理员密钥。", costs);
+    }
+
+    private async Task<ProviderBalanceResult> FetchPresetBalanceAsync(
+        ProviderProfile profile,
+        ProviderPreset preset,
+        CancellationToken cancellationToken)
+    {
+        if (preset.BalanceQuery == null)
+        {
+            return new ProviderBalanceResult(
+                false,
+                $"{preset.DisplayName} 未提供余额查询接口，请前往控制台查看。",
+                Array.Empty<ProviderBalanceInfo>());
+        }
+
+        var request = CreateGet(profile, preset.BalanceQuery.Path);
+        var response = await _transport.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            return new ProviderBalanceResult(
+                false,
+                BuildFailureMessage("查询账户余额失败", response, request.Uri.AbsolutePath, HasSavedApiKey()),
+                Array.Empty<ProviderBalanceInfo>());
+        }
+
+        try
+        {
+            var balances = preset.BalanceQuery.Parse(response.Body);
+            return balances.Count > 0
+                ? new ProviderBalanceResult(true, $"已获取 {balances.Count} 条余额信息。", balances)
+                : new ProviderBalanceResult(false, "余额接口已响应，但未解析出余额信息。", Array.Empty<ProviderBalanceInfo>());
+        }
+        catch (Exception exception)
+        {
+            return new ProviderBalanceResult(
+                false,
+                $"解析余额响应失败：{exception.Message}",
+                Array.Empty<ProviderBalanceInfo>());
+        }
     }
 
     private HttpTransportRequest CreateTestRequest(ProviderProfile profile)

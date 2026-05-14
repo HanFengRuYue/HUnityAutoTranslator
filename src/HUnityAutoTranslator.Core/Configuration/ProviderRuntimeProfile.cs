@@ -12,7 +12,8 @@ public sealed record ProviderRuntimeProfile(
     string OutputVerbosity,
     string DeepSeekThinkingMode,
     double? Temperature,
-    LlamaCppConfig? LlamaCpp = null)
+    LlamaCppConfig? LlamaCpp = null,
+    string? PresetId = null)
 {
     public static ProviderRuntimeProfile Create(ProviderProfileDefinition definition)
     {
@@ -29,7 +30,8 @@ public sealed record ProviderRuntimeProfile(
             normalized.OutputVerbosity,
             normalized.DeepSeekThinkingMode,
             normalized.Temperature,
-            normalized.LlamaCpp);
+            normalized.LlamaCpp,
+            normalized.PresetId);
     }
 
     public RuntimeConfig ApplyTo(RuntimeConfig config)
