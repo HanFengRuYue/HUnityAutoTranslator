@@ -1,12 +1,12 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Net;
-using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
 using BepInEx.Logging;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Control;
+using HUnityAutoTranslator.Core.Http;
 using HUnityAutoTranslator.Core.Providers;
 using Newtonsoft.Json;
 
@@ -22,16 +22,17 @@ internal sealed class LlamaCppServerManager : IDisposable
     private readonly object _gate = new();
     private readonly string _llamaDirectory;
     private readonly ManualLogSource _logger;
-    private readonly HttpClient _httpClient = new();
+    private readonly IHttpTransport _httpTransport;
     private Process? _process;
     private string _backend = string.Empty;
     private string? _lastOutput;
     private LlamaCppServerStatus? _status;
 
-    public LlamaCppServerManager(string pluginDirectory, ManualLogSource logger)
+    public LlamaCppServerManager(string pluginDirectory, ManualLogSource logger, IHttpTransport httpTransport)
     {
         _llamaDirectory = Path.Combine(pluginDirectory, "llama.cpp");
         _logger = logger;
+        _httpTransport = httpTransport;
     }
 
     public LlamaCppServerStatus GetStatus(RuntimeConfig config)
@@ -157,6 +158,8 @@ internal sealed class LlamaCppServerManager : IDisposable
                     serverPath: manifest.ServerPath));
             }
 
+            // 把 llama-server 绑到 Job Object 上，宿主进程被强杀时由 Windows 一并清理，避免孤立残留。
+            WindowsProcessJob.Assign(_process, _logger);
             _process.BeginOutputReadLine();
             _process.BeginErrorReadLine();
             _status = LlamaCppServerStatus.Starting(
@@ -305,12 +308,14 @@ internal sealed class LlamaCppServerManager : IDisposable
 
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(HealthTimeout);
-            using var response = await _httpClient.GetAsync(
-                $"http://127.0.0.1:{status.Port}/health",
-                timeout.Token).ConfigureAwait(false);
-            if (!response.IsSuccessStatusCode)
+            var request = new HttpTransportRequest
+            {
+                Method = HttpTransportMethod.Get,
+                Uri = new Uri($"http://127.0.0.1:{status.Port}/health"),
+                Timeout = HealthTimeout,
+            };
+            var response = await _httpTransport.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (response.Error != null || !response.IsSuccessStatusCode)
             {
                 return false;
             }
@@ -325,7 +330,7 @@ internal sealed class LlamaCppServerManager : IDisposable
                 _lastOutput));
             return true;
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             return false;
         }
@@ -482,6 +487,8 @@ internal sealed class LlamaCppServerManager : IDisposable
                 return new BenchmarkProcessResult(false, "启动 benchmark 进程失败。", output.ToString());
             }
 
+            // 让 benchmark 子进程也跟着宿主一起死，避免插件中途崩了留下孤立的 llama-bench.exe。
+            WindowsProcessJob.Assign(process, _logger);
             process.BeginOutputReadLine();
             process.BeginErrorReadLine();
             using (timeout.Token.Register(() => exited.TrySetCanceled()))
@@ -648,7 +655,7 @@ internal sealed class LlamaCppServerManager : IDisposable
     public void Dispose()
     {
         StopOwnedProcess();
-        _httpClient.Dispose();
+        // _httpTransport 的生命周期由 PluginRuntime 统一管理，这里不释放。
     }
 
     private sealed class BackendManifest

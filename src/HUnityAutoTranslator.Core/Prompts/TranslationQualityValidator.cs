@@ -189,7 +189,7 @@ public static class TranslationQualityValidator
             return;
         }
 
-        var failedIndexes = failures.Select(failure => failure.TextIndex).ToHashSet();
+        var failedIndexes = new HashSet<int>(failures.Select(failure => failure.TextIndex));
         for (var i = 0; i < sourceTexts.Count; i++)
         {
             if (!contextByIndex.TryGetValue(i, out var leftContext))

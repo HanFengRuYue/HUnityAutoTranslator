@@ -1,7 +1,10 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.1</TargetFramework>
+    <!-- Unity 2019.4 LTS 自带的 Mono 不完整支持 netstandard2.0 的 facade（netstandard.dll 转发 System.ValueTuple 等会失败），
+         直接打 .NET Framework 4.6.2，Unity 2019.4+ 的 ".NET 4.x" 兼容级别都能解析；
+         Core 多目标 + PolySharp 提供 Range/Index/可空注解等 polyfill。 -->
+    <TargetFramework>net462</TargetFramework>
     <AssemblyName>HUnityAutoTranslator.Plugin.BepInEx5</AssemblyName>
     <Product>HUnityAutoTranslator</Product>
     <Version>0.1.1</Version>
@@ -20,6 +23,18 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <DefineConstants>$(DefineConstants);HUNITY_BEPINEX5</DefineConstants>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <!-- 与 Core 一样，netstandard2.0 的 BCL 没有可空注解，CS8600/CS8602/CS8603/CS8604 警告噪声大；
+         BepInEx 5 目标这里直接关掉，保持原 Plugin / Plugin.IL2CPP 仍然把它们视为错误。 -->
+    <WarningsAsErrors></WarningsAsErrors>
+    <WarningsNotAsErrors>CS8600;CS8602;CS8603;CS8604</WarningsNotAsErrors>
+    <NoWarn>$(NoWarn);CS8600;CS8602;CS8603;CS8604</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="PolySharp" Version="1.15.0" PrivateAssets="all" />
+  </ItemGroup>
+  <PropertyGroup>
+    <PolySharpExcludeGeneratedTypes>System.Runtime.CompilerServices.IsExternalInit</PolySharpExcludeGeneratedTypes>
   </PropertyGroup>
 
   <ItemGroup>

@@ -92,7 +92,7 @@ public sealed class TextureImageTranslationSettingsTests
     {
         var serverSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.Plugin", "Web", "LocalHttpServer.cs"));
 
-        serverSource.Should().Contain("new TextureImageEditClient(_httpClient");
+        serverSource.Should().Contain("new TextureImageEditClient(_httpTransport");
         serverSource.Should().Contain(".TestConnectionAsync(normalized.ToConfig()");
         serverSource.Should().NotContain("var models = await utilityClient.FetchModelsAsync(utilityProfile, CancellationToken.None)");
         serverSource.Should().NotContain(".FetchModelsAsync(profile, CancellationToken.None)\r\n                .ConfigureAwait(false);\r\n            return new ProviderTestResult(models.Succeeded, models.Message);");

@@ -1,9 +1,9 @@
-using System.Net;
-using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text;
 using FluentAssertions;
 using HUnityAutoTranslator.Core.Control;
+using HUnityAutoTranslator.Core.Http;
+using HUnityAutoTranslator.Core.Tests.Http;
 
 namespace HUnityAutoTranslator.Core.Tests.Control;
 
@@ -84,8 +84,7 @@ public sealed class LlamaCppModelDownloadTests
         Directory.CreateDirectory(targetDirectory);
         var targetPath = Path.Combine(targetDirectory, preset.FileName);
         File.WriteAllBytes(targetPath, payload);
-        using var client = new HttpClient(new ThrowingHandler());
-        var manager = new LlamaCppModelDownloadManager(client, temp.Path, new[] { preset });
+        var manager = new LlamaCppModelDownloadManager(FakeHttpTransport.Throwing(), temp.Path, new[] { preset });
 
         var status = manager.StartDownload(preset.Id);
 
@@ -101,8 +100,8 @@ public sealed class LlamaCppModelDownloadTests
         using var temp = new TemporaryDirectory();
         var payload = Encoding.UTF8.GetBytes("downloaded gguf");
         var preset = CreatePreset("fresh", payload);
-        using var client = new HttpClient(new StaticContentHandler(payload));
-        var manager = new LlamaCppModelDownloadManager(client, temp.Path, new[] { preset });
+        var transport = StreamingTransport(payload);
+        var manager = new LlamaCppModelDownloadManager(transport, temp.Path, new[] { preset });
 
         manager.StartDownload(preset.Id);
         var status = await WaitForTerminalStatusAsync(manager);
@@ -120,8 +119,8 @@ public sealed class LlamaCppModelDownloadTests
         using var gate = new ManualResetEventSlim(false);
         var payload = Encoding.UTF8.GetBytes("message");
         var preset = CreatePreset("message", payload);
-        using var client = new HttpClient(new BlockingHandler(payload, gate));
-        var manager = new LlamaCppModelDownloadManager(client, temp.Path, new[] { preset });
+        var transport = BlockingTransport(payload, gate);
+        var manager = new LlamaCppModelDownloadManager(transport, temp.Path, new[] { preset });
 
         var startStatus = manager.StartDownload(preset.Id);
         var downloadingStatus = await WaitForStateAsync(manager, "downloading");
@@ -140,8 +139,13 @@ public sealed class LlamaCppModelDownloadTests
         using var temp = new TemporaryDirectory();
         var payload = Encoding.UTF8.GetBytes("http-failure");
         var preset = CreatePreset("http-failure", payload);
-        using var client = new HttpClient(new StatusCodeHandler(HttpStatusCode.BadGateway));
-        var manager = new LlamaCppModelDownloadManager(client, temp.Path, new[] { preset });
+        var transport = new FakeHttpTransport(_ => new HttpTransportStreamResponse(
+            isSuccessStatusCode: false,
+            statusCode: 502,
+            reasonPhrase: "Bad Gateway",
+            contentLength: null,
+            body: Stream.Null));
+        var manager = new LlamaCppModelDownloadManager(transport, temp.Path, new[] { preset });
 
         manager.StartDownload(preset.Id);
         var status = await WaitForTerminalStatusAsync(manager);
@@ -169,8 +173,8 @@ public sealed class LlamaCppModelDownloadTests
             UseCase: "测试",
             License: "test",
             Notes: "test");
-        using var client = new HttpClient(new StaticContentHandler(payload));
-        var manager = new LlamaCppModelDownloadManager(client, temp.Path, new[] { preset });
+        var transport = StreamingTransport(payload);
+        var manager = new LlamaCppModelDownloadManager(transport, temp.Path, new[] { preset });
 
         manager.StartDownload(preset.Id);
         var status = await WaitForTerminalStatusAsync(manager);
@@ -190,8 +194,8 @@ public sealed class LlamaCppModelDownloadTests
         var secondPayload = Encoding.UTF8.GetBytes("second");
         var first = CreatePreset("first", firstPayload);
         var second = CreatePreset("second", secondPayload);
-        using var client = new HttpClient(new BlockingHandler(firstPayload, gate));
-        var manager = new LlamaCppModelDownloadManager(client, temp.Path, new[] { first, second });
+        var transport = BlockingTransport(firstPayload, gate);
+        var manager = new LlamaCppModelDownloadManager(transport, temp.Path, new[] { first, second });
 
         manager.StartDownload(first.Id);
         await WaitForStateAsync(manager, "downloading");
@@ -211,8 +215,8 @@ public sealed class LlamaCppModelDownloadTests
         using var gate = new ManualResetEventSlim(false);
         var payload = Encoding.UTF8.GetBytes("cancel");
         var preset = CreatePreset("cancel", payload);
-        using var client = new HttpClient(new BlockingHandler(payload, gate));
-        var manager = new LlamaCppModelDownloadManager(client, temp.Path, new[] { preset });
+        var transport = BlockingTransport(payload, gate);
+        var manager = new LlamaCppModelDownloadManager(transport, temp.Path, new[] { preset });
 
         manager.StartDownload(preset.Id);
         await WaitForStateAsync(manager, "downloading");
@@ -223,6 +227,26 @@ public sealed class LlamaCppModelDownloadTests
         cancelStatus.State.Should().Be("cancelled");
         terminal.State.Should().Be("cancelled");
         File.Exists(Path.Combine(temp.Path, preset.Id, preset.FileName + ".part")).Should().BeFalse();
+    }
+
+    private static FakeHttpTransport StreamingTransport(byte[] payload)
+    {
+        return new FakeHttpTransport(_ => new HttpTransportStreamResponse(
+            isSuccessStatusCode: true,
+            statusCode: 200,
+            reasonPhrase: "OK",
+            contentLength: payload.Length,
+            body: new MemoryStream(payload)));
+    }
+
+    private static FakeHttpTransport BlockingTransport(byte[] payload, ManualResetEventSlim gate)
+    {
+        return new FakeHttpTransport(_ => new HttpTransportStreamResponse(
+            isSuccessStatusCode: true,
+            statusCode: 200,
+            reasonPhrase: "OK",
+            contentLength: payload.Length,
+            body: new BlockingReadStream(payload, gate)));
     }
 
     private static LlamaCppModelDownloadPreset CreatePreset(string id, byte[] payload)
@@ -274,44 +298,6 @@ public sealed class LlamaCppModelDownloadTests
         throw new TimeoutException($"Timed out waiting for terminal status. Last state: {manager.GetStatus().State}");
     }
 
-    private sealed class StaticContentHandler : HttpMessageHandler
-    {
-        private readonly byte[] _payload;
-
-        public StaticContentHandler(byte[] payload)
-        {
-            _payload = payload;
-        }
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new ByteArrayContent(_payload)
-            });
-        }
-    }
-
-    private sealed class BlockingHandler : HttpMessageHandler
-    {
-        private readonly byte[] _payload;
-        private readonly ManualResetEventSlim _gate;
-
-        public BlockingHandler(byte[] payload, ManualResetEventSlim gate)
-        {
-            _payload = payload;
-            _gate = gate;
-        }
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-            {
-                Content = new StreamContent(new BlockingReadStream(_payload, _gate))
-            });
-        }
-    }
-
     private sealed class BlockingReadStream : MemoryStream
     {
         private readonly ManualResetEventSlim _gate;
@@ -337,29 +323,6 @@ public sealed class LlamaCppModelDownloadTests
         public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken)
         {
             return Task.Run(() => Read(buffer, offset, count), cancellationToken);
-        }
-    }
-
-    private sealed class StatusCodeHandler : HttpMessageHandler
-    {
-        private readonly HttpStatusCode _statusCode;
-
-        public StatusCodeHandler(HttpStatusCode statusCode)
-        {
-            _statusCode = statusCode;
-        }
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            return Task.FromResult(new HttpResponseMessage(_statusCode));
-        }
-    }
-
-    private sealed class ThrowingHandler : HttpMessageHandler
-    {
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            throw new InvalidOperationException("Network should not be used.");
         }
     }
 

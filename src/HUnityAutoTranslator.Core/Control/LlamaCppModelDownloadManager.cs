@@ -1,5 +1,5 @@
-using System.Net.Http;
 using System.Security.Cryptography;
+using HUnityAutoTranslator.Core.Http;
 
 namespace HUnityAutoTranslator.Core.Control;
 
@@ -8,8 +8,8 @@ public sealed class LlamaCppModelDownloadManager : IDisposable
     private const int BufferSize = 128 * 1024;
 
     private readonly object _gate = new();
-    private readonly HttpClient _httpClient;
-    private readonly bool _ownsHttpClient;
+    private readonly IHttpTransport _transport;
+    private readonly bool _ownsTransport;
     private readonly string _modelRoot;
     private readonly IReadOnlyList<LlamaCppModelDownloadPreset> _presets;
     private CancellationTokenSource? _activeCts;
@@ -17,28 +17,28 @@ public sealed class LlamaCppModelDownloadManager : IDisposable
     private LlamaCppModelDownloadStatus _status = LlamaCppModelDownloadStatus.Idle();
 
     public LlamaCppModelDownloadManager(string modelRoot)
-        : this(new HttpClient(), modelRoot, LlamaCppModelDownloadPresets.All, ownsHttpClient: true)
+        : this(new WebRequestHttpTransport(), modelRoot, LlamaCppModelDownloadPresets.All, ownsTransport: true)
     {
     }
 
     public LlamaCppModelDownloadManager(
-        HttpClient httpClient,
+        IHttpTransport transport,
         string modelRoot,
         IReadOnlyList<LlamaCppModelDownloadPreset>? presets = null)
-        : this(httpClient, modelRoot, presets ?? LlamaCppModelDownloadPresets.All, ownsHttpClient: false)
+        : this(transport, modelRoot, presets ?? LlamaCppModelDownloadPresets.All, ownsTransport: false)
     {
     }
 
     private LlamaCppModelDownloadManager(
-        HttpClient httpClient,
+        IHttpTransport transport,
         string modelRoot,
         IReadOnlyList<LlamaCppModelDownloadPreset> presets,
-        bool ownsHttpClient)
+        bool ownsTransport)
     {
-        _httpClient = httpClient;
+        _transport = transport;
         _modelRoot = modelRoot;
         _presets = presets;
-        _ownsHttpClient = ownsHttpClient;
+        _ownsTransport = ownsTransport;
     }
 
     public IReadOnlyList<LlamaCppModelDownloadPreset> GetPresets()
@@ -164,19 +164,25 @@ public sealed class LlamaCppModelDownloadManager : IDisposable
                 File.Delete(partPath);
             }
 
-            using var request = new HttpRequestMessage(HttpMethod.Get, preset.DownloadUrl);
-            request.Headers.UserAgent.ParseAdd("HUnityAutoTranslator/0.1");
-            using var response = await _httpClient.SendAsync(
-                request,
-                HttpCompletionOption.ResponseHeadersRead,
-                cancellationToken).ConfigureAwait(false);
+            var request = new HttpTransportRequest
+            {
+                Method = HttpTransportMethod.Get,
+                Uri = new Uri(preset.DownloadUrl),
+                Headers = new[] { new HttpHeaderEntry("User-Agent", "HUnityAutoTranslator/0.1") },
+                ResponseHeadersOnly = true,
+                // 多 GB 模型下载不能套默认 100s 超时，靠调用方的 cancellationToken 控制。
+                Timeout = System.Threading.Timeout.InfiniteTimeSpan,
+            };
+            using var response = await _transport
+                .SendStreamingAsync(request, cancellationToken)
+                .ConfigureAwait(false);
             if (!response.IsSuccessStatusCode)
             {
-                throw new InvalidOperationException($"模型下载失败（HTTP {(int)response.StatusCode}）。");
+                throw new InvalidOperationException($"模型下载失败（HTTP {response.StatusCode}）。");
             }
 
-            var totalBytes = response.Content.Headers.ContentLength.GetValueOrDefault(preset.FileSizeBytes);
-            using var input = await response.Content.ReadAsStreamAsync().ConfigureAwait(false);
+            var totalBytes = response.ContentLength ?? preset.FileSizeBytes;
+            var input = response.Body;
             using var output = new FileStream(partPath, FileMode.Create, FileAccess.Write, FileShare.None, BufferSize, useAsync: true);
             var buffer = new byte[BufferSize];
             long downloaded = 0;
@@ -219,7 +225,7 @@ public sealed class LlamaCppModelDownloadManager : IDisposable
                 DateTimeOffset.UtcNow));
             return;
         }
-        catch (Exception ex) when (ex is IOException or HttpRequestException or InvalidOperationException)
+        catch (Exception ex) when (ex is IOException or InvalidOperationException)
         {
             TryDelete(partPath);
             SetStatus(CreateStatus(
@@ -385,9 +391,9 @@ public sealed class LlamaCppModelDownloadManager : IDisposable
     {
         _activeCts?.Cancel();
         _activeCts?.Dispose();
-        if (_ownsHttpClient)
+        if (_ownsTransport)
         {
-            _httpClient.Dispose();
+            _transport.Dispose();
         }
     }
 }

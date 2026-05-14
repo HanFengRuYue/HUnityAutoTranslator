@@ -1,5 +1,5 @@
 using System.Net;
-using System.Net.Http;
+using HUnityAutoTranslator.Core.Http;
 using System.Text;
 using BepInEx.Logging;
 using HUnityAutoTranslator.Core.Caching;
@@ -38,7 +38,7 @@ internal sealed class LocalHttpServer : IDisposable
     private readonly LlamaCppModelDownloadManager _llamaCppModelDownloads;
     private readonly SelfCheckService _selfCheck;
     private readonly Func<MemoryDiagnosticsSnapshot> _memoryDiagnosticsProvider;
-    private readonly HttpClient _httpClient = new();
+    private readonly IHttpTransport _httpTransport;
     private readonly SemaphoreSlim _requestGate = new(MaxConcurrentHttpRequests, MaxConcurrentHttpRequests);
     private readonly ProviderUtilityClient _providerUtilityClient;
     private readonly ManualLogSource _logger;
@@ -61,6 +61,7 @@ internal sealed class LocalHttpServer : IDisposable
         SelfCheckService selfCheck,
         Func<MemoryDiagnosticsSnapshot> memoryDiagnosticsProvider,
         string dataDirectory,
+        IHttpTransport httpTransport,
         ManualLogSource logger)
     {
         _controlPanel = controlPanel;
@@ -74,7 +75,8 @@ internal sealed class LocalHttpServer : IDisposable
         _llamaCppModelDownloads = llamaCppModelDownloads;
         _selfCheck = selfCheck;
         _memoryDiagnosticsProvider = memoryDiagnosticsProvider;
-        _providerUtilityClient = new ProviderUtilityClient(_httpClient, _controlPanel.GetApiKey);
+        _httpTransport = httpTransport;
+        _providerUtilityClient = new ProviderUtilityClient(_httpTransport, _controlPanel.GetApiKey);
         _logger = logger;
         _dataDirectory = dataDirectory;
     }
@@ -170,7 +172,11 @@ internal sealed class LocalHttpServer : IDisposable
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/config")
             {
-                var request = await ReadJsonAsync<UpdateConfigRequest>(context.Request).ConfigureAwait(false);
+                var body = await ReadBodyAsync(context.Request).ConfigureAwait(false);
+                MergePartialLlamaCppConfig(ref body, _controlPanel.GetConfig().LlamaCpp);
+                var request = string.IsNullOrWhiteSpace(body)
+                    ? null
+                    : JsonConvert.DeserializeObject<UpdateConfigRequest>(body);
                 _controlPanel.UpdateConfig(request ?? new UpdateConfigRequest());
                 _logger.LogInfo("控制面板设置已更新。");
                 await WriteStateAsync(context.Response).ConfigureAwait(false);
@@ -484,7 +490,7 @@ internal sealed class LocalHttpServer : IDisposable
                     await _textureReplacement.AnalyzeTextTexturesAsync(
                         request,
                         _controlPanel.GetReadyTextureImageProviderProfiles(),
-                        _httpClient,
+                        _httpTransport,
                         CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "POST" && path == "/api/textures/text-status")
@@ -501,7 +507,7 @@ internal sealed class LocalHttpServer : IDisposable
                         request,
                         _controlPanel.GetConfig(),
                         _controlPanel.GetReadyTextureImageProviderProfiles(),
-                        _httpClient,
+                        _httpTransport,
                         CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
             }
             else if (context.Request.HttpMethod == "GET" && path == "/api/textures")
@@ -734,7 +740,7 @@ internal sealed class LocalHttpServer : IDisposable
             }
 
             var normalized = profile.Normalize();
-            var client = new TextureImageEditClient(_httpClient, () => normalized.ApiKey);
+            var client = new TextureImageEditClient(_httpTransport, () => normalized.ApiKey);
             await WriteJsonAsync(response, await client.TestConnectionAsync(normalized.ToConfig(), CancellationToken.None).ConfigureAwait(false)).ConfigureAwait(false);
             return;
         }
@@ -1066,7 +1072,7 @@ internal sealed class LocalHttpServer : IDisposable
 
     private ProviderUtilityClient CreateProviderUtilityClient(ProviderRuntimeProfile profile)
     {
-        return new ProviderUtilityClient(_httpClient, () => profile.ApiKey);
+        return new ProviderUtilityClient(_httpTransport, () => profile.ApiKey);
     }
 
     private async Task HandleFontPickAsync(HttpListenerContext context)
@@ -1089,7 +1095,7 @@ internal sealed class LocalHttpServer : IDisposable
     private ProviderUtilityClient CreateTextureImageProviderUtilityClient(TextureImageProviderProfileDefinition profile)
     {
         var normalized = profile.Normalize();
-        return new ProviderUtilityClient(_httpClient, () => normalized.ApiKey);
+        return new ProviderUtilityClient(_httpTransport, () => normalized.ApiKey);
     }
 
     private static ProviderProfile CreateTextureImageProviderProfile(TextureImageProviderProfileDefinition profile)
@@ -1116,11 +1122,11 @@ internal sealed class LocalHttpServer : IDisposable
             var normalized = TextureImageProviderProfileDefinition
                 .FromLegacy(active.Config, active.ApiKey, priority: 0)
                 .Normalize();
-            return await new TextureImageEditClient(_httpClient, () => normalized.ApiKey)
+            return await new TextureImageEditClient(_httpTransport, () => normalized.ApiKey)
                 .TestConnectionAsync(normalized.ToConfig(), CancellationToken.None)
                 .ConfigureAwait(false);
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException)
+        catch (Exception ex) when (ex is InvalidOperationException or Newtonsoft.Json.JsonException or FormatException)
         {
             return new ProviderTestResult(false, $"贴图图片服务连接失败：{ex.Message}");
         }
@@ -1499,6 +1505,55 @@ internal sealed class LocalHttpServer : IDisposable
         return string.IsNullOrWhiteSpace(body) ? default : JsonConvert.DeserializeObject<T>(body);
     }
 
+    // /api/config 允许只发送 LlamaCpp 子对象的部分字段（比如只更新 ModelPath）。
+    // JSON 反序列化对缺失的 int/string 字段会填 0/null，UpdateConfig 之后会被 clamp 成最小值，
+    // 把已有的 ContextSize/GpuLayers/BatchSize 等悄悄清零。这里在反序列化前把缺失字段补上。
+    private static void MergePartialLlamaCppConfig(ref string body, LlamaCppConfig current)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return;
+        }
+
+        JObject root;
+        try
+        {
+            root = JObject.Parse(body);
+        }
+        catch (JsonReaderException)
+        {
+            return;
+        }
+
+        if (root["LlamaCpp"] is not JObject llamaCpp)
+        {
+            return;
+        }
+
+        TryFillMissing(llamaCpp, "ModelPath", current.ModelPath);
+        TryFillMissing(llamaCpp, "ContextSize", current.ContextSize);
+        TryFillMissing(llamaCpp, "GpuLayers", current.GpuLayers);
+        TryFillMissing(llamaCpp, "ParallelSlots", current.ParallelSlots);
+        TryFillMissing(llamaCpp, "BatchSize", current.BatchSize);
+        TryFillMissing(llamaCpp, "UBatchSize", current.UBatchSize);
+        TryFillMissing(llamaCpp, "FlashAttentionMode", current.FlashAttentionMode);
+        TryFillMissing(llamaCpp, "AutoStartOnStartup", current.AutoStartOnStartup);
+        TryFillMissing(llamaCpp, "CacheReuseTokens", current.CacheReuseTokens);
+        // 用 JsonConvert.SerializeObject 重新序列化，避免在 BepInEx 5 老 Unity 上和游戏自带的 Newtonsoft.Json
+        // 版本冲突时调用 JToken.ToString(Formatting) 触发 MissingMethodException。
+        body = JsonConvert.SerializeObject(root, Formatting.None);
+    }
+
+    private static void TryFillMissing(JObject target, string propertyName, object? currentValue)
+    {
+        if (target[propertyName] != null)
+        {
+            return;
+        }
+
+        target[propertyName] = currentValue == null ? JValue.CreateNull() : JToken.FromObject(currentValue);
+    }
+
     private static async Task<string> ReadBodyAsync(HttpListenerRequest request)
     {
         var bytes = await ReadBytesAsync(request, MaxJsonRequestBytes).ConfigureAwait(false);
@@ -1698,7 +1753,7 @@ internal sealed class LocalHttpServer : IDisposable
     {
         _cts?.Cancel();
         _listener?.Close();
-        _httpClient.Dispose();
+        // _httpTransport 的生命周期由 PluginRuntime 统一管理，这里不释放。
         _cts?.Dispose();
     }
 }

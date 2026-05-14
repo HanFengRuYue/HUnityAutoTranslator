@@ -317,7 +317,9 @@ function Get-PluginRuntimeBuilds([string]$Runtime) {
         $builds += @{
             Runtime = "BepInEx5"
             Project = $bepInEx5Project
-            TargetFramework = "netstandard2.1"
+            # Plugin.BepInEx5 必须是 net462：Unity 2019.4 LTS 自带的 Mono 没有完整的 netstandard.dll 转发，
+            # 直接打 .NET Framework 4.6.2 才能让 BepInEx 5 在老 Unity 上把 MonoBehaviour 实例化出来。
+            TargetFramework = "net462"
             PackageRoot = $bepInEx5PackageRoot
             PluginRoot = $bepInEx5PluginRoot
             ZipPath = $bepInEx5ZipPath
@@ -400,7 +402,20 @@ function Build-PluginPackage([hashtable]$Build) {
     New-Item -ItemType Directory -Force -Path $runtimePluginRoot | Out-Null
 
     Get-ChildItem -LiteralPath $runtimeBuildOutput -Filter "*.dll" |
-        Where-Object { $_.Name -ne "BepInEx.dll" -and $_.Name -notlike "BepInEx.*" -and $_.Name -notlike "UnityEngine.*" -and $_.Name -ne "0Harmony.dll" } |
+        Where-Object {
+            $_.Name -ne "BepInEx.dll" -and
+            $_.Name -notlike "BepInEx.*" -and
+            $_.Name -notlike "UnityEngine.*" -and
+            $_.Name -ne "0Harmony.dll" -and
+            # 排除 SQLitePCLRaw 的 batteries_v2 + dynamic_cdecl provider：
+            # Microsoft.Data.Sqlite 的 SqliteConnection 静态构造会反射调用 SQLitePCL.Batteries_V2.Init，
+            # 而 net462 解析出来的 batteries_v2 实现走 MakeDynamic → RuntimeInformation.IsOSPlatform，
+            # 部分 Unity Mono（Unity 6 / Unity 2019.4）不带这个程序集会 FileNotFoundException 让插件起不来。
+            # SqliteTranslationCache.EnsureSqliteInitialized 在调任何 SqliteConnection 之前手工挂
+            # SQLite3Provider_e_sqlite3，Type.GetType 找不到 Batteries_V2 时 Microsoft.Data.Sqlite 会跳过 Init。
+            $_.Name -ne "SQLitePCLRaw.provider.dynamic_cdecl.dll" -and
+            $_.Name -ne "SQLitePCLRaw.batteries_v2.dll"
+        } |
         Copy-Item -Destination $runtimePluginRoot -Force
 
     $expectedPlugin = Join-Path $runtimePluginRoot $Build.AssemblyName

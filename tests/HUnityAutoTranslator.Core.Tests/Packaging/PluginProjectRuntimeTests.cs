@@ -30,7 +30,9 @@ public sealed class PluginProjectRuntimeTests
             "HUnityAutoTranslator.Plugin.BepInEx5",
             "HUnityAutoTranslator.Plugin.BepInEx5.csproj"));
 
-        project.Should().Contain("<TargetFramework>netstandard2.1</TargetFramework>");
+        // Unity 2019.4 LTS 自带的 Mono 没有完整的 netstandard.dll 转发（缺 System.ValueTuple 等），
+        // BepInEx 5 插件必须直接打 .NET Framework 4.6.2 才能让 Unity 把 MonoBehaviour 实例化出来。
+        project.Should().Contain("<TargetFramework>net462</TargetFramework>");
         project.Should().Contain("<AssemblyName>HUnityAutoTranslator.Plugin.BepInEx5</AssemblyName>");
         project.Should().Contain("HUNITY_BEPINEX5");
         project.Should().Contain("BepInEx.Core");
@@ -40,6 +42,7 @@ public sealed class PluginProjectRuntimeTests
         project.Should().Contain("..\\HUnityAutoTranslator.Plugin\\obj\\**");
         project.Should().Contain("..\\HUnityAutoTranslator.Core\\Polyfills\\IsExternalInit.cs");
         project.Should().Contain("..\\HUnityAutoTranslator.Core\\HUnityAutoTranslator.Core.csproj");
+        project.Should().Contain("PolySharp");
         project.Should().NotContain("BepInEx.Unity.Mono");
         project.Should().NotContain("BepInEx.Unity.IL2CPP");
     }

@@ -44,6 +44,8 @@ public sealed class PackageScriptTests
         script.Should().Contain("function Build-PluginPackage");
         script.Should().Contain("Get-PluginRuntimeBuilds -Runtime $Runtime");
         script.Should().Contain("Project = $bepInEx5Project");
+        // BepInEx5 必须打成 net462 才能在 Unity 2019.4 LTS 上加载，Mono(BepInEx 6) 仍是 netstandard2.1，IL2CPP 是 net6.0。
+        script.Should().Contain("TargetFramework = \"net462\"");
         script.Should().Contain("TargetFramework = \"netstandard2.1\"");
         script.Should().Contain("TargetFramework = \"net6.0\"");
         script.Should().Contain("HUnityAutoTranslator.Plugin.BepInEx5.dll");

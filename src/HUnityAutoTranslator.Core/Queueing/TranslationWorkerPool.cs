@@ -371,14 +371,17 @@ public sealed class TranslationWorkerPool
             _config.GameTitle,
             _config.TranslationQuality))
         {
-            failures.TryAdd(
-                failure.TextIndex,
-                CreateFinalFailure(
-                    jobs,
-                    translatedTexts,
-                    contextByIndex,
+            if (!failures.ContainsKey(failure.TextIndex))
+            {
+                failures.Add(
                     failure.TextIndex,
-                    "translation quality check failed: " + failure.Reason));
+                    CreateFinalFailure(
+                        jobs,
+                        translatedTexts,
+                        contextByIndex,
+                        failure.TextIndex,
+                        "translation quality check failed: " + failure.Reason));
+            }
         }
 
         return failures;

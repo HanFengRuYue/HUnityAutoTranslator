@@ -528,7 +528,9 @@ PRAGMA user_version={SchemaVersion};
     {
         if (Interlocked.Exchange(ref s_sqliteInitialized, 1) == 0)
         {
-            Batteries_V2.Init();
+            // 同 SqliteTranslationCache：直接挂 e_sqlite3 静态 provider，绕开 Batteries_V2.Init →
+            // MakeDynamic → RuntimeInformation 路径，老 Unity Mono 上才能初始化成功。
+            SQLitePCL.raw.SetProvider(new SQLitePCL.SQLite3Provider_e_sqlite3());
         }
     }
 }

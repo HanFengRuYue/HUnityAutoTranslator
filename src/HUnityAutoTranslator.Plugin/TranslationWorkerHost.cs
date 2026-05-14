@@ -1,10 +1,10 @@
-using System.Net.Http;
 using BepInEx.Logging;
 using HUnityAutoTranslator.Core.Caching;
 using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Dispatching;
 using HUnityAutoTranslator.Core.Glossary;
+using HUnityAutoTranslator.Core.Http;
 using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Providers;
 using HUnityAutoTranslator.Core.Queueing;
@@ -27,7 +27,7 @@ internal sealed class TranslationWorkerHost : IDisposable
     private readonly ManualLogSource _logger;
     private readonly LlamaCppServerManager? _llamaCppServer;
     private readonly QualityRetryResumeSuppressions _qualityRetryResumeSuppressions = new();
-    private readonly HttpClient _httpClient = new();
+    private readonly IHttpTransport _httpTransport;
     private CancellationTokenSource? _cts;
     private Task? _task;
     private DateTimeOffset _nextPendingResumeUtc;
@@ -41,6 +41,7 @@ internal sealed class TranslationWorkerHost : IDisposable
         IGlossaryStore glossary,
         ControlPanelMetrics metrics,
         ManualLogSource logger,
+        IHttpTransport httpTransport,
         LlamaCppServerManager? llamaCppServer = null)
     {
         _controlPanel = controlPanel;
@@ -50,6 +51,7 @@ internal sealed class TranslationWorkerHost : IDisposable
         _glossary = glossary;
         _metrics = metrics;
         _logger = logger;
+        _httpTransport = httpTransport;
         _llamaCppServer = llamaCppServer;
     }
 
@@ -168,14 +170,14 @@ internal sealed class TranslationWorkerHost : IDisposable
     {
         return config.Provider.Kind == ProviderKind.OpenAI
             ? new OpenAiResponsesProvider(
-                _httpClient,
+                _httpTransport,
                 config.Provider,
                 _controlPanel.GetApiKey,
                 config.ReasoningEffort,
                 config.OutputVerbosity,
                 TimeSpan.FromSeconds(config.RequestTimeoutSeconds))
             : new ChatCompletionsProvider(
-                _httpClient,
+                _httpTransport,
                 config.Provider,
                 _controlPanel.GetApiKey,
                 config.ReasoningEffort,
@@ -188,14 +190,14 @@ internal sealed class TranslationWorkerHost : IDisposable
     {
         return runtimeProfile.Profile.Kind == ProviderKind.OpenAI
             ? new OpenAiResponsesProvider(
-                _httpClient,
+                _httpTransport,
                 runtimeProfile.Profile,
                 () => runtimeProfile.ApiKey,
                 runtimeProfile.ReasoningEffort,
                 runtimeProfile.OutputVerbosity,
                 TimeSpan.FromSeconds(runtimeProfile.RequestTimeoutSeconds))
             : new ChatCompletionsProvider(
-                _httpClient,
+                _httpTransport,
                 runtimeProfile.Profile,
                 () => runtimeProfile.ApiKey,
                 runtimeProfile.ReasoningEffort,
@@ -257,7 +259,7 @@ internal sealed class TranslationWorkerHost : IDisposable
             ApiKeyConfigured = true
         };
         return new ChatCompletionsProvider(
-            _httpClient,
+            _httpTransport,
             profile,
             () => runtimeProfile.ApiKey,
             runtimeProfile.ReasoningEffort,
@@ -571,7 +573,7 @@ internal sealed class TranslationWorkerHost : IDisposable
         {
         }
 
-        _httpClient.Dispose();
+        // _httpTransport 的生命周期由 PluginRuntime 统一管理，这里不释放。
         _cts?.Dispose();
     }
 }

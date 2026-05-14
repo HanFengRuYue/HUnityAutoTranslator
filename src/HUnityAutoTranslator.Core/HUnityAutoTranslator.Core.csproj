@@ -1,14 +1,38 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>netstandard2.1</TargetFramework>
+    <TargetFrameworks>netstandard2.0;netstandard2.1</TargetFrameworks>
     <Nullable>enable</Nullable>
+    <LangVersion>latest</LangVersion>
+  </PropertyGroup>
+
+  <!-- netstandard2.0 的 BCL 没有可空注解，CS8600/CS8602/CS8603/CS8604 警告噪声大且来源主要是 BCL 接口签名差异。
+       这里只对 2.0 目标降级为警告，保持 2.1 目标仍然把它们视为错误。 -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <WarningsAsErrors></WarningsAsErrors>
+    <WarningsNotAsErrors>CS8600;CS8602;CS8603;CS8604</WarningsNotAsErrors>
+    <NoWarn>$(NoWarn);CS8600;CS8602;CS8603;CS8604</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.26" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="2.1.11" />
+    <!-- 强制把 e_sqlite3 静态 provider 加进引用闭包，避免 .NET Framework 4.6.2 BepInEx 5 包里
+         只剩 dynamic_cdecl provider；SqliteTranslationCache.EnsureSqliteInitialized 直接挂 e_sqlite3 提供者，
+         绕开调用 RuntimeInformation 的 MakeDynamic 代码路径。 -->
+    <PackageReference Include="SQLitePCLRaw.provider.e_sqlite3" Version="2.1.11" />
   </ItemGroup>
+
+  <!-- netstandard2.0 缺少 Range / Index / 可空注解等类型，借助 PolySharp 在编译期注入 polyfill。
+       netstandard2.1 已经原生提供这些类型；IsExternalInit 两个目标都缺，但本仓库默认会编译 Polyfills/IsExternalInit.cs，
+       所以 SDK 自动生成的 IsExternalInit 不会重复。 -->
+  <ItemGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <PackageReference Include="PolySharp" Version="1.15.0" PrivateAssets="all" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(TargetFramework)' == 'netstandard2.0'">
+    <!-- PolySharp 也会尝试注入 IsExternalInit，与本项目源码里的 Polyfills/IsExternalInit.cs 冲突，禁用即可。 -->
+    <PolySharpExcludeGeneratedTypes>System.Runtime.CompilerServices.IsExternalInit</PolySharpExcludeGeneratedTypes>
+  </PropertyGroup>
 
 </Project>

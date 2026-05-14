@@ -9,7 +9,10 @@ internal static class WindowsConsoleEncoding
 
     public static void ConfigureUtf8()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        // 用 Environment.OSVersion 判平台：System.Runtime.InteropServices.RuntimeInformation
+        // 不是所有 Unity Mono 运行时都自带（BE.755 + Unity 6 / 部分 Unity 2019 都缺它），
+        // 找不到时插件 Awake 阶段直接 FileNotFoundException。
+        if (Environment.OSVersion.Platform != PlatformID.Win32NT)
         {
             return;
         }

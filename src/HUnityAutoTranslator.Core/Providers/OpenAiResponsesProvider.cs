@@ -1,6 +1,5 @@
-using System.Net.Http;
-using System.Text;
 using HUnityAutoTranslator.Core.Configuration;
+using HUnityAutoTranslator.Core.Http;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -8,7 +7,7 @@ namespace HUnityAutoTranslator.Core.Providers;
 
 public sealed class OpenAiResponsesProvider : ITranslationProvider
 {
-    private readonly HttpClient _httpClient;
+    private readonly IHttpTransport _transport;
     private readonly ProviderProfile _profile;
     private readonly Func<string?> _apiKeyProvider;
     private readonly string _reasoningEffort;
@@ -16,14 +15,14 @@ public sealed class OpenAiResponsesProvider : ITranslationProvider
     private readonly TimeSpan _timeout;
 
     public OpenAiResponsesProvider(
-        HttpClient httpClient,
+        IHttpTransport transport,
         ProviderProfile profile,
         Func<string?> apiKeyProvider,
         string reasoningEffort = "low",
         string outputVerbosity = "low",
         TimeSpan? timeout = null)
     {
-        _httpClient = httpClient;
+        _transport = transport;
         _profile = profile;
         _apiKeyProvider = apiKeyProvider;
         _reasoningEffort = reasoningEffort;
@@ -47,37 +46,46 @@ public sealed class OpenAiResponsesProvider : ITranslationProvider
             body["reasoning"] = new JObject { ["effort"] = _reasoningEffort };
         }
 
-        using var httpRequest = CreateRequest(body);
-        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(_timeout);
-        using var response = await _httpClient.SendAsync(httpRequest, timeout.Token).ConfigureAwait(false);
-        var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+        var httpRequest = CreateRequest(body);
+        var response = await _transport.SendAsync(httpRequest, cancellationToken).ConfigureAwait(false);
+        if (response.Error != null)
         {
-            return TranslationResponse.Failure($"OpenAI request failed: {(int)response.StatusCode}");
+            return TranslationResponse.Failure($"OpenAI request failed: {response.Error.Message}");
         }
 
-        var text = ProviderJsonParsers.ParseOpenAiResponsesText(json);
+        if (!response.IsSuccessStatusCode)
+        {
+            return TranslationResponse.Failure($"OpenAI request failed: {response.StatusCode}");
+        }
+
+        var text = ProviderJsonParsers.ParseOpenAiResponsesText(response.Body);
         return TranslationResponse.Success(
             ProviderJsonParsers.ParseAssistantTextAsList(text, request.ProtectedTexts.Count),
-            ProviderJsonParsers.ParseTotalTokens(json),
+            ProviderJsonParsers.ParseTotalTokens(response.Body),
             _profile);
     }
 
-    private HttpRequestMessage CreateRequest(JObject body)
+    private HttpTransportRequest CreateRequest(JObject body)
     {
         var uri = new Uri(new Uri(_profile.BaseUrl.TrimEnd(new[] { '/' }) + "/"), _profile.Endpoint.TrimStart(new[] { '/' }));
-        var message = new HttpRequestMessage(HttpMethod.Post, uri)
-        {
-            Content = new StringContent(JsonConvert.SerializeObject(body, Formatting.None), Encoding.UTF8, "application/json")
-        };
-
+        var headers = new List<HttpHeaderEntry>();
         var apiKey = _apiKeyProvider();
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
-            message.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", apiKey);
+            headers.Add(new HttpHeaderEntry("Authorization", "Bearer " + apiKey));
         }
 
-        return message;
+        return new HttpTransportRequest
+        {
+            Method = HttpTransportMethod.Post,
+            Uri = uri,
+            Headers = headers,
+            StringBody = new HttpTransportStringBody
+            {
+                Content = JsonConvert.SerializeObject(body, Formatting.None),
+                ContentType = "application/json",
+            },
+            Timeout = _timeout,
+        };
     }
 }

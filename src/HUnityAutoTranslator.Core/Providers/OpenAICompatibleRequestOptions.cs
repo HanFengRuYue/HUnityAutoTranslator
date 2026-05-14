@@ -1,5 +1,5 @@
-using System.Net.Http;
 using HUnityAutoTranslator.Core.Configuration;
+using HUnityAutoTranslator.Core.Http;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -82,17 +82,20 @@ public static class OpenAICompatibleRequestOptions
         }
     }
 
-    public static void ApplyCustomHeaders(HttpRequestMessage request, ProviderProfile profile)
+    /// <summary>
+    /// 返回 OpenAI 兼容服务商配置的自定义请求头（Authorization / Content-Type 已在解析阶段剥离）。
+    /// 调用方把它和 Authorization 头合并成 <see cref="Http.HttpHeaderEntry"/> 列表交给传输层。
+    /// </summary>
+    public static IReadOnlyList<HttpHeaderEntry> GetCustomHeaders(ProviderProfile profile)
     {
         if (profile.Kind != ProviderKind.OpenAICompatible)
         {
-            return;
+            return Array.Empty<HttpHeaderEntry>();
         }
 
-        foreach (var header in ParseHeaders(profile.OpenAICompatibleCustomHeaders))
-        {
-            request.Headers.TryAddWithoutValidation(header.Name, header.Value);
-        }
+        return ParseHeaders(profile.OpenAICompatibleCustomHeaders)
+            .Select(header => new HttpHeaderEntry(header.Name, header.Value))
+            .ToArray();
     }
 
     public static void ApplyExtraBody(JObject body, ProviderProfile profile)

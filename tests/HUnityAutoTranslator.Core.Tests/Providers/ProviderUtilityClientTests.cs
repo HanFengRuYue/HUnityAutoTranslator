@@ -1,8 +1,8 @@
-using System.Net;
-using System.Text;
 using FluentAssertions;
 using HUnityAutoTranslator.Core.Configuration;
+using HUnityAutoTranslator.Core.Http;
 using HUnityAutoTranslator.Core.Providers;
+using HUnityAutoTranslator.Core.Tests.Http;
 
 namespace HUnityAutoTranslator.Core.Tests.Providers;
 
@@ -11,21 +11,23 @@ public sealed class ProviderUtilityClientTests
     [Fact]
     public async Task FetchModelsAsync_parses_openai_compatible_model_list()
     {
-        var handler = new CaptureHandler("""{"object":"list","data":[{"id":"gpt-5.5","object":"model","owned_by":"openai"}]}""");
-        var client = new ProviderUtilityClient(new HttpClient(handler), () => "key");
+        var transport = new FakeHttpTransport(_ => FakeHttpTransport.Json(
+            """{"object":"list","data":[{"id":"gpt-5.5","object":"model","owned_by":"openai"}]}"""));
+        var client = new ProviderUtilityClient(transport, () => "key");
 
         var result = await client.FetchModelsAsync(ProviderProfile.DefaultOpenAi(), CancellationToken.None);
 
         result.Succeeded.Should().BeTrue();
         result.Models.Should().ContainSingle(model => model.Id == "gpt-5.5" && model.OwnedBy == "openai");
-        handler.RequestPath.Should().Be("/v1/models");
+        transport.LastPath.Should().Be("/v1/models");
     }
 
     [Fact]
     public async Task FetchModelsAsync_reports_api_key_hint_for_unauthorized_response()
     {
-        var handler = new CaptureHandler("""{"error":{"message":"Unauthorized"}}""", HttpStatusCode.Unauthorized);
-        var client = new ProviderUtilityClient(new HttpClient(handler), () => null);
+        var transport = new FakeHttpTransport(_ => FakeHttpTransport.Json(
+            """{"error":{"message":"Unauthorized"}}""", 401));
+        var client = new ProviderUtilityClient(transport, () => null);
 
         var result = await client.FetchModelsAsync(ProviderProfile.DefaultDeepSeek(), CancellationToken.None);
 
@@ -36,41 +38,56 @@ public sealed class ProviderUtilityClientTests
     }
 
     [Fact]
+    public async Task FetchModelsAsync_reports_network_error_message()
+    {
+        var transport = new FakeHttpTransport(_ => FakeHttpTransport.NetworkError("无法连接到服务器。"));
+        var client = new ProviderUtilityClient(transport, () => "key");
+
+        var result = await client.FetchModelsAsync(ProviderProfile.DefaultOpenAi(), CancellationToken.None);
+
+        result.Succeeded.Should().BeFalse();
+        result.Message.Should().Contain("无法连接到服务器");
+        result.Models.Should().BeEmpty();
+    }
+
+    [Fact]
     public async Task FetchBalanceAsync_parses_deepseek_balance()
     {
-        var handler = new CaptureHandler("""{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"110.00","granted_balance":"10.00","topped_up_balance":"100.00"}]}""");
-        var client = new ProviderUtilityClient(new HttpClient(handler), () => "key");
+        var transport = new FakeHttpTransport(_ => FakeHttpTransport.Json(
+            """{"is_available":true,"balance_infos":[{"currency":"CNY","total_balance":"110.00","granted_balance":"10.00","topped_up_balance":"100.00"}]}"""));
+        var client = new ProviderUtilityClient(transport, () => "key");
 
         var result = await client.FetchBalanceAsync(ProviderProfile.DefaultDeepSeek(), CancellationToken.None);
 
         result.Succeeded.Should().BeTrue();
         result.Balances.Should().ContainSingle(balance => balance.Currency == "CNY" && balance.TotalBalance == "110.00");
-        handler.RequestPath.Should().Be("/user/balance");
+        transport.LastPath.Should().Be("/user/balance");
     }
 
     [Fact]
     public async Task FetchBalanceAsync_queries_openai_organization_costs_with_start_time()
     {
-        var handler = new CaptureHandler("""
+        var transport = new FakeHttpTransport(_ => FakeHttpTransport.Json("""
 {"object":"page","data":[{"object":"bucket","results":[{"object":"organization.costs.result","amount":{"currency":"usd","value":0.06}}]}],"has_more":false}
-""");
-        var client = new ProviderUtilityClient(new HttpClient(handler), () => "admin-key");
+"""));
+        var client = new ProviderUtilityClient(transport, () => "admin-key");
 
         var result = await client.FetchBalanceAsync(ProviderProfile.DefaultOpenAi(), CancellationToken.None);
 
         result.Succeeded.Should().BeTrue();
         result.Message.Should().Contain("管理员密钥");
         result.Balances.Should().ContainSingle(balance => balance.Currency == "USD" && balance.TotalBalance == "0.06");
-        handler.RequestPath.Should().Be("/v1/organization/costs");
-        handler.RequestQuery.Should().Contain("start_time=");
-        handler.RequestQuery.Should().Contain("limit=7");
+        transport.LastPath.Should().Be("/v1/organization/costs");
+        transport.LastQuery.Should().Contain("start_time=");
+        transport.LastQuery.Should().Contain("limit=7");
     }
 
     [Fact]
     public async Task FetchModelsAsync_applies_openai_compatible_custom_headers_without_overriding_authorization()
     {
-        var handler = new CaptureHandler("""{"object":"list","data":[{"id":"proxy-model","owned_by":"proxy"}]}""");
-        var client = new ProviderUtilityClient(new HttpClient(handler), () => "key");
+        var transport = new FakeHttpTransport(_ => FakeHttpTransport.Json(
+            """{"object":"list","data":[{"id":"proxy-model","owned_by":"proxy"}]}"""));
+        var client = new ProviderUtilityClient(transport, () => "key");
         var profile = new ProviderProfile(
             ProviderKind.OpenAICompatible,
             "http://127.0.0.1:9000",
@@ -87,17 +104,18 @@ public sealed class ProviderUtilityClientTests
 
         result.Succeeded.Should().BeTrue();
         result.Models.Should().ContainSingle(model => model.Id == "proxy-model");
-        handler.RequestPath.Should().Be("/v1/models");
-        handler.AuthorizationHeader.Should().Be("Bearer key");
-        handler.Header("X-App-Title").Should().Be("HUnity");
-        handler.Header("Content-Type").Should().BeNull();
+        transport.LastPath.Should().Be("/v1/models");
+        transport.AuthorizationHeader.Should().Be("Bearer key");
+        transport.Header("X-App-Title").Should().Be("HUnity");
+        transport.Header("Content-Type").Should().BeNull();
     }
 
     [Fact]
     public async Task TestConnectionAsync_posts_openai_compatible_chat_endpoint_with_auth_headers_and_extra_body()
     {
-        var handler = new CaptureHandler("""{"choices":[{"message":{"content":"ok"}}]}""");
-        var client = new ProviderUtilityClient(new HttpClient(handler), () => "key");
+        var transport = new FakeHttpTransport(_ => FakeHttpTransport.Json(
+            """{"choices":[{"message":{"content":"ok"}}]}"""));
+        var client = new ProviderUtilityClient(transport, () => "key");
         var profile = new ProviderProfile(
             ProviderKind.OpenAICompatible,
             "http://127.0.0.1:9000",
@@ -115,13 +133,13 @@ public sealed class ProviderUtilityClientTests
 
         result.Succeeded.Should().BeTrue();
         result.Message.Should().Contain("ok");
-        handler.Method.Should().Be(HttpMethod.Post);
-        handler.RequestPath.Should().Be("/v1/chat/completions");
-        handler.AuthorizationHeader.Should().Be("Bearer key");
-        handler.Header("X-App-Title").Should().Be("HUnity");
-        handler.Header("Content-Type").Should().BeNull();
-        handler.ContentType.Should().Be("application/json; charset=utf-8");
-        var body = Newtonsoft.Json.Linq.JObject.Parse(handler.Body);
+        transport.LastMethod.Should().Be(HttpTransportMethod.Post);
+        transport.LastPath.Should().Be("/v1/chat/completions");
+        transport.AuthorizationHeader.Should().Be("Bearer key");
+        transport.Header("X-App-Title").Should().Be("HUnity");
+        transport.Header("Content-Type").Should().BeNull();
+        transport.LastStringBodyContentType.Should().Be("application/json");
+        var body = Newtonsoft.Json.Linq.JObject.Parse(transport.LastStringBody);
         body.Value<string>("model").Should().Be("proxy-model");
         body["messages"]!.Should().HaveCount(2);
         body.Value<bool>("stream").Should().BeFalse();
@@ -131,16 +149,17 @@ public sealed class ProviderUtilityClientTests
     [Fact]
     public async Task TestConnectionAsync_posts_deepseek_chat_endpoint_instead_of_fetching_models()
     {
-        var handler = new CaptureHandler("""{"choices":[{"message":{"content":"ok"}}]}""");
-        var client = new ProviderUtilityClient(new HttpClient(handler), () => "key");
+        var transport = new FakeHttpTransport(_ => FakeHttpTransport.Json(
+            """{"choices":[{"message":{"content":"ok"}}]}"""));
+        var client = new ProviderUtilityClient(transport, () => "key");
 
         var result = await client.TestConnectionAsync(ProviderProfile.DefaultDeepSeek(), CancellationToken.None);
 
         result.Succeeded.Should().BeTrue();
         result.Message.Should().Contain("ok");
-        handler.Method.Should().Be(HttpMethod.Post);
-        handler.RequestPath.Should().Be("/chat/completions");
-        var body = Newtonsoft.Json.Linq.JObject.Parse(handler.Body);
+        transport.LastMethod.Should().Be(HttpTransportMethod.Post);
+        transport.LastPath.Should().Be("/chat/completions");
+        var body = Newtonsoft.Json.Linq.JObject.Parse(transport.LastStringBody);
         body.Value<string>("model").Should().Be(ProviderProfile.DefaultDeepSeek().Model);
         body["messages"]!.Should().HaveCount(2);
     }
@@ -148,8 +167,9 @@ public sealed class ProviderUtilityClientTests
     [Fact]
     public async Task TestConnectionAsync_fails_when_generation_response_has_no_text()
     {
-        var handler = new CaptureHandler("""{"choices":[{"message":{"content":""}}]}""");
-        var client = new ProviderUtilityClient(new HttpClient(handler), () => "key");
+        var transport = new FakeHttpTransport(_ => FakeHttpTransport.Json(
+            """{"choices":[{"message":{"content":""}}]}"""));
+        var client = new ProviderUtilityClient(transport, () => "key");
 
         var result = await client.TestConnectionAsync(ProviderProfile.DefaultDeepSeek(), CancellationToken.None);
 
@@ -160,8 +180,9 @@ public sealed class ProviderUtilityClientTests
     [Fact]
     public async Task TestConnectionAsync_reports_path_and_saved_key_hint_for_openai_compatible_unauthorized_response()
     {
-        var handler = new CaptureHandler("""{"error":{"message":"Unauthorized"}}""", HttpStatusCode.Unauthorized);
-        var client = new ProviderUtilityClient(new HttpClient(handler), () => "key");
+        var transport = new FakeHttpTransport(_ => FakeHttpTransport.Json(
+            """{"error":{"message":"Unauthorized"}}""", 401));
+        var client = new ProviderUtilityClient(transport, () => "key");
         var profile = new ProviderProfile(
             ProviderKind.OpenAICompatible,
             "http://127.0.0.1:9000",
@@ -176,53 +197,5 @@ public sealed class ProviderUtilityClientTests
         result.Message.Should().Contain("401");
         result.Message.Should().Contain("/v1/chat/completions");
         result.Message.Should().Contain("API Key 已保存");
-    }
-
-    private sealed class CaptureHandler : HttpMessageHandler
-    {
-        private readonly string _json;
-        private readonly HttpStatusCode _statusCode;
-
-        public CaptureHandler(string json, HttpStatusCode statusCode = HttpStatusCode.OK)
-        {
-            _json = json;
-            _statusCode = statusCode;
-        }
-
-        public string RequestPath { get; private set; } = string.Empty;
-        public string RequestQuery { get; private set; } = string.Empty;
-        public HttpMethod? Method { get; private set; }
-        public string Body { get; private set; } = string.Empty;
-        public string? ContentType { get; private set; }
-        public string? AuthorizationHeader { get; private set; }
-        public Dictionary<string, string> Headers { get; } = new(StringComparer.OrdinalIgnoreCase);
-
-        public string? Header(string name)
-        {
-            return Headers.TryGetValue(name, out var value) ? value : null;
-        }
-
-        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-        {
-            Method = request.Method;
-            RequestPath = request.RequestUri?.AbsolutePath ?? string.Empty;
-            RequestQuery = request.RequestUri?.Query ?? string.Empty;
-            AuthorizationHeader = request.Headers.Authorization?.ToString();
-            foreach (var header in request.Headers)
-            {
-                Headers[header.Key] = string.Join(",", header.Value);
-            }
-
-            if (request.Content != null)
-            {
-                ContentType = request.Content.Headers.ContentType?.ToString();
-                Body = request.Content.ReadAsStringAsync(cancellationToken).GetAwaiter().GetResult();
-            }
-
-            return Task.FromResult(new HttpResponseMessage(_statusCode)
-            {
-                Content = new StringContent(_json, Encoding.UTF8, "application/json")
-            });
-        }
     }
 }

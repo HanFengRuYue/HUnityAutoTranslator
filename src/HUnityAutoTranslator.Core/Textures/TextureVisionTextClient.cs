@@ -1,7 +1,5 @@
-using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Text;
 using HUnityAutoTranslator.Core.Configuration;
+using HUnityAutoTranslator.Core.Http;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -16,12 +14,12 @@ public sealed record TextureVisionTextResult(
 
 public sealed class TextureVisionTextClient
 {
-    private readonly HttpClient _httpClient;
+    private readonly IHttpTransport _transport;
     private readonly Func<string?> _apiKeyProvider;
 
-    public TextureVisionTextClient(HttpClient httpClient, Func<string?> apiKeyProvider)
+    public TextureVisionTextClient(IHttpTransport transport, Func<string?> apiKeyProvider)
     {
-        _httpClient = httpClient;
+        _transport = transport;
         _apiKeyProvider = apiKeyProvider;
     }
 
@@ -31,11 +29,11 @@ public sealed class TextureVisionTextClient
         byte[] sourcePngBytes,
         CancellationToken cancellationToken)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, TextureImageEditClient.BuildUri(config.BaseUrl, config.VisionEndpoint));
+        var headers = new List<HttpHeaderEntry>();
         var apiKey = _apiKeyProvider();
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            headers.Add(new HttpHeaderEntry("Authorization", "Bearer " + apiKey));
         }
 
         var payload = new JObject
@@ -63,18 +61,33 @@ public sealed class TextureVisionTextClient
                 }
             }
         };
-        request.Content = new StringContent(JsonConvert.SerializeObject(payload, Formatting.None), Encoding.UTF8, "application/json");
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(30, config.TimeoutSeconds)));
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
-        using var response = await _httpClient.SendAsync(request, linked.Token).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-        if (!response.IsSuccessStatusCode)
+        var request = new HttpTransportRequest
         {
-            throw new InvalidOperationException($"贴图文字视觉确认失败：HTTP {(int)response.StatusCode} {response.ReasonPhrase}。{body}");
+            Method = HttpTransportMethod.Post,
+            Uri = TextureImageEditClient.BuildUri(config.BaseUrl, config.VisionEndpoint),
+            Headers = headers,
+            StringBody = new HttpTransportStringBody
+            {
+                Content = JsonConvert.SerializeObject(payload, Formatting.None),
+                ContentType = "application/json",
+            },
+            Timeout = TimeSpan.FromSeconds(Math.Max(30, config.TimeoutSeconds)),
+        };
+
+        var response = await _transport.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (response.Error != null)
+        {
+            throw new InvalidOperationException($"贴图文字视觉确认失败：{response.Error.Message}");
         }
 
-        return ParseResult(ExtractOutputText(body));
+        if (!response.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"贴图文字视觉确认失败：HTTP {response.StatusCode} {response.ReasonPhrase}。{response.Body}");
+        }
+
+        return ParseResult(ExtractOutputText(response.Body));
     }
 
     internal static TextureVisionTextResult ParseResult(string outputText)

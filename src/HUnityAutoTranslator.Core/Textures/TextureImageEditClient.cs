@@ -1,6 +1,5 @@
-using System.Net.Http;
-using System.Net.Http.Headers;
 using HUnityAutoTranslator.Core.Configuration;
+using HUnityAutoTranslator.Core.Http;
 using HUnityAutoTranslator.Core.Providers;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
@@ -14,12 +13,12 @@ public sealed class TextureImageEditClient
     private const string ConnectionTestPrompt = "HUnityAutoTranslator 贴图翻译连接测试：请保持这张测试图片简单清晰，返回 PNG 图片即可。";
     private static readonly byte[] ConnectionTestPngBytes = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=");
 
-    private readonly HttpClient _httpClient;
+    private readonly IHttpTransport _transport;
     private readonly Func<string?> _apiKeyProvider;
 
-    public TextureImageEditClient(HttpClient httpClient, Func<string?> apiKeyProvider)
+    public TextureImageEditClient(IHttpTransport transport, Func<string?> apiKeyProvider)
     {
-        _httpClient = httpClient;
+        _transport = transport;
         _apiKeyProvider = apiKeyProvider;
     }
 
@@ -30,35 +29,46 @@ public sealed class TextureImageEditClient
         string size,
         CancellationToken cancellationToken)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, BuildUri(config.BaseUrl, config.EditEndpoint));
+        var headers = new List<HttpHeaderEntry>();
         var apiKey = _apiKeyProvider();
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            headers.Add(new HttpHeaderEntry("Authorization", "Bearer " + apiKey));
         }
 
-        var content = new MultipartFormDataContent();
-        content.Add(new StringContent(config.ImageModel), "model");
-        content.Add(new StringContent(prompt), "prompt");
-        content.Add(new StringContent(size), "size");
-        content.Add(new StringContent(config.Quality), "quality");
-        content.Add(new StringContent("png"), "output_format");
-        content.Add(new StringContent("b64_json"), "response_format");
-        var image = new ByteArrayContent(sourcePngBytes);
-        image.Headers.ContentType = new MediaTypeHeaderValue("image/png");
-        content.Add(image, "image", "texture.png");
-        request.Content = content;
+        var parts = new List<HttpMultipartPart>
+        {
+            HttpMultipartPart.Text("model", config.ImageModel),
+            HttpMultipartPart.Text("prompt", prompt),
+            HttpMultipartPart.Text("size", size),
+            HttpMultipartPart.Text("quality", config.Quality),
+            HttpMultipartPart.Text("output_format", "png"),
+            HttpMultipartPart.Text("response_format", "b64_json"),
+            HttpMultipartPart.File("image", sourcePngBytes, "texture.png", "image/png"),
+        };
 
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(Math.Max(30, config.TimeoutSeconds)));
-        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
-        using var response = await _httpClient.SendAsync(request, linked.Token).ConfigureAwait(false);
-        var body = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+        var request = new HttpTransportRequest
+        {
+            Method = HttpTransportMethod.Post,
+            Uri = BuildUri(config.BaseUrl, config.EditEndpoint),
+            Headers = headers,
+            MultipartParts = parts,
+            Timeout = TimeSpan.FromSeconds(Math.Max(30, config.TimeoutSeconds)),
+        };
+
+        var response = await _transport.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        if (response.Error != null)
+        {
+            throw new InvalidOperationException($"贴图图片生成失败：{response.Error.Message}");
+        }
+
         if (!response.IsSuccessStatusCode)
         {
-            throw new InvalidOperationException($"贴图图片生成失败：HTTP {(int)response.StatusCode} {response.ReasonPhrase}。{ExtractError(body)}");
+            throw new InvalidOperationException(
+                $"贴图图片生成失败：HTTP {response.StatusCode} {response.ReasonPhrase}。{ExtractError(response.Body)}");
         }
 
-        var json = JObject.Parse(body);
+        var json = JObject.Parse(response.Body);
         var item = json["data"]?.FirstOrDefault()
             ?? throw new InvalidOperationException("贴图图片生成响应缺少 data。");
         var base64 = item.Value<string>("b64_json");
@@ -86,7 +96,7 @@ public sealed class TextureImageEditClient
                 ? new ProviderTestResult(true, "贴图翻译测试成功：图片编辑接口返回了 PNG。")
                 : new ProviderTestResult(false, "贴图翻译测试失败：图片编辑接口已响应，但没有返回 PNG。");
         }
-        catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException or InvalidOperationException or JsonException or FormatException)
+        catch (Exception ex) when (ex is InvalidOperationException or JsonException or FormatException)
         {
             return new ProviderTestResult(false, $"贴图翻译测试失败：{ex.Message}");
         }

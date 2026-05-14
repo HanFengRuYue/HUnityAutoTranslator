@@ -1,8 +1,6 @@
-using System.Net.Http;
-using System.Net.Http.Headers;
-using System.Text;
 using System.Globalization;
 using HUnityAutoTranslator.Core.Configuration;
+using HUnityAutoTranslator.Core.Http;
 using Newtonsoft.Json;
 using Newtonsoft.Json.Linq;
 
@@ -10,12 +8,12 @@ namespace HUnityAutoTranslator.Core.Providers;
 
 public sealed class ProviderUtilityClient
 {
-    private readonly HttpClient _httpClient;
+    private readonly IHttpTransport _transport;
     private readonly Func<string?> _apiKeyProvider;
 
-    public ProviderUtilityClient(HttpClient httpClient, Func<string?> apiKeyProvider)
+    public ProviderUtilityClient(IHttpTransport transport, Func<string?> apiKeyProvider)
     {
-        _httpClient = httpClient;
+        _transport = transport;
         _apiKeyProvider = apiKeyProvider;
     }
 
@@ -30,18 +28,17 @@ public sealed class ProviderUtilityClient
         }
 
         var path = profile.Kind == ProviderKind.DeepSeek ? "/models" : "/v1/models";
-        using var request = CreateGet(profile, path);
-        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+        var request = CreateGet(profile, path);
+        var response = await _transport.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             return new ProviderModelsResult(
                 false,
-                BuildFailureMessage("获取模型列表失败", response.StatusCode, request.RequestUri?.AbsolutePath, HasSavedApiKey()),
+                BuildFailureMessage("获取模型列表失败", response, request.Uri.AbsolutePath, HasSavedApiKey()),
                 Array.Empty<ProviderModelInfo>());
         }
 
-        var data = JObject.Parse(json)["data"] as JArray ?? new JArray();
+        var data = JObject.Parse(response.Body)["data"] as JArray ?? new JArray();
         var models = data
             .OfType<JObject>()
             .Select(item => new ProviderModelInfo(
@@ -60,21 +57,20 @@ public sealed class ProviderUtilityClient
             return new ProviderTestResult(true, "本地模型使用当前 GGUF 文件。");
         }
 
-        using var request = CreateTestRequest(profile);
-        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
-        var path = request.RequestUri?.AbsolutePath;
+        var request = CreateTestRequest(profile);
+        var response = await _transport.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        var path = request.Uri.AbsolutePath;
         if (!response.IsSuccessStatusCode)
         {
             return new ProviderTestResult(
                 false,
-                BuildFailureMessage("连接测试失败", response.StatusCode, path, HasSavedApiKey()));
+                BuildFailureMessage("连接测试失败", response, path, HasSavedApiKey()));
         }
 
-        var reply = ParseTestReply(profile, json);
+        var reply = ParseTestReply(profile, response.Body);
         if (string.IsNullOrWhiteSpace(reply))
         {
-            return new ProviderTestResult(false, $"连接测试失败：接口已响应，但没有返回模型文本（路径 {path ?? profile.Endpoint}）。");
+            return new ProviderTestResult(false, $"连接测试失败：接口已响应，但没有返回模型文本（路径 {path}）。");
         }
 
         return new ProviderTestResult(true, $"模型已返回测试回复：{TrimForMessage(reply)}");
@@ -90,20 +86,19 @@ public sealed class ProviderUtilityClient
         var path = profile.Kind == ProviderKind.DeepSeek
             ? "/user/balance"
             : $"/v1/organization/costs?start_time={DateTimeOffset.UtcNow.AddDays(-7).ToUnixTimeSeconds()}&limit=7";
-        using var request = CreateGet(profile, path);
-        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-        var json = await response.Content.ReadAsStringAsync().ConfigureAwait(false);
+        var request = CreateGet(profile, path);
+        var response = await _transport.SendAsync(request, cancellationToken).ConfigureAwait(false);
         if (!response.IsSuccessStatusCode)
         {
             return new ProviderBalanceResult(
                 false,
-                BuildFailureMessage("查询账户余额失败", response.StatusCode, request.RequestUri?.AbsolutePath, HasSavedApiKey()),
+                BuildFailureMessage("查询账户余额失败", response, request.Uri.AbsolutePath, HasSavedApiKey()),
                 Array.Empty<ProviderBalanceInfo>());
         }
 
         if (profile.Kind == ProviderKind.DeepSeek)
         {
-            var data = JObject.Parse(json)["balance_infos"] as JArray ?? new JArray();
+            var data = JObject.Parse(response.Body)["balance_infos"] as JArray ?? new JArray();
             var balances = data
                 .OfType<JObject>()
                 .Select(item => new ProviderBalanceInfo(
@@ -116,7 +111,7 @@ public sealed class ProviderUtilityClient
             return new ProviderBalanceResult(true, $"已获取 {balances.Length} 条余额信息。", balances);
         }
 
-        var costRows = JObject.Parse(json)["data"] as JArray ?? new JArray();
+        var costRows = JObject.Parse(response.Body)["data"] as JArray ?? new JArray();
         var costs = costRows
             .OfType<JObject>()
             .SelectMany(bucket => (bucket["results"] as JArray ?? new JArray()).OfType<JObject>())
@@ -137,26 +132,34 @@ public sealed class ProviderUtilityClient
         return new ProviderBalanceResult(true, "已获取最近 7 天成本。OpenAI 成本接口通常需要管理员密钥。", costs);
     }
 
-    private HttpRequestMessage CreateTestRequest(ProviderProfile profile)
+    private HttpTransportRequest CreateTestRequest(ProviderProfile profile)
     {
         var body = profile.Kind == ProviderKind.OpenAI
             ? CreateOpenAiResponsesTestBody(profile)
             : CreateChatCompletionsTestBody(profile);
-        var request = new HttpRequestMessage(
-            HttpMethod.Post,
-            new Uri(new Uri(profile.BaseUrl.TrimEnd(new[] { '/' }) + "/"), profile.Endpoint.TrimStart(new[] { '/' })))
-        {
-            Content = new StringContent(JsonConvert.SerializeObject(body, Formatting.None), Encoding.UTF8, "application/json")
-        };
-
+        var uri = new Uri(
+            new Uri(profile.BaseUrl.TrimEnd(new[] { '/' }) + "/"),
+            profile.Endpoint.TrimStart(new[] { '/' }));
+        var headers = new List<HttpHeaderEntry>();
         var apiKey = _apiKeyProvider();
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            headers.Add(new HttpHeaderEntry("Authorization", "Bearer " + apiKey));
         }
 
-        OpenAICompatibleRequestOptions.ApplyCustomHeaders(request, profile);
-        return request;
+        headers.AddRange(OpenAICompatibleRequestOptions.GetCustomHeaders(profile));
+
+        return new HttpTransportRequest
+        {
+            Method = HttpTransportMethod.Post,
+            Uri = uri,
+            Headers = headers,
+            StringBody = new HttpTransportStringBody
+            {
+                Content = JsonConvert.SerializeObject(body, Formatting.None),
+                ContentType = "application/json",
+            },
+        };
     }
 
     private static JObject CreateOpenAiResponsesTestBody(ProviderProfile profile)
@@ -207,18 +210,26 @@ public sealed class ProviderUtilityClient
         return normalized.Length <= 80 ? normalized : normalized[..80] + "...";
     }
 
-    private HttpRequestMessage CreateGet(ProviderProfile profile, string path)
+    private HttpTransportRequest CreateGet(ProviderProfile profile, string path)
     {
-        var request = new HttpRequestMessage(HttpMethod.Get, new Uri(new Uri(profile.BaseUrl.TrimEnd(new[] { '/' }) + "/"), path.TrimStart(new[] { '/' })));
+        var uri = new Uri(
+            new Uri(profile.BaseUrl.TrimEnd(new[] { '/' }) + "/"),
+            path.TrimStart(new[] { '/' }));
+        var headers = new List<HttpHeaderEntry>();
         var apiKey = _apiKeyProvider();
         if (!string.IsNullOrWhiteSpace(apiKey))
         {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", apiKey);
+            headers.Add(new HttpHeaderEntry("Authorization", "Bearer " + apiKey));
         }
 
-        OpenAICompatibleRequestOptions.ApplyCustomHeaders(request, profile);
+        headers.AddRange(OpenAICompatibleRequestOptions.GetCustomHeaders(profile));
 
-        return request;
+        return new HttpTransportRequest
+        {
+            Method = HttpTransportMethod.Get,
+            Uri = uri,
+            Headers = headers,
+        };
     }
 
     private bool HasSavedApiKey()
@@ -228,12 +239,17 @@ public sealed class ProviderUtilityClient
 
     private static string BuildFailureMessage(
         string prefix,
-        System.Net.HttpStatusCode statusCode,
+        HttpTransportResponse response,
         string? path,
         bool apiKeyConfigured)
     {
-        var status = (int)statusCode;
         var pathText = string.IsNullOrWhiteSpace(path) ? string.Empty : $"，路径 {path}";
+        if (response.Error != null)
+        {
+            return $"{prefix}（{response.Error.Message}{pathText}）。";
+        }
+
+        var status = response.StatusCode;
         var keyText = apiKeyConfigured ? "API Key 已保存" : "API Key 未保存";
         return status == 401
             ? $"{prefix}（HTTP 401{pathText}，{keyText}）。请确认 API Key 属于当前服务商。"

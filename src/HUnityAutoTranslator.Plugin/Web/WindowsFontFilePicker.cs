@@ -107,7 +107,8 @@ internal static class WindowsFontFilePicker
 #endif
     private static bool IsWindows()
     {
-        return RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        // 避免依赖 System.Runtime.InteropServices.RuntimeInformation：部分 Unity Mono 运行时不带这个程序集。
+        return Environment.OSVersion.Platform == PlatformID.Win32NT;
     }
 
     private static string? GetFileSystemPath(IShellItem item)

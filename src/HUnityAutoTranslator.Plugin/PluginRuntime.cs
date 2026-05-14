@@ -7,12 +7,14 @@ using HUnityAutoTranslator.Core.Configuration;
 using HUnityAutoTranslator.Core.Control;
 using HUnityAutoTranslator.Core.Dispatching;
 using HUnityAutoTranslator.Core.Glossary;
+using HUnityAutoTranslator.Core.Http;
 using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Queueing;
 using HUnityAutoTranslator.Core.Runtime;
 using HUnityAutoTranslator.Core.Textures;
 using HUnityAutoTranslator.Plugin.Capture;
 using HUnityAutoTranslator.Plugin.Hotkeys;
+using HUnityAutoTranslator.Plugin.Http;
 using HUnityAutoTranslator.Plugin.Unity;
 using UnityEngine;
 
@@ -32,6 +34,7 @@ internal sealed class PluginRuntime : IDisposable
 
     private readonly ManualLogSource _logger;
     private readonly string? _pluginDirectory;
+    private IHttpTransport? _httpTransport;
     private ControlPanelService? _controlPanel;
     private LocalHttpServer? _httpServer;
     private TranslationWorkerHost? _workerHost;
@@ -121,8 +124,9 @@ internal sealed class PluginRuntime : IDisposable
                 () => _controlPanel?.GetConfig().GameTitle ?? Application.productName,
                 _logger);
             var pluginDirectory = _pluginDirectory ?? Path.GetDirectoryName(typeof(PluginRuntime).Assembly.Location) ?? Paths.PluginPath;
-            _llamaCppServer = new LlamaCppServerManager(pluginDirectory, _logger);
-            _llamaCppModelDownloads = new LlamaCppModelDownloadManager(Path.Combine(pluginDirectory, "models"));
+            _httpTransport = HttpTransportFactory.Create(_logger);
+            _llamaCppServer = new LlamaCppServerManager(pluginDirectory, _logger, _httpTransport);
+            _llamaCppModelDownloads = new LlamaCppModelDownloadManager(_httpTransport, Path.Combine(pluginDirectory, "models"));
             _fontReplacement = new UnityTextFontReplacementService(_cache, _logger, _controlPanel.GetConfig, _controlPanel.SetAutomaticFontFallbacks, _metrics);
             _resultApplier.SetFontReplacementService(_fontReplacement);
             _fontReplacement.InstallStartupFallbacks();
@@ -158,7 +162,7 @@ internal sealed class PluginRuntime : IDisposable
             });
             _textChangeHook?.Start();
             _captureCoordinator.Start();
-            _workerHost = new TranslationWorkerHost(_controlPanel, _queue, _dispatcher, _cache, _glossary, _metrics, _logger, _llamaCppServer);
+            _workerHost = new TranslationWorkerHost(_controlPanel, _queue, _dispatcher, _cache, _glossary, _metrics, _logger, _httpTransport, _llamaCppServer);
             _workerHost.Start();
             _selfCheck = new SelfCheckService(
                 _controlPanel,
@@ -187,6 +191,7 @@ internal sealed class PluginRuntime : IDisposable
                 _selfCheck,
                 BuildMemoryDiagnostics,
                 dataDirectory,
+                _httpTransport,
                 _logger);
             _httpServer.Start(config.HttpHost, config.HttpPort);
             _pendingAutomaticSelfCheck = true;
@@ -365,6 +370,7 @@ internal sealed class PluginRuntime : IDisposable
         _fontReplacement?.Dispose();
         _textureReplacement?.Dispose();
         _httpServer?.Dispose();
+        _httpTransport?.Dispose();
         (_cache as IDisposable)?.Dispose();
         (_glossary as IDisposable)?.Dispose();
     }

@@ -109,12 +109,17 @@ function Get-CheckedCachedAsset([string]$AssetName, [string]$Sha256, [string]$Do
 }
 
 #
-# BepInEx pin table. Pin both tag and SHA256 of the GitHub release asset.
-# To rotate to a newer release:
-#   1. List candidates: `gh release list -R BepInEx/BepInEx --limit 8`
-#   2. Download manually: `gh release download <tag> -R BepInEx/BepInEx --pattern '<asset>'`
-#   3. Compute SHA: `(Get-FileHash <asset> -Algorithm SHA256).Hash.ToLowerInvariant()`
-#   4. Update entries below.
+# BepInEx pin table. Pin both tag and SHA256 of the BepInEx asset.
+# BepInEx 5 pins point at https://github.com/BepInEx/BepInEx/releases (stable releases).
+# BepInEx 6 pins point at https://builds.bepinex.dev/projects/bepinex_be (Bleeding Edge);
+#   BepInEx 6 has no stable release yet, and only BE builds ship a Cpp2IL/LibCpp2IL new
+#   enough to load Unity 2022.2+ IL2CPP games (metadata version 31+). Each pin sets
+#   `DownloadUri` directly so we don't accidentally fall back to GitHub.
+# To rotate to a newer build:
+#   1. Browse https://builds.bepinex.dev/projects/bepinex_be for the latest #<build>.
+#   2. Download both win-x64 Mono and IL2CPP zips, compute SHA256:
+#        (Get-FileHash <zip> -Algorithm SHA256).Hash.ToLowerInvariant()
+#   3. Update Tag/Asset/Sha256/Version/DownloadUri below.
 #
 function Get-BepInExPins {
     return @{
@@ -125,16 +130,18 @@ function Get-BepInExPins {
             Version = "5.4.23.5"
         }
         BepInEx6Mono = @{
-            Tag = "v6.0.0-pre.2"
-            Asset = "BepInEx-Unity.Mono-win-x64-6.0.0-pre.2.zip"
-            Sha256 = "4699fadeeae31366a647026d8d992185a16070d2953636cd085ceadf75d3b26e"
-            Version = "6.0.0-pre.2"
+            Tag = "be.755"
+            Asset = "BepInEx-Unity.Mono-win-x64-6.0.0-be.755.zip"
+            Sha256 = "113f4f44d2d83480c0c3b7a6662340861e79cc56dd7c13c9d72d715a55f2ebde"
+            Version = "6.0.0-be.755"
+            DownloadUri = "https://builds.bepinex.dev/projects/bepinex_be/755/BepInEx-Unity.Mono-win-x64-6.0.0-be.755%2B3fab71a.zip"
         }
         BepInEx6IL2CPP = @{
-            Tag = "v6.0.0-pre.2"
-            Asset = "BepInEx-Unity.IL2CPP-win-x64-6.0.0-pre.2.zip"
-            Sha256 = "616ec7eb06cf11b2a0000e8fcef04d1b12bb58e84a2e0bdac9523234fc193ceb"
-            Version = "6.0.0-pre.2"
+            Tag = "be.755"
+            Asset = "BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.755.zip"
+            Sha256 = "3616d6a67f5f595973ec4aa7bd7edaf7f799d5bb9926f7146a6dcc7b4abf478f"
+            Version = "6.0.0-be.755"
+            DownloadUri = "https://builds.bepinex.dev/projects/bepinex_be/755/BepInEx-Unity.IL2CPP-win-x64-6.0.0-be.755%2B3fab71a.zip"
         }
     }
 }
@@ -147,6 +154,11 @@ function Get-BepInExAsset([string]$CacheRoot, [string]$Variant) {
 
     $pin = $pins[$Variant]
     $cacheDirectory = Join-Path $CacheRoot $pin.Tag
-    $downloadUri = "https://github.com/BepInEx/BepInEx/releases/download/$($pin.Tag)/$($pin.Asset)"
+    if ($pin.ContainsKey('DownloadUri') -and -not [string]::IsNullOrWhiteSpace($pin.DownloadUri)) {
+        $downloadUri = $pin.DownloadUri
+    }
+    else {
+        $downloadUri = "https://github.com/BepInEx/BepInEx/releases/download/$($pin.Tag)/$($pin.Asset)"
+    }
     return Get-CheckedCachedAsset -AssetName $pin.Asset -Sha256 $pin.Sha256 -DownloadUri $downloadUri -CacheDirectory $cacheDirectory
 }

@@ -1248,7 +1248,10 @@ CREATE INDEX IF NOT EXISTS ix_translations_context_examples ON translations (tar
     {
         if (Interlocked.Exchange(ref s_sqliteInitialized, 1) == 0)
         {
-            Batteries_V2.Init();
+            // 直接挂 e_sqlite3 静态提供者，绕过 SQLitePCLRaw.provider.dynamic_cdecl 的 MakeDynamic 路径。
+            // 后者内部调用 RuntimeInformation.IsOSPlatform，而部分 Unity Mono（如 Unity 6 在 MSAG 里的版本）
+            // 不带 System.Runtime.InteropServices.RuntimeInformation 4.0.2.0，会 FileNotFoundException 让插件起不来。
+            SQLitePCL.raw.SetProvider(new SQLitePCL.SQLite3Provider_e_sqlite3());
         }
     }
 }

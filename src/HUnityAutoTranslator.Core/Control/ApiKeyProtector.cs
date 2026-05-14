@@ -60,7 +60,9 @@ internal static class ApiKeyProtector
 
     private static bool IsWindows()
     {
-        return RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
+        // 避免依赖 System.Runtime.InteropServices.RuntimeInformation：部分 Unity Mono 运行时不带这个程序集，
+        // 在 PluginRuntime.Start() 路径里调用会触发 FileNotFoundException。
+        return Environment.OSVersion.Platform == PlatformID.Win32NT;
     }
 
     private static byte[] ProtectWithDpapi(byte[] data)

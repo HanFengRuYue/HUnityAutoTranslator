@@ -1,6 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Net.Http;
+using HUnityAutoTranslator.Core.Http;
 using System.Reflection;
 using System.Security.Cryptography;
 using BepInEx.Logging;
@@ -215,7 +215,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
     public async Task<TextureTextDetectionResult> AnalyzeTextTexturesAsync(
         TextureTextDetectionRequest? request,
         IReadOnlyList<TextureImageProviderRuntimeProfile> profiles,
-        HttpClient httpClient,
+        IHttpTransport httpTransport,
         CancellationToken cancellationToken)
     {
         var items = ResolveRequestedItems(request?.SourceHashes);
@@ -239,7 +239,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
                 var visionErrors = new List<string>();
                 foreach (var visionProfile in visionProfiles)
                 {
-                    var vision = new TextureVisionTextClient(httpClient, () => visionProfile.ApiKey);
+                    var vision = new TextureVisionTextClient(httpTransport, () => visionProfile.ApiKey);
                     try
                     {
                         analysis = ApplyVisionResult(
@@ -297,7 +297,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
         TextureImageTranslateRequest? request,
         RuntimeConfig config,
         IReadOnlyList<TextureImageProviderRuntimeProfile> profiles,
-        HttpClient httpClient,
+        IHttpTransport httpTransport,
         CancellationToken cancellationToken)
     {
         var readyProfiles = profiles
@@ -339,7 +339,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
                 var result = await GenerateTextureImageWithFailoverAsync(
                     item,
                     readyProfiles,
-                    httpClient,
+                    httpTransport,
                     BuildTextureImagePrompt(item, currentAnalysis, config.TargetLanguage),
                     preparation,
                     cancellationToken).ConfigureAwait(false);
@@ -408,7 +408,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
     private async Task<TextureImageGenerationResult> GenerateTextureImageWithFailoverAsync(
         TextureCatalogItem item,
         IReadOnlyList<TextureImageProviderRuntimeProfile> profiles,
-        HttpClient httpClient,
+        IHttpTransport httpTransport,
         string prompt,
         PreparedTextureImage preparation,
         CancellationToken cancellationToken)
@@ -417,7 +417,7 @@ internal sealed class UnityTextureReplacementService : IDisposable
         foreach (var profile in profiles)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var client = new TextureImageEditClient(httpClient, () => profile.ApiKey);
+            var client = new TextureImageEditClient(httpTransport, () => profile.ApiKey);
             try
             {
                 var result = await client.EditAsync(
@@ -444,9 +444,9 @@ internal sealed class UnityTextureReplacementService : IDisposable
 
     private static bool IsTextureImageProviderFailure(Exception ex)
     {
+        // 传输层失败已统一映射成 InvalidOperationException（贴图客户端里抛出）；
+        // 不再有 HttpRequestException/TaskCanceledException 直接冒泡。
         return ex is InvalidOperationException
-            or HttpRequestException
-            or TaskCanceledException
             or Newtonsoft.Json.JsonException
             or FormatException
             or InvalidDataException

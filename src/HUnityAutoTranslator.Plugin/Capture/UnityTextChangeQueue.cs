@@ -95,8 +95,13 @@ internal sealed class UnityTextChangeQueue
             (processed == 0 || stopwatch.ElapsedMilliseconds < budgetMilliseconds))
         {
             var componentId = _componentOrder.Dequeue();
-            if (!_queuedByComponentId.Remove(componentId, out var item) ||
-                item.Component == null)
+            // netstandard2.0 没有 Dictionary.Remove(key, out value) 重载，先取再删。
+            if (!_queuedByComponentId.TryGetValue(componentId, out var item))
+            {
+                continue;
+            }
+            _queuedByComponentId.Remove(componentId);
+            if (item.Component == null)
             {
                 continue;
             }
