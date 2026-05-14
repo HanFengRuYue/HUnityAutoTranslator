@@ -23,11 +23,12 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <DefineConstants>$(DefineConstants);HUNITY_BEPINEX5</DefineConstants>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
-    <!-- 与 Core 一样，netstandard2.0 的 BCL 没有可空注解，CS8600/CS8602/CS8603/CS8604 警告噪声大；
+    <!-- 与 Core 一样，net462 的 BCL 引用程序集没有可空注解，CS8600/CS8601/CS8602/CS8603/CS8604
+         在这个目标上噪声大且多为误报（例如 string.IsNullOrEmpty 守卫之后编译器仍当成可能为 null）；
          BepInEx 5 目标这里直接关掉，保持原 Plugin / Plugin.IL2CPP 仍然把它们视为错误。 -->
     <WarningsAsErrors></WarningsAsErrors>
-    <WarningsNotAsErrors>CS8600;CS8602;CS8603;CS8604</WarningsNotAsErrors>
-    <NoWarn>$(NoWarn);CS8600;CS8602;CS8603;CS8604</NoWarn>
+    <WarningsNotAsErrors>CS8600;CS8601;CS8602;CS8603;CS8604</WarningsNotAsErrors>
+    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8603;CS8604</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
