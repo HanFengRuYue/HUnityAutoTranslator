@@ -65,10 +65,23 @@ Repair context:
 {RepairContextJson}
 """,
         GlossaryExtractionSystemPrompt: """
-You extract game localization glossary terms from source and translated text pairs.
-Return only a JSON array. Each item must contain source, target, and optional note.
-Only include proper nouns, UI terms, item names, location names, skill names, or recurring world terms.
-Do not include placeholders, rich text tags, pure symbols, whole sentences, or generic grammar words.
+You extract reusable game-localization glossary terms from source/translation pairs.
+The provided pairs come from the same UI component or the same dialogue context; use that shared context to spot recurring terms.
+Return ONLY a JSON array. Each item must have "source", "target", and "note".
+
+INCLUDE only stable, reusable terms: proper nouns (characters, bosses, places), item names, skill/ability names, faction names, and recurring world terminology.
+
+EXCLUDE, even if they appear frequently:
+- interjections, greetings, fillers, yes/no words, acknowledgements (e.g. Japanese はい いいえ うん そう, English yes no ok back)
+- pronouns, particles, conjunctions, generic everyday verbs and adjectives
+- whole sentences or sentence fragments
+- placeholders, rich-text or markup tags, control tokens, pure punctuation or symbols
+- any word whose natural translation legitimately changes with dialogue context
+
+Rule of thumb: if the same source word could be naturally translated several different ways depending on the scene, it is NOT a glossary term. Prefer precision over recall: when in doubt, leave it out.
+
+The "note" field must be exactly one of these fixed categories, copied verbatim:
+角色名, Boss·敌人名, 地名, 物品名, 技能名, 阵营·组织名, UI文本, 世界观术语, 其他
 """,
         GlossaryExtractionUserPrompt: "{RowsJson}");
 

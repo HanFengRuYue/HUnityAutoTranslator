@@ -1544,6 +1544,31 @@ public sealed class WorkerPoolTests
             return Array.Empty<TranslationCacheEntry>();
         }
 
+        public IReadOnlyList<TranslationCacheEntry> GetCompletedContainingSource(
+            string sourceSubstring,
+            string targetLanguage,
+            int limit)
+        {
+            return Array.Empty<TranslationCacheEntry>();
+        }
+
+        public IReadOnlyList<TranslationCacheEntry> GetCompletedSince(
+            string targetLanguage,
+            string? afterUpdatedUtc,
+            int limit)
+        {
+            return Array.Empty<TranslationCacheEntry>();
+        }
+
+        public IReadOnlyList<TranslationCacheEntry> GetCompletedInHierarchy(
+            string targetLanguage,
+            string sceneName,
+            string componentHierarchyPrefix,
+            int limit)
+        {
+            return Array.Empty<TranslationCacheEntry>();
+        }
+
         public void Set(TranslationCacheKey key, string translatedText, TranslationCacheContext? context = null)
         {
             LastKey = key;

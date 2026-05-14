@@ -5,6 +5,7 @@ namespace HUnityAutoTranslator.Core.Glossary;
 public sealed class MemoryGlossaryStore : IGlossaryStore
 {
     private readonly ConcurrentDictionary<string, GlossaryTerm> _terms = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, string> _extractionWatermarks = new(StringComparer.Ordinal);
 
     public int Count => _terms.Count;
 
@@ -140,6 +141,15 @@ public sealed class MemoryGlossaryStore : IGlossaryStore
 
             if (!string.Equals(existing.TargetTerm, normalized.TargetTerm, StringComparison.Ordinal))
             {
+                // 同源多译铁证：该词上下文相关，两个译法都不可信。
+                // 禁用已入库的旧自动术语（运行时自愈），新候选也不写入。
+                var disabled = existing with
+                {
+                    Enabled = false,
+                    Note = AppendNote(existing.Note, "[自动禁用：译法不一致]"),
+                    UpdatedUtc = now
+                };
+                _terms.TryUpdate(key, disabled, existing);
                 return GlossaryUpsertResult.SkippedAutomaticConflict;
             }
 
@@ -162,6 +172,89 @@ public sealed class MemoryGlossaryStore : IGlossaryStore
     public void Delete(GlossaryTerm term)
     {
         _terms.TryRemove(Key(term.NormalizeForStorage()), out _);
+    }
+
+    public string? GetExtractionWatermark(string targetLanguage)
+    {
+        return _extractionWatermarks.TryGetValue(targetLanguage ?? string.Empty, out var value) ? value : null;
+    }
+
+    public void SetExtractionWatermark(string targetLanguage, string watermark)
+    {
+        _extractionWatermarks[targetLanguage ?? string.Empty] = watermark ?? string.Empty;
+    }
+
+    public IReadOnlyList<GlossaryTerm> FindSuspiciousAutomaticTerms()
+    {
+        return _terms.Values
+            .Where(term =>
+                term.Enabled &&
+                term.Source == GlossaryTermSource.Automatic &&
+                SuspiciousGlossaryTermDetector.IsSuspicious(term.SourceTerm))
+            .OrderByDescending(term => term.UpdatedUtc)
+            .ToArray();
+    }
+
+    public int DisableTerms(IReadOnlyList<GlossaryTerm> terms)
+    {
+        if (terms == null || terms.Count == 0)
+        {
+            return 0;
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var affected = 0;
+        foreach (var term in terms)
+        {
+            var key = Key(term.NormalizeForStorage());
+            while (_terms.TryGetValue(key, out var existing) && existing.Enabled)
+            {
+                if (_terms.TryUpdate(key, existing with { Enabled = false, UpdatedUtc = now }, existing))
+                {
+                    affected++;
+                    break;
+                }
+            }
+        }
+
+        return affected;
+    }
+
+    public int RenormalizeAutomaticTermNotes()
+    {
+        var changed = 0;
+        foreach (var entry in _terms.ToArray())
+        {
+            var existing = entry.Value;
+            if (existing.Source != GlossaryTermSource.Automatic)
+            {
+                continue;
+            }
+
+            var newNote = GlossaryTermCategory.Normalize(existing.Note);
+            if (string.Equals(existing.Note, newNote, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (_terms.TryUpdate(entry.Key, existing with { Note = newNote, UpdatedUtc = DateTimeOffset.UtcNow }, existing))
+            {
+                changed++;
+            }
+        }
+
+        return changed;
+    }
+
+    private static string AppendNote(string? note, string suffix)
+    {
+        var trimmed = (note ?? string.Empty).Trim();
+        if (trimmed.Length == 0)
+        {
+            return suffix;
+        }
+
+        return trimmed.EndsWith(suffix, StringComparison.Ordinal) ? trimmed : trimmed + " " + suffix;
     }
 
     private static string Key(GlossaryTerm term)

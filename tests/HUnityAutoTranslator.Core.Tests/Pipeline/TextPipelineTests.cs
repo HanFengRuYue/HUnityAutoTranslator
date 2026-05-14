@@ -697,6 +697,21 @@ public sealed class TextPipelineTests
             return _inner.GetCompletedTranslationsBySource(key, limit);
         }
 
+        public IReadOnlyList<TranslationCacheEntry> GetCompletedContainingSource(string sourceSubstring, string targetLanguage, int limit)
+        {
+            return _inner.GetCompletedContainingSource(sourceSubstring, targetLanguage, limit);
+        }
+
+        public IReadOnlyList<TranslationCacheEntry> GetCompletedSince(string targetLanguage, string? afterUpdatedUtc, int limit)
+        {
+            return _inner.GetCompletedSince(targetLanguage, afterUpdatedUtc, limit);
+        }
+
+        public IReadOnlyList<TranslationCacheEntry> GetCompletedInHierarchy(string targetLanguage, string sceneName, string componentHierarchyPrefix, int limit)
+        {
+            return _inner.GetCompletedInHierarchy(targetLanguage, sceneName, componentHierarchyPrefix, limit);
+        }
+
         public void RecordCaptured(TranslationCacheKey key, TranslationCacheContext? context = null)
         {
             RecordCapturedCallCount++;

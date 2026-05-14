@@ -318,6 +318,10 @@ WHERE target_language = $target_language
 
         if (existing != null && !string.Equals(existing.TargetTerm, normalized.TargetTerm, StringComparison.Ordinal))
         {
+            // 同源多译铁证：该词上下文相关，两个译法都不可信。
+            // 禁用已入库的旧自动术语（运行时自愈），新候选也不写入。
+            DisableExistingTerm(connection, existing, "[自动禁用：译法不一致]");
+            InvalidateEnabledTermsCache();
             return GlossaryUpsertResult.SkippedAutomaticConflict;
         }
 
@@ -378,6 +382,201 @@ WHERE target_language = $target_language
         InvalidateEnabledTermsCache();
     }
 
+    public string? GetExtractionWatermark(string targetLanguage)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+SELECT last_extracted_updated_utc
+FROM glossary_extraction_state
+WHERE target_language = $target_language;
+""";
+        command.Parameters.AddWithValue("$target_language", targetLanguage ?? string.Empty);
+        return command.ExecuteScalar() as string;
+    }
+
+    public void SetExtractionWatermark(string targetLanguage, string watermark)
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+INSERT INTO glossary_extraction_state (target_language, last_extracted_updated_utc)
+VALUES ($target_language, $watermark)
+ON CONFLICT(target_language)
+DO UPDATE SET last_extracted_updated_utc = excluded.last_extracted_updated_utc;
+""";
+        command.Parameters.AddWithValue("$target_language", targetLanguage ?? string.Empty);
+        command.Parameters.AddWithValue("$watermark", watermark ?? string.Empty);
+        command.ExecuteNonQuery();
+    }
+
+    public IReadOnlyList<GlossaryTerm> FindSuspiciousAutomaticTerms()
+    {
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+SELECT source_term,
+       target_term,
+       target_language,
+       normalized_source_term,
+       note,
+       enabled,
+       source_kind,
+       usage_count,
+       created_utc,
+       updated_utc
+FROM glossary_terms
+WHERE enabled = 1
+  AND source_kind = $source_kind
+ORDER BY updated_utc DESC;
+""";
+        command.Parameters.AddWithValue("$source_kind", GlossaryTermSource.Automatic.ToString());
+
+        var rows = new List<GlossaryTerm>();
+        using (var reader = command.ExecuteReader())
+        {
+            while (reader.Read())
+            {
+                rows.Add(ReadTerm(reader));
+            }
+        }
+
+        return rows
+            .Where(term => SuspiciousGlossaryTermDetector.IsSuspicious(term.SourceTerm))
+            .ToArray();
+    }
+
+    public int DisableTerms(IReadOnlyList<GlossaryTerm> terms)
+    {
+        if (terms == null || terms.Count == 0)
+        {
+            return 0;
+        }
+
+        var now = DateTimeOffset.UtcNow.ToString("O");
+        var affected = 0;
+        using var connection = OpenConnection();
+        using var transaction = connection.BeginTransaction();
+        using (var command = connection.CreateCommand())
+        {
+            command.Transaction = transaction;
+            command.CommandText = """
+UPDATE glossary_terms
+SET enabled = 0,
+    updated_utc = $updated_utc
+WHERE target_language = $target_language
+  AND normalized_source_term = $normalized_source_term
+  AND enabled = 1;
+""";
+            var updatedUtc = command.Parameters.Add("$updated_utc", SqliteType.Text);
+            var targetLanguage = command.Parameters.Add("$target_language", SqliteType.Text);
+            var normalizedSource = command.Parameters.Add("$normalized_source_term", SqliteType.Text);
+            updatedUtc.Value = now;
+            foreach (var term in terms)
+            {
+                var normalized = term.NormalizeForStorage();
+                targetLanguage.Value = normalized.TargetLanguage;
+                normalizedSource.Value = normalized.NormalizedSourceTerm;
+                affected += command.ExecuteNonQuery();
+            }
+        }
+
+        transaction.Commit();
+        if (affected > 0)
+        {
+            InvalidateEnabledTermsCache();
+        }
+
+        return affected;
+    }
+
+    public int RenormalizeAutomaticTermNotes()
+    {
+        using var connection = OpenConnection();
+        var targets = new List<(string TargetLanguage, string NormalizedSourceTerm, string NewNote)>();
+        using (var select = connection.CreateCommand())
+        {
+            select.CommandText = """
+SELECT target_language,
+       normalized_source_term,
+       note
+FROM glossary_terms
+WHERE source_kind = $source_kind;
+""";
+            select.Parameters.AddWithValue("$source_kind", GlossaryTermSource.Automatic.ToString());
+            using var reader = select.ExecuteReader();
+            while (reader.Read())
+            {
+                var currentNote = reader.IsDBNull(2) ? null : reader.GetString(2);
+                var newNote = GlossaryTermCategory.Normalize(currentNote);
+                if (!string.Equals(currentNote, newNote, StringComparison.Ordinal))
+                {
+                    targets.Add((reader.GetString(0), reader.GetString(1), newNote));
+                }
+            }
+        }
+
+        if (targets.Count == 0)
+        {
+            return 0;
+        }
+
+        var now = DateTimeOffset.UtcNow.ToString("O");
+        using (var transaction = connection.BeginTransaction())
+        {
+            using (var update = connection.CreateCommand())
+            {
+                update.Transaction = transaction;
+                update.CommandText = """
+UPDATE glossary_terms
+SET note = $note,
+    updated_utc = $updated_utc
+WHERE target_language = $target_language
+  AND normalized_source_term = $normalized_source_term;
+""";
+                var note = update.Parameters.Add("$note", SqliteType.Text);
+                var updatedUtc = update.Parameters.Add("$updated_utc", SqliteType.Text);
+                var targetLanguage = update.Parameters.Add("$target_language", SqliteType.Text);
+                var normalizedSource = update.Parameters.Add("$normalized_source_term", SqliteType.Text);
+                updatedUtc.Value = now;
+                foreach (var target in targets)
+                {
+                    note.Value = target.NewNote;
+                    targetLanguage.Value = target.TargetLanguage;
+                    normalizedSource.Value = target.NormalizedSourceTerm;
+                    update.ExecuteNonQuery();
+                }
+            }
+
+            transaction.Commit();
+        }
+
+        InvalidateEnabledTermsCache();
+        return targets.Count;
+    }
+
+    private static void DisableExistingTerm(SqliteConnection connection, GlossaryTerm term, string noteSuffix)
+    {
+        using var command = connection.CreateCommand();
+        command.CommandText = """
+UPDATE glossary_terms
+SET enabled = 0,
+    note = CASE
+        WHEN note IS NULL OR trim(note) = '' THEN $note_suffix
+        WHEN note LIKE '%' || $note_suffix THEN note
+        ELSE note || ' ' || $note_suffix
+    END,
+    updated_utc = $updated_utc
+WHERE target_language = $target_language
+  AND normalized_source_term = $normalized_source_term;
+""";
+        command.Parameters.AddWithValue("$note_suffix", noteSuffix);
+        command.Parameters.AddWithValue("$updated_utc", DateTimeOffset.UtcNow.ToString("O"));
+        command.Parameters.AddWithValue("$target_language", term.TargetLanguage);
+        command.Parameters.AddWithValue("$normalized_source_term", term.NormalizedSourceTerm);
+        command.ExecuteNonQuery();
+    }
+
     public void Dispose()
     {
         _disposed = true;
@@ -409,6 +608,10 @@ CREATE TABLE IF NOT EXISTS glossary_terms (
     PRIMARY KEY (target_language, normalized_source_term)
 );
 CREATE INDEX IF NOT EXISTS ix_glossary_terms_updated_utc ON glossary_terms (updated_utc);
+CREATE TABLE IF NOT EXISTS glossary_extraction_state (
+    target_language TEXT PRIMARY KEY,
+    last_extracted_updated_utc TEXT NOT NULL
+);
 PRAGMA user_version={SchemaVersion};
 """;
         command.ExecuteNonQuery();

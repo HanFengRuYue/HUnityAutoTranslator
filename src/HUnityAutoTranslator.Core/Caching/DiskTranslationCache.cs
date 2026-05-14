@@ -64,6 +64,71 @@ public sealed class DiskTranslationCache : ITranslationCache, IDisposable
             .ToArray();
     }
 
+    public IReadOnlyList<TranslationCacheEntry> GetCompletedContainingSource(
+        string sourceSubstring,
+        string targetLanguage,
+        int limit)
+    {
+        var needle = sourceSubstring?.Trim() ?? string.Empty;
+        if (needle.Length == 0)
+        {
+            return Array.Empty<TranslationCacheEntry>();
+        }
+
+        var take = Math.Min(1000, Math.Max(1, limit));
+        return _items.Values
+            .Where(row =>
+                !string.IsNullOrWhiteSpace(row.TranslatedText) &&
+                string.Equals(row.TargetLanguage, targetLanguage, StringComparison.Ordinal) &&
+                row.SourceText.IndexOf(needle, StringComparison.OrdinalIgnoreCase) >= 0)
+            .OrderByDescending(row => row.UpdatedUtc)
+            .Take(take)
+            .ToArray();
+    }
+
+    public IReadOnlyList<TranslationCacheEntry> GetCompletedSince(
+        string targetLanguage,
+        string? afterUpdatedUtc,
+        int limit)
+    {
+        var take = Math.Min(2000, Math.Max(1, limit));
+        var after = DateTimeOffset.TryParse(afterUpdatedUtc, out var parsed) ? parsed : DateTimeOffset.MinValue;
+        return _items.Values
+            .Where(row =>
+                !string.IsNullOrWhiteSpace(row.TranslatedText) &&
+                string.Equals(row.TargetLanguage, targetLanguage, StringComparison.Ordinal) &&
+                row.UpdatedUtc > after)
+            .OrderBy(row => row.UpdatedUtc)
+            .Take(take)
+            .ToArray();
+    }
+
+    public IReadOnlyList<TranslationCacheEntry> GetCompletedInHierarchy(
+        string targetLanguage,
+        string sceneName,
+        string componentHierarchyPrefix,
+        int limit)
+    {
+        var prefix = componentHierarchyPrefix?.Trim() ?? string.Empty;
+        if (prefix.Length == 0)
+        {
+            return Array.Empty<TranslationCacheEntry>();
+        }
+
+        var subtreePrefix = prefix + "/";
+        var take = Math.Min(2000, Math.Max(1, limit));
+        return _items.Values
+            .Where(row =>
+                !string.IsNullOrWhiteSpace(row.TranslatedText) &&
+                string.Equals(row.TargetLanguage, targetLanguage, StringComparison.Ordinal) &&
+                string.Equals(row.SceneName, sceneName, StringComparison.Ordinal) &&
+                (string.Equals(row.ComponentHierarchy, prefix, StringComparison.Ordinal) ||
+                 (row.ComponentHierarchy ?? string.Empty).StartsWith(subtreePrefix, StringComparison.Ordinal)))
+            .OrderByDescending(row => row.UpdatedUtc)
+            .Take(take)
+            .ToArray();
+    }
+
     public void RecordCaptured(TranslationCacheKey key, TranslationCacheContext? context = null)
     {
         var now = DateTimeOffset.UtcNow;

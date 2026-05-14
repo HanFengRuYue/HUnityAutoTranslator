@@ -10,6 +10,10 @@ public sealed class SqliteTranslationCache : ITranslationCache, IDisposable
 {
     private const int SchemaVersion = 5;
     private const int MaxReadCacheEntries = 4096;
+    private const string SelectEntryColumns =
+        "source_text, target_language, provider_kind, provider_base_url, provider_endpoint, " +
+        "provider_model, prompt_policy_version, translated_text, scene_name, component_hierarchy, " +
+        "component_type, replacement_font, created_utc, updated_utc";
     private static int s_sqliteInitialized;
     private static readonly Dictionary<string, string> SortColumns = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -208,6 +212,95 @@ LIMIT $limit;
         var result = rows.ToArray();
         CacheCompletedBySource(cacheKey, result);
         return result;
+    }
+
+    public IReadOnlyList<TranslationCacheEntry> GetCompletedContainingSource(
+        string sourceSubstring,
+        string targetLanguage,
+        int limit)
+    {
+        var needle = sourceSubstring?.Trim() ?? string.Empty;
+        if (needle.Length == 0)
+        {
+            return Array.Empty<TranslationCacheEntry>();
+        }
+
+        var take = Math.Min(1000, Math.Max(1, limit));
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+SELECT {SelectEntryColumns}
+FROM translations
+WHERE source_text LIKE $needle ESCAPE '\'
+  AND target_language = $target_language
+  AND translated_text IS NOT NULL
+  AND trim(translated_text) <> ''
+ORDER BY updated_utc DESC
+LIMIT $limit;
+""";
+        command.Parameters.AddWithValue("$needle", "%" + EscapeLike(needle) + "%");
+        command.Parameters.AddWithValue("$target_language", targetLanguage);
+        command.Parameters.AddWithValue("$limit", take);
+        return ReadEntries(command);
+    }
+
+    public IReadOnlyList<TranslationCacheEntry> GetCompletedSince(
+        string targetLanguage,
+        string? afterUpdatedUtc,
+        int limit)
+    {
+        var take = Math.Min(2000, Math.Max(1, limit));
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+SELECT {SelectEntryColumns}
+FROM translations
+WHERE target_language = $target_language
+  AND translated_text IS NOT NULL
+  AND trim(translated_text) <> ''
+  AND updated_utc > $after_updated_utc
+ORDER BY updated_utc ASC
+LIMIT $limit;
+""";
+        command.Parameters.AddWithValue("$target_language", targetLanguage);
+        command.Parameters.AddWithValue("$after_updated_utc", afterUpdatedUtc ?? string.Empty);
+        command.Parameters.AddWithValue("$limit", take);
+        return ReadEntries(command);
+    }
+
+    public IReadOnlyList<TranslationCacheEntry> GetCompletedInHierarchy(
+        string targetLanguage,
+        string sceneName,
+        string componentHierarchyPrefix,
+        int limit)
+    {
+        var prefix = componentHierarchyPrefix?.Trim() ?? string.Empty;
+        if (prefix.Length == 0)
+        {
+            return Array.Empty<TranslationCacheEntry>();
+        }
+
+        var take = Math.Min(2000, Math.Max(1, limit));
+        using var connection = OpenConnection();
+        using var command = connection.CreateCommand();
+        command.CommandText = $"""
+SELECT {SelectEntryColumns}
+FROM translations
+WHERE target_language = $target_language
+  AND scene_name = $scene_name
+  AND (component_hierarchy = $prefix
+       OR component_hierarchy LIKE $prefix_subtree ESCAPE '\')
+  AND translated_text IS NOT NULL
+  AND trim(translated_text) <> ''
+ORDER BY updated_utc DESC
+LIMIT $limit;
+""";
+        command.Parameters.AddWithValue("$target_language", targetLanguage);
+        command.Parameters.AddWithValue("$scene_name", sceneName ?? string.Empty);
+        command.Parameters.AddWithValue("$prefix", prefix);
+        command.Parameters.AddWithValue("$prefix_subtree", EscapeLike(prefix) + "/%");
+        command.Parameters.AddWithValue("$limit", take);
+        return ReadEntries(command);
     }
 
     public void RecordCaptured(TranslationCacheKey key, TranslationCacheContext? context = null)
@@ -1110,6 +1203,26 @@ CREATE INDEX IF NOT EXISTS ix_translations_context_examples ON translations (tar
         }
 
         return parts.Count == 0 ? string.Empty : " WHERE " + string.Join(" AND ", parts);
+    }
+
+    private static IReadOnlyList<TranslationCacheEntry> ReadEntries(SqliteCommand command)
+    {
+        var rows = new List<TranslationCacheEntry>();
+        using var reader = command.ExecuteReader();
+        while (reader.Read())
+        {
+            rows.Add(ReadEntry(reader));
+        }
+
+        return rows;
+    }
+
+    private static string EscapeLike(string value)
+    {
+        return value
+            .Replace("\\", "\\\\")
+            .Replace("%", "\\%")
+            .Replace("_", "\\_");
     }
 
     private static TranslationCacheEntry ReadEntry(SqliteDataReader reader)

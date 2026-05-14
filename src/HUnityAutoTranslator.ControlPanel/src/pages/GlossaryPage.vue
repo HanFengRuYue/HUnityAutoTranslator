@@ -29,11 +29,14 @@ import SectionPanel from "../components/SectionPanel.vue";
 import { controlPanelStore, saveConfig, setDirtyForm, showToast } from "../state/controlPanelStore";
 import type {
   DeleteResult,
+  GlossaryCleanupResult,
   GlossaryFilterOption,
   GlossaryFilterOptionPage,
+  GlossaryNoteNormalizeResult,
   GlossaryTerm,
   GlossaryTermPage,
   GlossaryTermRequest,
+  SuspiciousGlossaryTermsResult,
   UpdateConfigRequest
 } from "../types/api";
 import { formatDateTime } from "../utils/format";
@@ -73,6 +76,8 @@ const rows = ref<GlossaryTerm[]>([]);
 const totalCount = ref(0);
 const search = ref("");
 const loading = ref(false);
+const cleanupRunning = ref(false);
+const normalizeRunning = ref(false);
 const showInlineTermEditor = ref(false);
 const glossarySourceTermInput = ref<HTMLInputElement | null>(null);
 const sortColumn = ref("updated_utc");
@@ -224,6 +229,56 @@ async function loadGlossaryTerms(): Promise<void> {
     showToast(error instanceof Error ? error.message : "术语加载失败。", "error");
   } finally {
     loading.value = false;
+  }
+}
+
+function applyGlossaryPage(page: GlossaryTermPage): void {
+  rows.value = page.Items;
+  totalCount.value = page.TotalCount;
+  rememberOriginalRows(page.Items);
+  dirtyRows.clear();
+  clearSelection();
+}
+
+async function cleanupSuspiciousTerms(): Promise<void> {
+  cleanupRunning.value = true;
+  try {
+    const preview = await getJson<SuspiciousGlossaryTermsResult>("/api/glossary/suspicious-automatic");
+    if (!preview.Count) {
+      showToast("没有检测到可疑的 AI 自动术语。", "info");
+      return;
+    }
+
+    if (!confirm(`检测到 ${preview.Count} 条可疑 AI 自动术语，将它们禁用？可在表格中手动重新启用。`)) {
+      return;
+    }
+
+    const result = await postJson<GlossaryCleanupResult>("/api/glossary/cleanup-suspicious");
+    applyGlossaryPage(result.Page);
+    tableMessage.value = `已禁用 ${result.DisabledCount} 条可疑自动术语。`;
+    showToast(tableMessage.value, "ok");
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "清理可疑术语失败。", "error");
+  } finally {
+    cleanupRunning.value = false;
+  }
+}
+
+async function normalizeTermNotes(): Promise<void> {
+  if (!confirm("将所有 AI 自动术语的备注重新归入 9 类固定分类？")) {
+    return;
+  }
+
+  normalizeRunning.value = true;
+  try {
+    const result = await postJson<GlossaryNoteNormalizeResult>("/api/glossary/normalize-notes");
+    applyGlossaryPage(result.Page);
+    tableMessage.value = `已规范化 ${result.ChangedCount} 条术语备注。`;
+    showToast(tableMessage.value, "ok");
+  } catch (error) {
+    showToast(error instanceof Error ? error.message : "规范化备注失败。", "error");
+  } finally {
+    normalizeRunning.value = false;
   }
 }
 
@@ -1042,6 +1097,14 @@ onBeforeUnmount(() => {
           <button id="refreshGlossary" class="secondary" type="button" :disabled="loading" @click="loadGlossaryTerms">
             <RefreshCw class="button-icon" />
             {{ loading ? "刷新中" : "刷新" }}
+          </button>
+          <button id="cleanupSuspiciousTerms" class="secondary help-target" type="button" data-help="检测术语库中简短高频、含义随上下文变化的 AI 自动术语，并将它们禁用（可在表格中手动重新启用）。" :disabled="cleanupRunning" @click="cleanupSuspiciousTerms">
+            <ShieldCheck class="button-icon" />
+            {{ cleanupRunning ? "清理中" : "清理可疑自动术语" }}
+          </button>
+          <button id="normalizeTermNotes" class="secondary help-target" type="button" data-help="把所有 AI 自动术语的备注重新归入 9 类固定分类，消除杂乱备注。" :disabled="normalizeRunning" @click="normalizeTermNotes">
+            <Sparkles class="button-icon" />
+            {{ normalizeRunning ? "规范化中" : "规范化术语备注" }}
           </button>
         </template>
         <div class="editor-tools">

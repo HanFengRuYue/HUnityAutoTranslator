@@ -374,6 +374,31 @@ internal sealed class LocalHttpServer : IDisposable
 
                 await WriteJsonAsync(context.Response, new { DeletedCount = entries.Count }).ConfigureAwait(false);
             }
+            else if (context.Request.HttpMethod == "GET" && path == "/api/glossary/suspicious-automatic")
+            {
+                var items = _glossary.FindSuspiciousAutomaticTerms();
+                await WriteJsonAsync(context.Response, new { Count = items.Count, Items = items }).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/glossary/cleanup-suspicious")
+            {
+                // 服务端重新判定，不信任前端传入的列表，避免预览与执行之间数据变化。
+                var suspicious = _glossary.FindSuspiciousAutomaticTerms();
+                var disabledCount = _glossary.DisableTerms(suspicious);
+                await WriteJsonAsync(context.Response, new
+                {
+                    DisabledCount = disabledCount,
+                    Page = _glossary.Query(new GlossaryQuery(null, "updated_utc", true, 0, 100))
+                }).ConfigureAwait(false);
+            }
+            else if (context.Request.HttpMethod == "POST" && path == "/api/glossary/normalize-notes")
+            {
+                var changedCount = _glossary.RenormalizeAutomaticTermNotes();
+                await WriteJsonAsync(context.Response, new
+                {
+                    ChangedCount = changedCount,
+                    Page = _glossary.Query(new GlossaryQuery(null, "updated_utc", true, 0, 100))
+                }).ConfigureAwait(false);
+            }
             else if (context.Request.HttpMethod == "GET" && path == "/api/translations/filter-options")
             {
                 await WriteJsonAsync(context.Response, _cache.GetFilterOptions(ParseTranslationFilterOptionsQuery(context.Request))).ConfigureAwait(false);

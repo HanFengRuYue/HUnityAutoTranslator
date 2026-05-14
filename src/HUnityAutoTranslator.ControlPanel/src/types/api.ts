@@ -597,6 +597,21 @@ export interface GlossaryFilterOptionPage {
   Items: GlossaryFilterOption[];
 }
 
+export interface SuspiciousGlossaryTermsResult {
+  Count: number;
+  Items: GlossaryTerm[];
+}
+
+export interface GlossaryCleanupResult {
+  DisabledCount: number;
+  Page: GlossaryTermPage;
+}
+
+export interface GlossaryNoteNormalizeResult {
+  ChangedCount: number;
+  Page: GlossaryTermPage;
+}
+
 export interface ProviderModelInfo {
   Id: string;
   OwnedBy: string | null;

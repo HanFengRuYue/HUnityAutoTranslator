@@ -1335,6 +1335,54 @@ Editor Start,Editor translated,zh-Hans,Menu,Canvas/Editor,Text,C:\Fonts\NotoSans
         replacementFont.Should().Be(@"C:\Fonts\NotoSansSC-Regular.otf");
     }
 
+    [Fact]
+    public void SqliteCache_GetCompletedContainingSource_matches_source_substrings()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        using var cache = new SqliteTranslationCache(path);
+        var stamp = new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero);
+        cache.Update(SampleRow("Find Freddy in Pirate Cove", "Game", "Game/Box", null, "在海盗湾找到弗雷迪", stamp));
+        cache.Update(SampleRow("Pirate Cove map", "Game", "Game/Map", null, "海盗湾地图", stamp));
+        cache.Update(SampleRow("A dark night", "Game", "Game/Night", null, "黑暗的夜晚", stamp));
+
+        cache.GetCompletedContainingSource("Pirate Cove", "zh-Hans", 50).Should().HaveCount(2);
+        cache.GetCompletedContainingSource("Nonexistent", "zh-Hans", 50).Should().BeEmpty();
+    }
+
+    [Fact]
+    public void SqliteCache_GetCompletedInHierarchy_matches_scene_subtree()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        using var cache = new SqliteTranslationCache(path);
+        var stamp = new DateTimeOffset(2026, 5, 1, 0, 0, 0, TimeSpan.Zero);
+        cache.Update(SampleRow("start", "Game", "Game/Menu/Start", null, "开始", stamp));
+        cache.Update(SampleRow("options", "Game", "Game/Menu/Options", null, "选项", stamp));
+        cache.Update(SampleRow("hud", "Game", "Game/Hud/Score", null, "分数", stamp));
+        cache.Update(SampleRow("menu root", "Game", "Game/Menu", null, "菜单", stamp));
+
+        var rows = cache.GetCompletedInHierarchy("zh-Hans", "Game", "Game/Menu", 50);
+
+        rows.Select(row => row.SourceText).Should().BeEquivalentTo("start", "options", "menu root");
+    }
+
+    [Fact]
+    public void SqliteCache_GetCompletedSince_returns_rows_after_watermark_in_order()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "translation-cache.sqlite");
+        using var cache = new SqliteTranslationCache(path);
+        var t1 = new DateTimeOffset(2026, 5, 1, 0, 1, 0, TimeSpan.Zero);
+        var t2 = new DateTimeOffset(2026, 5, 1, 0, 2, 0, TimeSpan.Zero);
+        var t3 = new DateTimeOffset(2026, 5, 1, 0, 3, 0, TimeSpan.Zero);
+        cache.Update(SampleRow("first", "Game", "Game/A", null, "第一", t1));
+        cache.Update(SampleRow("second", "Game", "Game/B", null, "第二", t2));
+        cache.Update(SampleRow("third", "Game", "Game/C", null, "第三", t3));
+
+        cache.GetCompletedSince("zh-Hans", null, 50).Select(row => row.SourceText)
+            .Should().Equal("first", "second", "third");
+        cache.GetCompletedSince("zh-Hans", t1.ToString("O"), 50).Select(row => row.SourceText)
+            .Should().Equal("second", "third");
+    }
+
     private static void AssertCsvImportPreservesInternalFields(
         string csv,
         string sourceText,
