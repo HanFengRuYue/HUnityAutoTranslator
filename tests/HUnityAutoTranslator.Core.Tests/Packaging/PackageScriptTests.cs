@@ -244,8 +244,6 @@ public sealed class PackageScriptTests
         workflow.Should().Contain("HUnityAutoTranslator-$env:PACKAGE_VERSION-il2cpp.zip");
         workflow.Should().Contain("HUnityAutoTranslator-$env:PACKAGE_VERSION-llamacpp-cuda13.zip");
         workflow.Should().Contain("HUnityAutoTranslator-$env:PACKAGE_VERSION-llamacpp-vulkan.zip");
-        workflow.Should().Contain("HUnityAutoTranslator.Toolbox.exe");
-        workflow.Should().Contain("package-toolbox.ps1");
     }
 
     private static string FindRepositoryRoot()

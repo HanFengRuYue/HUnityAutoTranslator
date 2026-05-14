@@ -60,9 +60,6 @@ jobs:
       - name: Build release packages
         run: .\build\package.ps1 -PackageVersion $env:PACKAGE_VERSION -Runtime All -LlamaCppVariant All
 
-      - name: Build toolbox single-file exe
-        run: .\build\package-toolbox.ps1 -PackageVersion $env:PACKAGE_VERSION
-
       - name: Validate release packages
         run: |
           $assets = @(
@@ -70,8 +67,7 @@ jobs:
             "build/HUnityAutoTranslator-$env:PACKAGE_VERSION.zip",
             "build/HUnityAutoTranslator-$env:PACKAGE_VERSION-il2cpp.zip",
             "build/HUnityAutoTranslator-$env:PACKAGE_VERSION-llamacpp-cuda13.zip",
-            "build/HUnityAutoTranslator-$env:PACKAGE_VERSION-llamacpp-vulkan.zip",
-            "build/HUnityAutoTranslator.Toolbox.exe"
+            "build/HUnityAutoTranslator-$env:PACKAGE_VERSION-llamacpp-vulkan.zip"
           )
 
           foreach ($asset in $assets) {

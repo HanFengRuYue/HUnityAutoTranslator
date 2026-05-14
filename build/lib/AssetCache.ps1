@@ -1,5 +1,5 @@
 #
-# Shared download / cache helpers used by build/package.ps1 and build/package-toolbox.ps1.
+# Shared download / cache helpers used by build/package.ps1.
 # Dot-source this file from a build script: `. (Join-Path $PSScriptRoot 'lib\AssetCache.ps1')`.
 #
 # Public functions:
