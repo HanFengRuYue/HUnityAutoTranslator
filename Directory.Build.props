@@ -6,4 +6,17 @@
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
     <WarningsAsErrors>CS8600;CS8602;CS8603;CS8604</WarningsAsErrors>
   </PropertyGroup>
+
+  <!-- BepInEx 版本的唯一事实来源。三个插件 csproj 都从这里取版本号，避免散落多处后漂移。
+       BepInEx 6 走 Bleeding Edge（BE）：be.755 是当前最新 BE 构建，也是第一个带 Unity 6
+       够用的 IL2CPP metadata 支持的构建；插件只把 BepInEx 6 当主线。
+       升级 BE 构建步骤：改下面的 BepInEx6BeVersion，重新构建三个运行时目标并冒烟测试。
+       BepInEx 5 只作为老 Unity Mono 的兼容回退：nuget.bepinex.dev 上 BepInEx.Core 的
+       NuGet 包停在 5.4.21（官方后续 5.4.x 只发 GitHub release，不再发 NuGet 包），
+       所以编译引用就用 5.4.21；BepInEx 5 的 BaseUnityPlugin / ManualLogSource / Paths
+       等 API 在 5.4.x 内稳定，插件在更新的 5.4.x 运行时上一样能正常加载。 -->
+  <PropertyGroup Label="BepInEx versions">
+    <BepInEx6BeVersion>6.0.0-be.755</BepInEx6BeVersion>
+    <BepInEx5Version>5.4.21</BepInEx5Version>
+  </PropertyGroup>
 </Project>

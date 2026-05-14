@@ -47,10 +47,16 @@
 
   <ItemGroup>
     <PackageReference Include="BepInEx.Analyzers" Version="1.*" PrivateAssets="all" />
-    <PackageReference Include="BepInEx.Core" Version="5.4.21" IncludeAssets="compile" />
+    <!-- 版本号集中在仓库根 Directory.Build.props 的 BepInEx5Version；BepInEx 5 只作兼容回退。 -->
+    <PackageReference Include="BepInEx.Core" Version="$(BepInEx5Version)" IncludeAssets="compile" />
     <PackageReference Include="BepInEx.PluginInfoProps" Version="2.*" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
     <PackageReference Include="UnityEngine.Modules" Version="2021.3.0" IncludeAssets="compile" />
+  </ItemGroup>
+
+  <!-- 把构建所基于的 BepInEx 版本写进程序集元数据，供 SelfCheckService 的运行时版本守卫读取。 -->
+  <ItemGroup>
+    <AssemblyMetadata Include="ExpectedBepInExVersion" Value="$(BepInEx5Version)" />
   </ItemGroup>
 
   <ItemGroup>

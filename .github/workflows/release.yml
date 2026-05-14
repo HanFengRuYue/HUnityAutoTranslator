@@ -48,12 +48,6 @@ jobs:
           cache: npm
           cache-dependency-path: src/HUnityAutoTranslator.ControlPanel/package-lock.json
 
-      - name: Cache BepInEx framework downloads
-        uses: actions/cache@v4
-        with:
-          path: build/.cache/bepinex
-          key: bepinex-v5.4.23.5-v6.0.0-pre.2
-
       - name: Test
         run: dotnet test HUnityAutoTranslator.sln --configuration Release
 

@@ -175,6 +175,42 @@ internal sealed class SelfCheckService
 #endif
             return SelfCheckItem.Ok("runtime.flavor", "运行环境", "插件运行时", flavor, "确认游戏安装的 BepInEx 包与插件包匹配。", 0);
         }));
+        items.Add(Measure("runtime.bepinex-version", "运行环境", "BepInEx 版本", () =>
+        {
+            var host = BepInExRuntimeInfo.GetHostVersionString();
+            var expected = BepInExRuntimeInfo.GetExpectedVersionString();
+            var expectedText = string.IsNullOrWhiteSpace(expected) ? "未知" : expected;
+            if (string.IsNullOrWhiteSpace(host))
+            {
+                return SelfCheckItem.Info(
+                    "runtime.bepinex-version",
+                    "运行环境",
+                    "BepInEx 版本",
+                    "无法读取宿主 BepInEx 版本",
+                    $"插件构建基线：{expectedText}",
+                    "如果插件无法加载，请确认安装的是最新 BepInEx Bleeding Edge 构建。",
+                    0);
+            }
+
+            if (BepInExRuntimeInfo.IsHostOlderThanExpected(host, expected, out var detail))
+            {
+                return SelfCheckItem.Warning(
+                    "runtime.bepinex-version",
+                    "运行环境",
+                    "BepInEx 版本",
+                    $"宿主 BepInEx 版本低于插件构建基线。{detail}",
+                    "请将 BepInEx 更新到最新 Bleeding Edge 构建（be.755 或更新）；过旧的 BepInEx 在最新 Unity（含 Unity 6 IL2CPP）上可能无法正确加载插件。",
+                    0);
+            }
+
+            return SelfCheckItem.Ok(
+                "runtime.bepinex-version",
+                "运行环境",
+                "BepInEx 版本",
+                $"宿主：{host}；构建基线：{expectedText}",
+                "无需处理。",
+                0);
+        }));
         items.Add(Measure("runtime.plugin-directory", "运行环境", "插件目录", () =>
             Directory.Exists(_pluginDirectory)
                 ? SelfCheckItem.Ok("runtime.plugin-directory", "运行环境", "插件目录", _pluginDirectory, "无需处理。", 0)
