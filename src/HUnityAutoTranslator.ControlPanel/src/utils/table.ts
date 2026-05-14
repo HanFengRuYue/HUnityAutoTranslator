@@ -13,17 +13,18 @@ export const visibleColumnStorageKey = "hunity.editor.visibleColumns";
 export const columnOrderStorageKey = "hunity.editor.columnOrder";
 export const columnFilterStorageKey = "hunity.editor.columnFilters";
 export const columnWidthStorageKey = "hunity.editor.columnWidths";
+export const minColumnWidth = 96;
 
 export const defaultColumns: TableColumn[] = [
   { key: "SourceText", label: "原文", sort: "source_text", editable: false, width: 280 },
   { key: "TranslatedText", label: "译文", sort: "translated_text", editable: true, width: 280 },
-  { key: "TargetLanguage", label: "目标语言", sort: "target_language", editable: false, width: 110 },
+  { key: "TargetLanguage", label: "目标语言", sort: "target_language", editable: false, width: 145 },
   { key: "SceneName", label: "场景", sort: "scene_name", editable: true, width: 150 },
   { key: "ComponentHierarchy", label: "组件层级", sort: "component_hierarchy", editable: true, width: 240 },
   { key: "ComponentType", label: "组件", sort: "component_type", editable: true, width: 150 },
   { key: "ReplacementFont", label: "替换字体", sort: "replacement_font", editable: true, width: 180 },
-  { key: "ProviderKind", label: "服务商", sort: "provider_kind", editable: false, width: 110 },
-  { key: "ProviderModel", label: "模型", sort: "provider_model", editable: false, width: 160 },
+  { key: "ProviderKind", label: "服务商", sort: "provider_kind", editable: false, width: 140 },
+  { key: "ProviderModel", label: "模型", sort: "provider_model", editable: false, width: 175 },
   { key: "CreatedUtc", label: "创建时间", sort: "created_utc", editable: false, width: 190 },
   { key: "UpdatedUtc", label: "更新时间", sort: "updated_utc", editable: false, width: 190 }
 ];
@@ -70,7 +71,7 @@ export function loadColumnWidths(): Record<string, number> {
     const widths = { ...fallback };
     for (const [key, value] of Object.entries(parsed)) {
       if (knownKeys.has(key) && typeof value === "number" && Number.isFinite(value) && value > 0) {
-        widths[key] = value;
+        widths[key] = Math.max(minColumnWidth, value);
       }
     }
     return widths;

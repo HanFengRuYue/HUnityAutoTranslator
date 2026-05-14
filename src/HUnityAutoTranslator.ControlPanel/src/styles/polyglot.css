@@ -493,13 +493,16 @@ button.primary {
   background: rgba(255, 90, 122, 0.08) !important;
 }
 
-/* Regular ghost buttons */
-button:not(.primary):not(.button-primary):not(.secondary):not(.danger):not(.button-danger):not(.theme-cycle):not(.sidebar-collapse):not(.nav-item):not(.swatch):not(.window-controls button) {
+/* Regular ghost buttons.
+   Intentionally-borderless buttons (table header sort/filter, menu items, the
+   texture view toggle) are excluded so their transparent styling in app.css is
+   not clobbered by this glass background + border. */
+button:not(.primary):not(.button-primary):not(.secondary):not(.danger):not(.button-danger):not(.theme-cycle):not(.sidebar-collapse):not(.nav-item):not(.swatch):not(.window-controls button):not(.header-title):not(.header-filter):not(.context-menu button):not(.column-move-buttons button):not(.texture-view-toggle button) {
   background: var(--glass) !important;
   border: 1px solid var(--line) !important;
   color: var(--ink-1) !important;
 }
-button:not(.primary):not(.button-primary):not(.secondary):not(.danger):not(.button-danger):not(.theme-cycle):not(.sidebar-collapse):not(.nav-item):not(.swatch):not(.window-controls button):hover:not(:disabled) {
+button:not(.primary):not(.button-primary):not(.secondary):not(.danger):not(.button-danger):not(.theme-cycle):not(.sidebar-collapse):not(.nav-item):not(.swatch):not(.window-controls button):not(.header-title):not(.header-filter):not(.context-menu button):not(.column-move-buttons button):not(.texture-view-toggle button):hover:not(:disabled) {
   background: var(--glass-strong) !important;
   border-color: var(--line-2) !important;
   color: var(--ink-0) !important;

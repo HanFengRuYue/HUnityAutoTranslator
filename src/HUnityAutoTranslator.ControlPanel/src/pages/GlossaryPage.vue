@@ -46,6 +46,7 @@ import {
   loadGlossaryColumnOrder,
   loadGlossaryColumnWidths,
   loadGlossaryVisibleColumns,
+  minColumnWidth,
   persistGlossaryColumnFilters,
   saveGlossaryColumnOrder,
   saveGlossaryColumnWidths,
@@ -53,6 +54,7 @@ import {
   type GlossaryTableColumn
 } from "../utils/glossaryTable";
 import { languageLabel, languageOptionsFor, normalizeLanguageInput, targetLanguageOptions } from "../utils/languages";
+import { placePopover } from "../utils/popover";
 
 interface CellAddress {
   row: number;
@@ -96,10 +98,14 @@ const filterMenu = reactive({
   column: "",
   x: 0,
   y: 0,
+  placed: false,
   optionSearch: "",
   options: [] as GlossaryFilterOption[],
   draft: [] as string[]
 });
+const columnMenu = reactive({ x: 0, y: 0, placed: false });
+let filterMenuAnchor: HTMLElement | null = null;
+let columnMenuAnchor: HTMLElement | null = null;
 
 const settings = reactive({
   EnableGlossary: true,
@@ -268,9 +274,19 @@ function focusInlineTerm(): void {
 }
 
 function beginAddGlossaryTerm(): void {
+  if (showInlineTermEditor.value) {
+    cancelInlineTerm();
+    return;
+  }
+
   resetInlineTerm();
   showInlineTermEditor.value = true;
   focusInlineTerm();
+}
+
+function cancelInlineTerm(): void {
+  resetInlineTerm();
+  showInlineTermEditor.value = false;
 }
 
 function toGlossaryTermRequest(row: GlossaryTerm, original?: GlossaryTerm): GlossaryTermRequest {
@@ -382,8 +398,13 @@ function isRowDirty(rowIndex: number): boolean {
 }
 
 async function saveRows(): Promise<void> {
-  if (!dirtyRows.size) {
-    showToast("没有待保存的术语修改。", "info");
+  const inlinePayload = showInlineTermEditor.value ? readInlineTerm() : null;
+  const inlineValid = inlinePayload != null && isValidTermRequest(inlinePayload);
+  const inlineHasContent = showInlineTermEditor.value &&
+    Boolean(inlineTerm.SourceTerm.trim() || inlineTerm.TargetTerm.trim() || inlineTerm.Note.trim());
+
+  if (!dirtyRows.size && !inlineValid) {
+    showToast(inlineHasContent ? "请填写原术语和指定译名。" : "没有待保存的术语修改。", inlineHasContent ? "warn" : "info");
     return;
   }
 
@@ -397,8 +418,14 @@ async function saveRows(): Promise<void> {
     await patchJson<GlossaryTermPage>("/api/glossary", payload);
   }
 
-  const savedCount = dirtyRows.size;
+  if (inlineValid && inlinePayload) {
+    await postJson<GlossaryTermPage>("/api/glossary", inlinePayload);
+  }
+
+  const savedCount = dirtyRows.size + (inlineValid ? 1 : 0);
   dirtyRows.clear();
+  resetInlineTerm();
+  showInlineTermEditor.value = false;
   await loadGlossaryTerms();
   tableMessage.value = `已保存 ${savedCount} 行修改。`;
   showToast("术语修改已保存。", "ok");
@@ -497,7 +524,7 @@ function columnWidth(column: GlossaryTableColumn): number {
 }
 
 function clampColumnWidth(width: number): number {
-  return Math.max(72, Math.min(640, width));
+  return Math.max(minColumnWidth, Math.min(640, width));
 }
 
 function startColumnResize(event: PointerEvent, column: GlossaryTableColumn): void {
@@ -776,39 +803,66 @@ async function loadColumnFilterOptions(column: string, optionSearch = ""): Promi
   filterMenu.options = page.Items;
 }
 
-function refreshFilterOptions(): void {
-  void loadColumnFilterOptions(filterMenu.column, filterMenu.optionSearch);
+async function refreshFilterOptions(): Promise<void> {
+  await loadColumnFilterOptions(filterMenu.column, filterMenu.optionSearch);
+  await nextTick();
+  positionFilterMenu();
 }
 
-function positionFilterMenu(anchor: HTMLElement): void {
-  const rect = anchor.getBoundingClientRect();
-  const margin = 12;
-  const menuWidth = Math.min(320, window.innerWidth - margin * 2);
-  const menuHeight = Math.min(360, window.innerHeight - margin * 2);
-  const preferredLeft = rect.right - menuWidth;
-  const preferredTop = rect.bottom + 8;
-  const fallbackTop = rect.top - menuHeight - 8;
+function positionFilterMenu(): void {
+  if (!filterMenuAnchor) {
+    return;
+  }
 
-  filterMenu.x = Math.max(margin, Math.min(preferredLeft, window.innerWidth - menuWidth - margin));
-  filterMenu.y = preferredTop + menuHeight <= window.innerHeight - margin
-    ? Math.max(margin, preferredTop)
-    : Math.max(margin, fallbackTop);
+  const menu = document.getElementById("glossaryColumnFilterMenu");
+  const { x, y } = placePopover(filterMenuAnchor, menu);
+  filterMenu.x = x;
+  filterMenu.y = y;
+  filterMenu.placed = true;
 }
 
 async function openColumnFilterMenu(column: GlossaryTableColumn, event: MouseEvent): Promise<void> {
-  const anchor = event.currentTarget as HTMLElement | null;
-  if (anchor) {
-    positionFilterMenu(anchor);
-  }
+  filterMenuAnchor = event.currentTarget as HTMLElement | null;
   filterMenu.open = true;
+  filterMenu.placed = false;
   filterMenu.column = column.sort;
   filterMenu.optionSearch = "";
   filterMenu.draft = [...(columnFilters[column.sort] ?? [])];
+  await nextTick();
+  positionFilterMenu();
   await loadColumnFilterOptions(column.sort);
+  await nextTick();
+  positionFilterMenu();
 }
 
 function hideColumnFilterMenu(): void {
   filterMenu.open = false;
+  filterMenu.placed = false;
+}
+
+function positionColumnMenu(): void {
+  if (!columnMenuAnchor) {
+    return;
+  }
+
+  const menu = document.getElementById("glossaryColumnChooser");
+  const { x, y } = placePopover(columnMenuAnchor, menu);
+  columnMenu.x = x;
+  columnMenu.y = y;
+  columnMenu.placed = true;
+}
+
+async function toggleColumnMenu(event: MouseEvent): Promise<void> {
+  if (columnMenuOpen.value) {
+    columnMenuOpen.value = false;
+    return;
+  }
+
+  columnMenuAnchor = event.currentTarget as HTMLElement | null;
+  columnMenuOpen.value = true;
+  columnMenu.placed = false;
+  await nextTick();
+  positionColumnMenu();
 }
 
 function toggleFilterValue(value: string, checked: boolean): void {
@@ -935,6 +989,10 @@ function handleDocumentClick(event: MouseEvent): void {
   if (!target?.closest("#glossaryColumnFilterMenu") && !target?.closest(".header-filter")) {
     hideColumnFilterMenu();
   }
+
+  if (!target?.closest("#glossaryColumnChooser") && !target?.closest("#glossaryColumnMenuButton")) {
+    columnMenuOpen.value = false;
+  }
 }
 
 watch(() => controlPanelStore.state, applyState, { immediate: true });
@@ -993,25 +1051,32 @@ onBeforeUnmount(() => {
           </label>
           <div class="editor-actions">
             <div class="column-control">
-              <button id="glossaryColumnMenuButton" class="secondary" type="button" aria-controls="glossaryColumnChooser" :aria-expanded="columnMenuOpen" @click="columnMenuOpen = !columnMenuOpen"><Columns3 class="button-icon" />列显示</button>
-              <div class="column-chooser" id="glossaryColumnChooser" :class="{ open: columnMenuOpen }">
-                <div class="column-chooser-head">
-                  <span>列显示</span>
-                  <button id="showAllGlossaryColumns" type="button" @click="showAllColumns">全部显示</button>
-                </div>
-                <div class="column-chooser-list">
-                  <div v-for="column in orderedColumns" :key="column.key" class="column-choice" :data-column-key="column.key">
-                    <label class="check column-choice-label">
-                      <input type="checkbox" :checked="visibleKeys.includes(column.key)" @change="toggleColumn(column.key, ($event.target as HTMLInputElement).checked)">
-                      <span>{{ column.label }}</span>
-                    </label>
-                    <span class="column-move-buttons">
-                      <button type="button" data-column-move="up" @click="moveColumn(column.key, -1)">↑</button>
-                      <button type="button" data-column-move="down" @click="moveColumn(column.key, 1)">↓</button>
-                    </span>
+              <button id="glossaryColumnMenuButton" class="secondary" type="button" aria-controls="glossaryColumnChooser" :aria-expanded="columnMenuOpen" @click="toggleColumnMenu"><Columns3 class="button-icon" />列显示</button>
+              <Teleport to="body">
+                <div
+                  class="column-chooser"
+                  id="glossaryColumnChooser"
+                  :class="{ open: columnMenuOpen }"
+                  :style="{ left: `${columnMenu.x}px`, top: `${columnMenu.y}px`, visibility: columnMenu.placed ? 'visible' : 'hidden' }"
+                >
+                  <div class="column-chooser-head">
+                    <span>列显示</span>
+                    <button id="showAllGlossaryColumns" type="button" @click="showAllColumns">全部显示</button>
+                  </div>
+                  <div class="column-chooser-list">
+                    <div v-for="column in orderedColumns" :key="column.key" class="column-choice" :data-column-key="column.key">
+                      <label class="check column-choice-label">
+                        <input type="checkbox" :checked="visibleKeys.includes(column.key)" @change="toggleColumn(column.key, ($event.target as HTMLInputElement).checked)">
+                        <span>{{ column.label }}</span>
+                      </label>
+                      <span class="column-move-buttons">
+                        <button type="button" data-column-move="up" @click="moveColumn(column.key, -1)">↑</button>
+                        <button type="button" data-column-move="down" @click="moveColumn(column.key, 1)">↓</button>
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </Teleport>
             </div>
             <button id="clearGlossaryFilters" class="secondary" type="button" :class="{ 'filter-active': hasColumnFilters }" @click="clearAllColumnFilters"><FilterX class="button-icon" />清空筛选</button>
             <button id="saveGlossaryRows" class="primary" type="button" :disabled="dirtyRows.size === 0" @click="saveRows"><Save class="button-icon" />保存修改</button>
@@ -1041,7 +1106,7 @@ onBeforeUnmount(() => {
               </tr>
             </thead>
             <tbody id="glossaryBody">
-              <tr v-if="showInlineTermEditor" id="glossaryNewRow" class="inline-new-row">
+              <tr v-if="showInlineTermEditor" id="glossaryNewRow" class="inline-new-row" @keydown.esc="cancelInlineTerm">
                 <td v-for="column in visibleColumns" :key="column.key" :data-column-key="column.key" :class="inlineTermCellClass(column)">
                   <input
                     v-if="column.key === 'Enabled'"
@@ -1085,12 +1150,7 @@ onBeforeUnmount(() => {
                   >
                   <div v-else class="cell-text new-term-placeholder">{{ inlineTermReadonlyValue(column) }}</div>
                 </td>
-                <td class="glossary-action-cell">
-                  <div class="row-actions">
-                    <button id="saveGlossaryInlineRow" type="button" @click="saveGlossaryTerm()"><Save class="button-icon" />保存</button>
-                    <button class="secondary" type="button" @click="resetInlineTerm">清空</button>
-                  </div>
-                </td>
+                <td class="glossary-action-cell"></td>
               </tr>
               <tr v-for="(row, rowIndex) in rows" :key="rowOriginalKey(rowIndex)" :class="{ dirty: isRowDirty(rowIndex) }">
                 <td
@@ -1173,7 +1233,7 @@ onBeforeUnmount(() => {
       class="column-filter-menu"
       id="glossaryColumnFilterMenu"
       :class="{ open: filterMenu.open }"
-      :style="{ left: `${filterMenu.x}px`, top: `${filterMenu.y}px` }"
+      :style="{ left: `${filterMenu.x}px`, top: `${filterMenu.y}px`, visibility: filterMenu.placed ? 'visible' : 'hidden' }"
       role="dialog"
       aria-label="术语列筛选"
       @click.stop

@@ -13,7 +13,7 @@ body {
     radial-gradient(circle at 100% 4%, rgba(96, 165, 250, 0.13), transparent 30%),
     var(--bg);
   color: var(--ink);
-  font: 14px/1.5 "Microsoft YaHei", "Segoe UI", system-ui, sans-serif;
+  font: 14px/1.5 var(--font-sans);
   letter-spacing: 0;
   transition: background 0.22s ease, color 0.22s ease;
 }
@@ -501,14 +501,6 @@ button:disabled {
   background: var(--surface-2);
   transform: translateY(-1px);
 }
-.help-target[data-help] {
-  position: relative;
-  overflow: visible;
-}
-.help-target[data-help]:hover,
-.help-target[data-help]:focus-within {
-  z-index: 35;
-}
 .metric-head,
 .section-title-row,
 .field-label {
@@ -697,36 +689,23 @@ button:disabled {
 .status-warn { color: var(--warn); }
 .metric-danger strong,
 .status-danger { color: var(--danger); }
-.metric[data-help]::after,
-.help-target[data-help]::after {
-  content: attr(data-help);
-  position: absolute;
-  left: 0;
-  top: calc(100% + 8px);
-  z-index: 30;
-  width: min(360px, 100%);
-  max-width: calc(100vw - 44px);
+.app-tooltip {
+  position: fixed;
+  z-index: 95;
+  max-width: 360px;
   padding: 8px 10px;
-  border: 1px solid var(--line);
+  border: 1px solid var(--line-strong);
   border-radius: 6px;
-  background: var(--surface);
+  background: var(--solid);
+  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(20px);
   color: var(--ink);
   box-shadow: var(--shadow);
   font-size: 12px;
   line-height: 1.45;
   white-space: normal;
   overflow-wrap: anywhere;
-  opacity: 0;
   pointer-events: none;
-  transform: translateY(-4px);
-  transition: opacity 0.16s ease, transform 0.16s ease;
-}
-.metric:hover::after,
-.metric:focus-visible::after,
-.help-target:hover::after,
-.help-target:focus-within::after {
-  opacity: 1;
-  transform: translateY(0);
 }
 .section-panel {
   position: relative;
@@ -1292,32 +1271,6 @@ button:disabled {
   padding-bottom: 10px;
   border-bottom: 1px solid var(--line);
 }
-.provider-editor-dialog .field.help-target[data-help]::after,
-.provider-editor-dialog .llama-model-row.help-target[data-help]::after {
-  position: absolute;
-  left: 0;
-  top: auto;
-  bottom: calc(100% + 6px);
-  z-index: 90;
-  display: block;
-  width: min(360px, calc(100vw - 56px));
-  max-width: calc(100vw - 56px);
-  padding: 6px 8px;
-  border-width: 1px;
-  color: var(--muted);
-  background: var(--surface-2);
-  box-shadow: var(--shadow);
-  pointer-events: none;
-  opacity: 0;
-  transform: translateY(3px);
-}
-.provider-editor-dialog .field.help-target[data-help]:hover::after,
-.provider-editor-dialog .field.help-target[data-help]:focus-within::after,
-.provider-editor-dialog .llama-model-row.help-target[data-help]:hover::after,
-.provider-editor-dialog .llama-model-row.help-target[data-help]:focus-within::after {
-  opacity: 1;
-  transform: translateY(0);
-}
 .textarea-field textarea {
   min-height: 96px;
   resize: vertical;
@@ -1626,6 +1579,11 @@ input[type="range"] {
 }
 .range-value.wide {
   min-width: 86px;
+}
+input.range-value {
+  width: 76px;
+  min-height: 34px;
+  padding: 4px 6px;
 }
 .text-button.compact {
   width: max-content;
@@ -2050,10 +2008,6 @@ input[type="range"] {
   align-items: center;
   justify-self: end;
   gap: 6px;
-  padding: 3px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: var(--surface-2);
 }
 .texture-view-toggle button {
   min-height: 30px;
@@ -2166,7 +2120,7 @@ input[type="range"] {
   border-radius: 4px;
   background: var(--surface-2);
   color: var(--ink);
-  font-family: "Cascadia Mono", "Consolas", monospace;
+  font-family: var(--font-sans);
 }
 .texture-status {
   min-width: 58px;
@@ -2312,20 +2266,18 @@ input[type="range"] {
 .export-control { position: relative; }
 .column-chooser,
 .export-menu {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
-  z-index: 40;
+  position: fixed;
+  z-index: 70;
   display: none;
   width: 292px;
   max-width: calc(100vw - 32px);
   padding: 10px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: var(--surface);
+  background: var(--solid);
   box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(18px);
   backdrop-filter: blur(18px);
-  transform-origin: top right;
 }
 .export-menu { width: 160px; }
 .column-chooser.open,
@@ -3011,16 +2963,6 @@ input.compact-check {
   .provider-card-actions {
     justify-content: flex-start;
     padding: 0 10px 10px;
-  }
-  .metric[data-help]::after {
-    left: 0;
-    right: auto;
-    max-width: calc(100vw - 52px);
-  }
-  .help-target[data-help]::after {
-    left: 0;
-    right: auto;
-    max-width: calc(100vw - 52px);
   }
   .model-download-backdrop {
     place-items: start stretch;

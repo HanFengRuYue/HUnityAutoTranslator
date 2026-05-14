@@ -2,6 +2,7 @@
 import { computed, ref } from "vue";
 import AppSidebar from "./components/AppSidebar.vue";
 import ToastHost from "./components/ToastHost.vue";
+import TooltipHost from "./components/TooltipHost.vue";
 import { controlPanelStore } from "./state/controlPanelStore";
 import AboutPage from "./pages/AboutPage.vue";
 import AiSettingsPage from "./pages/AiSettingsPage.vue";
@@ -45,5 +46,6 @@ const activePageComponent = computed(() => pages[controlPanelStore.activePage]);
       </div>
     </main>
     <ToastHost />
+    <TooltipHost />
   </div>
 </template>
