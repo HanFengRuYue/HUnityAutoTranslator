@@ -306,10 +306,6 @@ const isProfileLlamaCpp = computed(() => profileKind.value === 3);
 const profileModelOptionValues = computed(() => new Set(profileModelOptions.value.map((model) => model.Id)));
 const selectedPresetInfo = computed(() => providerPresets.value.find((preset) => preset.Id === profileForm.PresetId) ?? null);
 const providerPresetNames = computed(() => new Set(providerPresets.value.map((preset) => preset.DisplayName)));
-const quickPresetGroups = computed(() => [
-  { label: "国内厂商", presets: providerPresets.value.filter((preset) => preset.Group === "domestic") },
-  { label: "国际厂商", presets: providerPresets.value.filter((preset) => preset.Group === "international") }
-]);
 const profileTemperatureValue = computed(() => {
   const parsed = Number(profileForm.Temperature);
   return Number.isFinite(parsed) ? Math.max(0, Math.min(2, parsed)) : 0.2;
@@ -1852,9 +1848,7 @@ watch(selectedProfileId, () => {
               <span class="field-label"><Layers class="field-label-icon" />快速预设</span>
               <select id="providerProfileQuickPreset" v-model="profileForm.PresetId" @change="onQuickPresetChange">
                 <option value="">自定义 / 手动配置</option>
-                <optgroup v-for="group in quickPresetGroups" :key="group.label" :label="group.label">
-                  <option v-for="preset in group.presets" :key="preset.Id" :value="preset.Id">{{ preset.DisplayName }}</option>
-                </optgroup>
+                <option v-for="preset in providerPresets" :key="preset.Id" :value="preset.Id">{{ preset.DisplayName }}</option>
               </select>
             </label>
             <label class="field help-target" data-help="在线配置和本地模型配置会按优先级依次尝试；本地模型最多只能创建一个。">

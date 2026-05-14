@@ -9,7 +9,6 @@ namespace HUnityAutoTranslator.Core.Providers;
 public sealed record ProviderPresetInfo(
     string Id,
     string DisplayName,
-    string Group,
     ProviderKind Kind,
     string BaseUrl,
     string Endpoint,

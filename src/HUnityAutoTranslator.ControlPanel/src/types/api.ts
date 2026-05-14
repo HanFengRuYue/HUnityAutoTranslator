@@ -627,7 +627,6 @@ export interface ProviderTestResult {
 export interface ProviderPresetInfo {
   Id: string;
   DisplayName: string;
-  Group: string;
   Kind: number | string;
   BaseUrl: string;
   Endpoint: string;

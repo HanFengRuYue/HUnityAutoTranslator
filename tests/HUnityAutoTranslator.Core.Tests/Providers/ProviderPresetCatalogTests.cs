@@ -7,13 +7,13 @@ namespace HUnityAutoTranslator.Core.Tests.Providers;
 public sealed class ProviderPresetCatalogTests
 {
     [Fact]
-    public void Catalog_contains_the_expected_nine_presets()
+    public void Catalog_contains_the_expected_eleven_presets()
     {
-        ProviderPresetCatalog.All.Should().HaveCount(9);
+        ProviderPresetCatalog.All.Should().HaveCount(11);
         ProviderPresetCatalog.All.Select(preset => preset.Id).Should().BeEquivalentTo(new[]
         {
-            "siliconflow", "zhipu", "moonshot", "dashscope", "volcengine",
-            "openrouter", "groq", "xai", "gemini"
+            "deepseek", "siliconflow", "zhipu", "moonshot", "dashscope", "volcengine",
+            "openai", "openrouter", "groq", "xai", "gemini"
         });
     }
 
@@ -24,12 +24,11 @@ public sealed class ProviderPresetCatalogTests
     }
 
     [Fact]
-    public void Catalog_entries_are_all_openai_compatible_with_well_formed_metadata()
+    public void Catalog_entries_have_well_formed_metadata()
     {
         foreach (var preset in ProviderPresetCatalog.All)
         {
-            preset.Kind.Should().Be(ProviderKind.OpenAICompatible, preset.Id);
-            preset.Group.Should().BeOneOf(ProviderPreset.GroupDomestic, ProviderPreset.GroupInternational);
+            preset.Kind.Should().NotBe(ProviderKind.LlamaCpp, preset.Id);
             preset.RequestsPerMinute.Should().BeGreaterThan(0, preset.Id);
             preset.DisplayName.Should().NotBeNullOrWhiteSpace();
             preset.DefaultModel.Should().NotBeNullOrWhiteSpace();

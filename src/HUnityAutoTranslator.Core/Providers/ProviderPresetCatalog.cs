@@ -5,22 +5,36 @@ using Newtonsoft.Json.Linq;
 namespace HUnityAutoTranslator.Core.Providers;
 
 /// <summary>
-/// 内置 AI 翻译服务商预设目录。所有条目都按官方 OpenAI 兼容接口接入，
-/// 复用 <see cref="ChatCompletionsProvider"/>，<see cref="ProviderPreset.Kind"/> 一律为
-/// <see cref="ProviderKind.OpenAICompatible"/>。
+/// 内置 AI 翻译服务商预设目录。多数第三方服务按官方 OpenAI 兼容接口接入，复用
+/// <see cref="ChatCompletionsProvider"/>；OpenAI 与 DeepSeek 使用各自原生的
+/// <see cref="ProviderKind"/>（分别走 Responses API 与 DeepSeek Chat Completions）。
 ///
 /// 注意：Base URL / Endpoint / 默认模型 / 模型列表路径 / 余额接口均为按官方文档核实过的值，
 /// 但服务商接口和模型名会随时间变动——发现失效时直接更新本文件即可，无需改动其它代码。
+///
+/// 列表顺序即控制面板「快速预设」下拉的显示顺序。
 /// </summary>
 public static class ProviderPresetCatalog
 {
     public static IReadOnlyList<ProviderPreset> All { get; } = new[]
     {
-        // —— 国内主流厂商 ——
+        new ProviderPreset(
+            Id: "deepseek",
+            DisplayName: "DeepSeek 深度求索",
+            Kind: ProviderKind.DeepSeek,
+            BaseUrl: "https://api.deepseek.com",
+            Endpoint: "/chat/completions",
+            DefaultModel: "deepseek-v4-flash",
+            SuggestedModels: new[] { "deepseek-v4-flash", "deepseek-chat", "deepseek-reasoner" },
+            RequestsPerMinute: 15000,
+            ModelsPath: "/models",
+            BalanceQuery: null,
+            ConsoleUrl: "https://platform.deepseek.com",
+            DocsUrl: "https://api-docs.deepseek.com",
+            Notes: "DeepSeek 官方接口，走原生 Chat Completions。余额请在控制台查看。"),
         new ProviderPreset(
             Id: "siliconflow",
             DisplayName: "硅基流动 SiliconFlow",
-            Group: ProviderPreset.GroupDomestic,
             Kind: ProviderKind.OpenAICompatible,
             BaseUrl: "https://api.siliconflow.cn/v1",
             Endpoint: "/chat/completions",
@@ -35,7 +49,6 @@ public static class ProviderPresetCatalog
         new ProviderPreset(
             Id: "zhipu",
             DisplayName: "智谱 GLM",
-            Group: ProviderPreset.GroupDomestic,
             Kind: ProviderKind.OpenAICompatible,
             BaseUrl: "https://open.bigmodel.cn/api/paas/v4",
             Endpoint: "/chat/completions",
@@ -50,7 +63,6 @@ public static class ProviderPresetCatalog
         new ProviderPreset(
             Id: "moonshot",
             DisplayName: "月之暗面 Kimi",
-            Group: ProviderPreset.GroupDomestic,
             Kind: ProviderKind.OpenAICompatible,
             BaseUrl: "https://api.moonshot.cn/v1",
             Endpoint: "/chat/completions",
@@ -65,7 +77,6 @@ public static class ProviderPresetCatalog
         new ProviderPreset(
             Id: "dashscope",
             DisplayName: "阿里通义千问 / 百炼",
-            Group: ProviderPreset.GroupDomestic,
             Kind: ProviderKind.OpenAICompatible,
             BaseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
             Endpoint: "/chat/completions",
@@ -80,7 +91,6 @@ public static class ProviderPresetCatalog
         new ProviderPreset(
             Id: "volcengine",
             DisplayName: "火山方舟 / 豆包",
-            Group: ProviderPreset.GroupDomestic,
             Kind: ProviderKind.OpenAICompatible,
             BaseUrl: "https://ark.cn-beijing.volces.com/api/v3",
             Endpoint: "/chat/completions",
@@ -92,12 +102,23 @@ public static class ProviderPresetCatalog
             ConsoleUrl: "https://console.volcengine.com/ark",
             DocsUrl: "https://www.volcengine.com/docs/82379",
             Notes: "模型字段可填模型名或接入点 ID；如遇 404 请在方舟控制台开通对应模型。余额请在控制台查看。"),
-
-        // —— 国际主流 ——
+        new ProviderPreset(
+            Id: "openai",
+            DisplayName: "OpenAI GPT",
+            Kind: ProviderKind.OpenAI,
+            BaseUrl: "https://api.openai.com",
+            Endpoint: "/v1/responses",
+            DefaultModel: "gpt-5.5",
+            SuggestedModels: new[] { "gpt-5.5", "gpt-5.4-mini" },
+            RequestsPerMinute: 500,
+            ModelsPath: "/v1/models",
+            BalanceQuery: null,
+            ConsoleUrl: "https://platform.openai.com",
+            DocsUrl: "https://platform.openai.com/docs",
+            Notes: "OpenAI 官方接口，走原生 Responses API。余额请在控制台查看（成本接口通常需要管理员密钥）。"),
         new ProviderPreset(
             Id: "openrouter",
             DisplayName: "OpenRouter",
-            Group: ProviderPreset.GroupInternational,
             Kind: ProviderKind.OpenAICompatible,
             BaseUrl: "https://openrouter.ai/api/v1",
             Endpoint: "/chat/completions",
@@ -112,7 +133,6 @@ public static class ProviderPresetCatalog
         new ProviderPreset(
             Id: "groq",
             DisplayName: "Groq",
-            Group: ProviderPreset.GroupInternational,
             Kind: ProviderKind.OpenAICompatible,
             BaseUrl: "https://api.groq.com/openai/v1",
             Endpoint: "/chat/completions",
@@ -127,7 +147,6 @@ public static class ProviderPresetCatalog
         new ProviderPreset(
             Id: "xai",
             DisplayName: "xAI Grok",
-            Group: ProviderPreset.GroupInternational,
             Kind: ProviderKind.OpenAICompatible,
             BaseUrl: "https://api.x.ai/v1",
             Endpoint: "/chat/completions",
@@ -142,7 +161,6 @@ public static class ProviderPresetCatalog
         new ProviderPreset(
             Id: "gemini",
             DisplayName: "Google Gemini",
-            Group: ProviderPreset.GroupInternational,
             Kind: ProviderKind.OpenAICompatible,
             BaseUrl: "https://generativelanguage.googleapis.com/v1beta/openai",
             Endpoint: "/chat/completions",

@@ -19,7 +19,6 @@ public sealed record ProviderBalanceQuery(
 public sealed record ProviderPreset(
     string Id,
     string DisplayName,
-    string Group,
     ProviderKind Kind,
     string BaseUrl,
     string Endpoint,
@@ -32,9 +31,6 @@ public sealed record ProviderPreset(
     string DocsUrl,
     string Notes)
 {
-    public const string GroupDomestic = "domestic";
-    public const string GroupInternational = "international";
-
     /// <summary>是否提供可用的模型列表接口（决定「获取模型」是否可用）。</summary>
     public bool SupportsModelList => !string.IsNullOrWhiteSpace(ModelsPath);
 
@@ -47,7 +43,6 @@ public sealed record ProviderPreset(
         return new ProviderPresetInfo(
             Id,
             DisplayName,
-            Group,
             Kind,
             BaseUrl,
             Endpoint,
