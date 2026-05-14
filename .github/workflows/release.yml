@@ -48,11 +48,20 @@ jobs:
           cache: npm
           cache-dependency-path: src/HUnityAutoTranslator.ControlPanel/package-lock.json
 
+      - name: Cache BepInEx framework downloads
+        uses: actions/cache@v4
+        with:
+          path: build/.cache/bepinex
+          key: bepinex-v5.4.23.5-v6.0.0-pre.2
+
       - name: Test
         run: dotnet test HUnityAutoTranslator.sln --configuration Release
 
       - name: Build release packages
         run: .\build\package.ps1 -PackageVersion $env:PACKAGE_VERSION -Runtime All -LlamaCppVariant All
+
+      - name: Build toolbox single-file exe
+        run: .\build\package-toolbox.ps1 -PackageVersion $env:PACKAGE_VERSION
 
       - name: Validate release packages
         run: |
@@ -61,7 +70,8 @@ jobs:
             "build/HUnityAutoTranslator-$env:PACKAGE_VERSION.zip",
             "build/HUnityAutoTranslator-$env:PACKAGE_VERSION-il2cpp.zip",
             "build/HUnityAutoTranslator-$env:PACKAGE_VERSION-llamacpp-cuda13.zip",
-            "build/HUnityAutoTranslator-$env:PACKAGE_VERSION-llamacpp-vulkan.zip"
+            "build/HUnityAutoTranslator-$env:PACKAGE_VERSION-llamacpp-vulkan.zip",
+            "build/HUnityAutoTranslator.Toolbox.exe"
           )
 
           foreach ($asset in $assets) {

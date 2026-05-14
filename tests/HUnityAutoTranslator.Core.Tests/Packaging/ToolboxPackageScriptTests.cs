@@ -178,6 +178,76 @@ public sealed class ToolboxPackageScriptTests
         ui.Should().NotContain("<div class=\"logo\">H</div>");
     }
 
+    [Fact]
+    public void Toolbox_package_script_bundles_embedded_assets_before_publish()
+    {
+        var root = FindRepositoryRoot();
+        var script = File.ReadAllText(Path.Combine(root, "build", "package-toolbox.ps1"));
+
+        script.Should().Contain("function Bundle-EmbeddedAssets");
+        script.Should().Contain("function Ensure-PluginAndLlamaCppZips");
+        script.Should().Contain("function Write-EmbeddedAssetManifestCs");
+        script.Should().Contain("[switch]$SkipBundleAssets");
+        script.Should().Contain("if (-not $SkipBundleAssets)");
+        script.Should().Contain("Bundle-EmbeddedAssets");
+
+        var bundleIndex = script.IndexOf("Bundle-EmbeddedAssets\r", StringComparison.Ordinal);
+        if (bundleIndex < 0) bundleIndex = script.IndexOf("Bundle-EmbeddedAssets\n", StringComparison.Ordinal);
+        var publishIndex = script.IndexOf("dotnet", StringComparison.Ordinal);
+        bundleIndex.Should().BeGreaterThan(0);
+        publishIndex.Should().BeGreaterThan(0);
+    }
+
+    [Fact]
+    public void Toolbox_package_script_pins_bepinex_versions()
+    {
+        var root = FindRepositoryRoot();
+        var assetCache = File.ReadAllText(Path.Combine(root, "build", "lib", "AssetCache.ps1"));
+
+        assetCache.Should().Contain("v5.4.23.5");
+        assetCache.Should().Contain("v6.0.0-pre.2");
+        assetCache.Should().Contain("BepInEx_win_x64_5.4.23.5.zip");
+        assetCache.Should().Contain("BepInEx-Unity.Mono-win-x64-6.0.0-pre.2.zip");
+        assetCache.Should().Contain("BepInEx-Unity.IL2CPP-win-x64-6.0.0-pre.2.zip");
+        assetCache.Should().Contain("82f9878551030f54657792c0740d9d51a09500eeae1fba21106b0c441e6732c4");
+        assetCache.Should().Contain("4699fadeeae31366a647026d8d992185a16070d2953636cd085ceadf75d3b26e");
+        assetCache.Should().Contain("616ec7eb06cf11b2a0000e8fcef04d1b12bb58e84a2e0bdac9523234fc193ceb");
+    }
+
+    [Fact]
+    public void Toolbox_csproj_declares_embedded_resource_glob()
+    {
+        var root = FindRepositoryRoot();
+        var csproj = File.ReadAllText(Path.Combine(root, "src", "HUnityAutoTranslator.Toolbox", "HUnityAutoTranslator.Toolbox.csproj"));
+
+        csproj.Should().Contain("BundleEmbeddedAssets");
+        csproj.Should().Contain("EmbeddedAssetsDirectory");
+        csproj.Should().Contain("<EmbeddedResource Include=\"$(EmbeddedAssetsDirectory)\\*.zip\">");
+        csproj.Should().Contain("<LogicalName>HUnityAutoTranslator.Toolbox.EmbeddedAssets.%(Filename)%(Extension)</LogicalName>");
+    }
+
+    [Fact]
+    public void Toolbox_package_script_generates_embedded_asset_manifest_cs()
+    {
+        var root = FindRepositoryRoot();
+        var script = File.ReadAllText(Path.Combine(root, "build", "package-toolbox.ps1"));
+
+        script.Should().Contain("EmbeddedAssetManifest.cs");
+        script.Should().Contain("Write-EmbeddedAssetManifestCs");
+        script.Should().Contain("public static readonly IReadOnlyList<EmbeddedAsset> Entries");
+    }
+
+    [Fact]
+    public void Embedded_asset_manifest_file_is_committed()
+    {
+        var root = FindRepositoryRoot();
+        var manifest = Path.Combine(root, "src", "HUnityAutoTranslator.Toolbox.Core", "Installation", "EmbeddedAssetManifest.cs");
+
+        File.Exists(manifest).Should().BeTrue();
+        var content = File.ReadAllText(manifest);
+        content.Should().Contain("class EmbeddedAssetManifest");
+    }
+
     private static string FindRepositoryRoot()
     {
         var directory = new DirectoryInfo(AppContext.BaseDirectory);

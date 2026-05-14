@@ -87,14 +87,23 @@ public static class GameInspector
             return ToolboxRuntimeKind.IL2CPP;
         }
 
+        var bepInEx6Core = Path.Combine(gameRoot, "BepInEx", "core", "BepInEx.Core.dll");
+        if (File.Exists(bepInEx6Core))
+        {
+            // 已有 BepInEx 6 Mono 安装,沿用以避免覆盖。
+            return ToolboxRuntimeKind.Mono;
+        }
+
         var bepInEx5Config = Path.Combine(gameRoot, "BepInEx", "config", PluginGuidConfigName);
         var bepInEx5Core = Path.Combine(gameRoot, "BepInEx", "core", "BepInEx.dll");
         if (File.Exists(bepInEx5Config) || File.Exists(bepInEx5Core))
         {
+            // 已有 BepInEx 5 Mono 安装,继续推荐 BepInEx 5 以保护用户既有环境。
             return ToolboxRuntimeKind.BepInEx5Mono;
         }
 
-        return backend == UnityBackend.Mono ? ToolboxRuntimeKind.BepInEx5Mono : ToolboxRuntimeKind.Unknown;
+        // 新装 Mono 游戏一律默认 BepInEx 6 Mono(最新主线)。
+        return backend == UnityBackend.Mono ? ToolboxRuntimeKind.Mono : ToolboxRuntimeKind.Unknown;
     }
 
     private static string DetectArchitecture(string gameRoot, UnityBackend backend)

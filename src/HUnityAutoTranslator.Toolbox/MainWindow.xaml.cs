@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text.Encodings.Web;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Interop;
@@ -29,10 +30,14 @@ public partial class MainWindow : Window
     };
 
     private bool _isShuttingDown;
+    private readonly object _installRunLock = new();
+    private InstallRunState? _activeInstallRun;
+    private readonly InstallExecutor _installExecutor = new();
 
     public MainWindow()
     {
         InitializeComponent();
+        EmbeddedAssetCatalog.UseAssembly(typeof(MainWindow).Assembly);
     }
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
@@ -183,8 +188,13 @@ public partial class MainWindow : Window
             },
             "inspectGame" => GameInspector.Inspect(ReadString(payload, "gameRoot")),
             "pickGameDirectory" => PickGameDirectory(payload),
+            "pickFile" => PickFile(payload),
             "pickFontFile" => PickFontFile(),
             "createInstallPlan" => CreateInstallPlan(payload),
+            "executeInstallPlan" => ExecuteInstallPlan(payload),
+            "cancelInstall" => CancelInstall(payload),
+            "rollbackInstall" => RollbackInstall(payload),
+            "getEmbeddedBundleInfo" => GetEmbeddedBundleInfo(),
             "loadPluginConfig" => LoadPluginConfig(payload),
             "savePluginConfig" => SavePluginConfig(payload),
             "queryTranslations" => QueryTranslations(payload),
@@ -252,13 +262,238 @@ public partial class MainWindow : Window
     private static InstallPlan CreateInstallPlan(JsonElement payload)
     {
         var inspection = GameInspector.Inspect(ReadString(payload, "gameRoot"));
-        var options = new InstallPlanOptions(
+        var options = BuildInstallOptions(payload);
+        return InstallPlanner.CreatePlan(inspection, options);
+    }
+
+    private static InstallPlanOptions BuildInstallOptions(JsonElement payload)
+    {
+        return new InstallPlanOptions(
             PackageVersion: ReadString(payload, "packageVersion", "0.1.1"),
             Mode: ReadEnum(payload, "mode", InstallMode.Full),
             IncludeLlamaCppBackend: ReadBool(payload, "includeLlamaCppBackend"),
-            LlamaCppBackend: ReadEnum(payload, "llamaCppBackend", LlamaCppBackendKind.None));
+            LlamaCppBackend: ReadEnum(payload, "llamaCppBackend", LlamaCppBackendKind.None),
+            RuntimeOverride: ReadNullableEnum<ToolboxRuntimeKind>(payload, "runtimeOverride"),
+            BepInExHandling: ReadEnum(payload, "bepInExHandling", BepInExHandling.Auto),
+            BackupPolicy: ReadEnum(payload, "backupPolicy", BackupPolicy.Auto),
+            CustomPluginDirectory: ReadNullableString(payload, "customPluginDirectory"),
+            CustomConfigDirectory: ReadNullableString(payload, "customConfigDirectory"),
+            CustomBackupDirectory: ReadNullableString(payload, "customBackupDirectory"),
+            CustomPluginZipPath: ReadNullableString(payload, "customPluginZipPath"),
+            CustomBepInExZipPath: ReadNullableString(payload, "customBepInExZipPath"),
+            CustomLlamaCppZipPath: ReadNullableString(payload, "customLlamaCppZipPath"),
+            CustomUnityLibraryZipPath: ReadNullableString(payload, "customUnityLibraryZipPath"),
+            UnityVersionOverride: ReadNullableString(payload, "unityVersionOverride"),
+            DryRun: ReadBool(payload, "dryRun"),
+            ForceReinstall: ReadBool(payload, "forceReinstall"),
+            SkipPostInstallVerification: ReadBool(payload, "skipPostInstallVerification"));
+    }
 
-        return InstallPlanner.CreatePlan(inspection, options);
+    private object ExecuteInstallPlan(JsonElement payload)
+    {
+        var inspection = GameInspector.Inspect(ReadString(payload, "gameRoot"));
+        var options = BuildInstallOptions(payload);
+        var plan = InstallPlanner.CreatePlan(inspection, options);
+
+        var runId = Guid.NewGuid().ToString("N");
+        var cts = new CancellationTokenSource();
+
+        lock (_installRunLock)
+        {
+            if (_activeInstallRun is not null)
+            {
+                cts.Dispose();
+                throw new InvalidOperationException("已有安装任务正在进行,请等其完成或取消后再试。");
+            }
+            _activeInstallRun = new InstallRunState(runId, cts, null);
+        }
+
+        var progress = new Progress<InstallProgress>(p => PostInstallProgress(runId, p));
+        var task = Task.Run(async () =>
+        {
+            try
+            {
+                var result = await _installExecutor.ExecuteAsync(plan, progress, cts.Token).ConfigureAwait(false);
+                if (result.FinalStage == InstallStage.Cancelled)
+                {
+                    PostInstallEvent("installCancelled", new
+                    {
+                        runId,
+                        operationIndex = result.FailedOperationIndex,
+                        backupDirectory = result.BackupDirectory
+                    });
+                }
+                else if (result.Succeeded)
+                {
+                    PostInstallEvent("installCompleted", new { runId, result });
+                }
+                else
+                {
+                    PostInstallEvent("installFailed", new
+                    {
+                        runId,
+                        error = result.Message,
+                        stage = result.FinalStage.ToString(),
+                        operationIndex = result.FailedOperationIndex,
+                        backupDirectory = result.BackupDirectory,
+                        errors = result.Errors
+                    });
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                PostInstallEvent("installCancelled", new { runId, operationIndex = -1, backupDirectory = plan.BackupDirectory });
+            }
+            catch (Exception ex)
+            {
+                PostInstallEvent("installFailed", new
+                {
+                    runId,
+                    error = ex.Message,
+                    stage = "Failed",
+                    operationIndex = -1,
+                    backupDirectory = plan.BackupDirectory,
+                    errors = new[] { ex.ToString() }
+                });
+            }
+            finally
+            {
+                lock (_installRunLock)
+                {
+                    if (_activeInstallRun?.RunId == runId)
+                    {
+                        _activeInstallRun.Cts.Dispose();
+                        _activeInstallRun = null;
+                    }
+                }
+            }
+        });
+
+        lock (_installRunLock)
+        {
+            if (_activeInstallRun?.RunId == runId)
+            {
+                _activeInstallRun = _activeInstallRun with { Task = task };
+            }
+        }
+
+        return new { runId, plan };
+    }
+
+    private object? CancelInstall(JsonElement payload)
+    {
+        var runId = ReadString(payload, "runId");
+        lock (_installRunLock)
+        {
+            if (_activeInstallRun is not null && (string.IsNullOrEmpty(runId) || _activeInstallRun.RunId == runId))
+            {
+                try { _activeInstallRun.Cts.Cancel(); } catch { /* swallow */ }
+            }
+        }
+        return null;
+    }
+
+    private object RollbackInstall(JsonElement payload)
+    {
+        lock (_installRunLock)
+        {
+            if (_activeInstallRun is not null)
+            {
+                throw new InvalidOperationException("当前有安装任务在运行,请先等其完成或取消再回滚。");
+            }
+        }
+
+        var backupDirectory = ReadString(payload, "backupDirectory");
+        var gameRoot = RequireGameRoot(payload);
+        var progress = new Progress<InstallProgress>(p => PostInstallProgress("rollback", p));
+        return _installExecutor.RollbackAsync(backupDirectory, gameRoot, progress, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    private static object GetEmbeddedBundleInfo()
+    {
+        return EmbeddedAssetCatalog.All.Select(asset => new
+        {
+            asset.Key,
+            Kind = asset.Kind.ToString(),
+            Runtime = asset.Runtime.ToString(),
+            Backend = asset.Backend.ToString(),
+            asset.Version,
+            asset.Sha256,
+            asset.SizeBytes
+        }).ToArray();
+    }
+
+    private void PostInstallProgress(string runId, InstallProgress progress)
+    {
+        PostInstallEvent("installProgress", new
+        {
+            runId,
+            operationIndex = progress.OperationIndex,
+            operationCount = progress.OperationCount,
+            stage = progress.Stage.ToString(),
+            message = progress.Message,
+            percent = progress.Percent,
+            currentDestination = progress.CurrentDestination
+        });
+    }
+
+    private void PostInstallEvent(string type, object payload)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.Invoke(() => PostInstallEvent(type, payload));
+            return;
+        }
+
+        var envelope = new Dictionary<string, object?>(StringComparer.Ordinal) { ["type"] = type };
+        foreach (var prop in payload.GetType().GetProperties())
+        {
+            envelope[prop.Name] = prop.GetValue(payload);
+        }
+
+        var json = JsonSerializer.Serialize(envelope, JsonOptions);
+        try
+        {
+            WebView.CoreWebView2.PostWebMessageAsJson(json);
+        }
+        catch
+        {
+            // WebView2 在关闭过程中可能拒绝消息,忽略以免阻塞后台任务收尾。
+        }
+    }
+
+    private sealed record InstallRunState(string RunId, CancellationTokenSource Cts, Task? Task);
+
+    private static FilePickResult PickFile(JsonElement payload)
+    {
+        using var dialog = new WinForms.OpenFileDialog
+        {
+            Title = ReadString(payload, "title", "选择文件"),
+            Filter = ReadString(payload, "filter", "所有文件 (*.*)|*.*"),
+            CheckFileExists = true,
+            CheckPathExists = true,
+            Multiselect = false,
+            RestoreDirectory = true
+        };
+
+        var initialDirectory = ReadString(payload, "initialDirectory");
+        if (!string.IsNullOrWhiteSpace(initialDirectory) && Directory.Exists(initialDirectory))
+        {
+            dialog.InitialDirectory = initialDirectory;
+        }
+
+        if (dialog.ShowDialog() != WinForms.DialogResult.OK)
+        {
+            return FilePickResult.Cancelled();
+        }
+
+        return FilePickResult.Selected(dialog.FileName);
+    }
+
+    private sealed record FilePickResult(string Status, string? FilePath)
+    {
+        public static FilePickResult Cancelled() => new("cancelled", null);
+        public static FilePickResult Selected(string path) => new("selected", path);
     }
 
     private static object LoadPluginConfig(JsonElement payload)
@@ -518,6 +753,20 @@ public partial class MainWindow : Window
     {
         var value = ReadString(payload, propertyName);
         return Enum.TryParse<TEnum>(value, ignoreCase: true, out var parsed) ? parsed : fallback;
+    }
+
+    private static TEnum? ReadNullableEnum<TEnum>(JsonElement payload, string propertyName)
+        where TEnum : struct, Enum
+    {
+        var value = ReadString(payload, propertyName);
+        if (string.IsNullOrWhiteSpace(value)) return null;
+        return Enum.TryParse<TEnum>(value, ignoreCase: true, out var parsed) ? parsed : (TEnum?)null;
+    }
+
+    private static string? ReadNullableString(JsonElement payload, string propertyName)
+    {
+        var value = ReadString(payload, propertyName);
+        return string.IsNullOrWhiteSpace(value) ? null : value;
     }
 
     private const int WM_GETMINMAXINFO = 0x0024;

@@ -6,6 +6,19 @@ namespace HUnityAutoTranslator.Core.Tests.Packaging;
 public sealed class PackageScriptTests
 {
     [Fact]
+    public void Package_script_dot_sources_shared_asset_cache_lib()
+    {
+        var root = FindRepositoryRoot();
+        var script = File.ReadAllText(Path.Combine(root, "build", "package.ps1"));
+        var assetCache = Path.Combine(root, "build", "lib", "AssetCache.ps1");
+
+        File.Exists(assetCache).Should().BeTrue();
+        script.Should().Contain(". (Join-Path $PSScriptRoot \"lib\\AssetCache.ps1\")");
+        // Backward compat: existing tests assert on Invoke-CheckedNative and Get-CheckedAsset wrapper.
+        script.Should().Contain("function Get-CheckedAsset");
+    }
+
+    [Fact]
     public void Package_script_writes_outputs_next_to_the_script()
     {
         var script = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "build", "package.ps1"));
@@ -231,6 +244,8 @@ public sealed class PackageScriptTests
         workflow.Should().Contain("HUnityAutoTranslator-$env:PACKAGE_VERSION-il2cpp.zip");
         workflow.Should().Contain("HUnityAutoTranslator-$env:PACKAGE_VERSION-llamacpp-cuda13.zip");
         workflow.Should().Contain("HUnityAutoTranslator-$env:PACKAGE_VERSION-llamacpp-vulkan.zip");
+        workflow.Should().Contain("HUnityAutoTranslator.Toolbox.exe");
+        workflow.Should().Contain("package-toolbox.ps1");
     }
 
     private static string FindRepositoryRoot()

@@ -15,6 +15,8 @@
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <BundleEmbeddedAssets Condition="'$(BundleEmbeddedAssets)' == ''">true</BundleEmbeddedAssets>
+    <EmbeddedAssetsDirectory>$(MSBuildThisFileDirectory)EmbeddedAssets</EmbeddedAssetsDirectory>
   </PropertyGroup>
 
   <ItemGroup>
@@ -30,6 +32,12 @@
     <Resource Include="..\HUnityAutoTranslator.ControlPanel\public\branding\hunity-icon-blue-white.ico" Link="Assets\branding\hunity-icon-blue-white.ico" />
     <Resource Include="..\HUnityAutoTranslator.ControlPanel\public\branding\hunity-icon-blue-white-128.png" Link="Assets\branding\hunity-icon-blue-white-128.png" />
     <Resource Include="..\HUnityAutoTranslator.ControlPanel\public\branding\hunity-icon-blue-white-256.png" Link="Assets\branding\hunity-icon-blue-white-256.png" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(BundleEmbeddedAssets)' == 'true' AND Exists('$(EmbeddedAssetsDirectory)')">
+    <EmbeddedResource Include="$(EmbeddedAssetsDirectory)\*.zip">
+      <LogicalName>HUnityAutoTranslator.Toolbox.EmbeddedAssets.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
 </Project>

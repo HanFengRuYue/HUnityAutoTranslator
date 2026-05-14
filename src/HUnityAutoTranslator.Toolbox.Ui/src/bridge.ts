@@ -1,7 +1,10 @@
 import type {
   DeleteResult,
+  EmbeddedAssetInfo,
   GameInspection,
+  InstallPlan,
   PluginConfigPayload,
+  RollbackResult,
   TranslationCacheFilterOptionPage,
   TranslationCacheImportResult,
   TranslationCachePage
@@ -19,6 +22,19 @@ declare global {
 }
 
 const fallbackDelay = 120;
+
+// Dev 事件总线: 当工具箱在 vite dev 服务器里跑(没有 WebView2 宿主)时,
+// 用这个 EventTarget 模拟主机推送的安装进度/完成/取消事件。
+export const devEventBus = new EventTarget();
+
+function devDispatch(type: string, detail: Record<string, unknown>): void {
+  const event = new CustomEvent(type, { detail: { type, ...detail } });
+  devEventBus.dispatchEvent(event);
+}
+
+export function toolboxEvents(): EventTarget {
+  return window.ToolboxBridge?.events ?? devEventBus;
+}
 
 export async function invokeToolbox<T>(command: string, payload: unknown = {}): Promise<T> {
   if (window.ToolboxBridge) {
@@ -92,25 +108,41 @@ function fallbackResponse<T>(command: string, payload: unknown): T {
   }
 
   if (command === "createInstallPlan") {
-    const gameRoot = readPayloadString(payload, "gameRoot");
-    return {
-      Inspection: fallbackResponse<GameInspection>("inspectGame", { gameRoot }),
-      Mode: readPayloadString(payload, "mode") || "Full",
-      PluginPackageName: "HUnityAutoTranslator-0.1.1-il2cpp.zip",
-      LlamaCppPackageName: readPayloadBool(payload, "includeLlamaCppBackend")
-        ? "HUnityAutoTranslator-0.1.1-llamacpp-cuda13.zip"
-        : null,
-      ProtectedPaths: [
-        "BepInEx\\config\\HUnityAutoTranslator\\translation-cache.sqlite",
-        "BepInEx\\config\\HUnityAutoTranslator\\providers"
-      ],
-      BackupDirectory: "BepInEx\\config\\HUnityAutoTranslator\\toolbox-backups\\preview",
-      Operations: [
-        { Kind: "CreateDirectory", SourcePath: "", DestinationPath: "BepInEx\\plugins\\HUnityAutoTranslator", Description: "确保插件目录存在" },
-        { Kind: "ExtractPackage", SourcePath: "HUnityAutoTranslator-0.1.1-il2cpp.zip", DestinationPath: gameRoot, Description: "解压插件包" },
-        { Kind: "VerifyFile", SourcePath: "", DestinationPath: "HUnityAutoTranslator.Plugin.IL2CPP.dll", Description: "验证插件 DLL" }
-      ]
-    } as T;
+    return buildFakePlan(payload) as T;
+  }
+
+  if (command === "executeInstallPlan") {
+    const plan = buildFakePlan(payload);
+    const runId = "dev-" + Date.now();
+    runFakeInstall(runId, plan as InstallPlan);
+    return { runId, plan } as T;
+  }
+
+  if (command === "cancelInstall") {
+    const runId = readPayloadString(payload, "runId");
+    window.setTimeout(() => devDispatch("installCancelled", { runId, operationIndex: -1, backupDirectory: null }), 50);
+    return null as T;
+  }
+
+  if (command === "rollbackInstall") {
+    return { Succeeded: true, RestoredPaths: [], Errors: [] } as RollbackResult as T;
+  }
+
+  if (command === "getEmbeddedBundleInfo") {
+    return [
+      { Key: "bepinex5-framework",       Kind: "BepInExFramework", Runtime: "BepInEx5Mono", Backend: "None",    Version: "5.4.23.5",     Sha256: "dev", SizeBytes: 639118 },
+      { Key: "bepinex6mono-framework",   Kind: "BepInExFramework", Runtime: "Mono",         Backend: "None",    Version: "6.0.0-pre.2",  Sha256: "dev", SizeBytes: 645915 },
+      { Key: "bepinex6il2cpp-framework", Kind: "BepInExFramework", Runtime: "IL2CPP",       Backend: "None",    Version: "6.0.0-pre.2",  Sha256: "dev", SizeBytes: 34146254 },
+      { Key: "plugin-bepinex5",          Kind: "PluginPackage",    Runtime: "BepInEx5Mono", Backend: "None",    Version: "0.1.1",        Sha256: "dev", SizeBytes: 1_200_000 },
+      { Key: "plugin-mono",              Kind: "PluginPackage",    Runtime: "Mono",         Backend: "None",    Version: "0.1.1",        Sha256: "dev", SizeBytes: 1_200_000 },
+      { Key: "plugin-il2cpp",            Kind: "PluginPackage",    Runtime: "IL2CPP",       Backend: "None",    Version: "0.1.1",        Sha256: "dev", SizeBytes: 3_200_000 },
+      { Key: "llamacpp-cuda13",          Kind: "LlamaCppBackend",  Runtime: "Unknown",      Backend: "Cuda13",  Version: "0.1.1",        Sha256: "dev", SizeBytes: 470_000_000 },
+      { Key: "llamacpp-vulkan",          Kind: "LlamaCppBackend",  Runtime: "Unknown",      Backend: "Vulkan",  Version: "0.1.1",        Sha256: "dev", SizeBytes: 78_000_000 }
+    ] as EmbeddedAssetInfo[] as T;
+  }
+
+  if (command === "pickFile") {
+    return { Status: "cancelled", FilePath: null } as T;
   }
 
   if (command === "loadPluginConfig" || command === "savePluginConfig") {
@@ -207,4 +239,89 @@ function readPayloadObject(payload: unknown, key: string): unknown {
 function readPayloadArray(payload: unknown, key: string): unknown[] {
   const value = readPayloadObject(payload, key);
   return Array.isArray(value) ? value : [];
+}
+
+function buildFakePlan(payload: unknown): InstallPlan {
+  const gameRoot = readPayloadString(payload, "gameRoot");
+  const inspection = fallbackResponse<GameInspection>("inspectGame", { gameRoot });
+  const includeLlama = readPayloadBool(payload, "includeLlamaCppBackend");
+  const mode = readPayloadString(payload, "mode") || "Full";
+  const operations: InstallPlan["Operations"] = [
+    { Kind: "CreateDirectory", SourcePath: "", DestinationPath: `${gameRoot}\\BepInEx\\plugins\\HUnityAutoTranslator`, Description: "确保插件目录存在", SourceKind: "None" },
+    { Kind: "ExtractPackage", SourcePath: "bepinex6il2cpp-framework", DestinationPath: gameRoot, Description: "安装 BepInEx 框架(6.0.0-pre.2)", SourceKind: "EmbeddedAsset" },
+    { Kind: "PrepareUnityBaseLibraries", SourcePath: "2022.3.21f1", DestinationPath: `${gameRoot}\\BepInEx\\unity-libs\\2022.3.21f1.zip`, Description: "准备 Unity 2022.3.21f1 基础库(全局缓存或一次性下载)", SourceKind: "None" },
+    { Kind: "ExtractPackage", SourcePath: "plugin-il2cpp", DestinationPath: gameRoot, Description: "解压 HUnityAutoTranslator 插件包(0.1.1)", SourceKind: "EmbeddedAsset" }
+  ];
+  if (includeLlama) {
+    operations.push({ Kind: "ExtractPackage", SourcePath: "llamacpp-cuda13", DestinationPath: gameRoot, Description: "解压 llama.cpp 后端包(Cuda13)", SourceKind: "EmbeddedAsset" });
+  }
+  operations.push({ Kind: "VerifyFile", SourcePath: "", DestinationPath: `${gameRoot}\\BepInEx\\plugins\\HUnityAutoTranslator\\HUnityAutoTranslator.Plugin.IL2CPP.dll`, Description: "验证插件 DLL", SourceKind: "None" });
+  return {
+    Inspection: inspection,
+    Mode: mode,
+    PluginPackageName: "HUnityAutoTranslator-0.1.1-il2cpp.zip",
+    LlamaCppPackageName: includeLlama ? "HUnityAutoTranslator-0.1.1-llamacpp-cuda13.zip" : null,
+    ProtectedPaths: inspection.ProtectedDataPaths,
+    Operations: operations,
+    BackupDirectory: `${gameRoot}\\BepInEx\\config\\HUnityAutoTranslator\\toolbox-backups\\dev`,
+    IsDryRun: readPayloadBool(payload, "dryRun")
+  };
+}
+
+function runFakeInstall(runId: string, plan: InstallPlan): void {
+  const operations = plan.Operations;
+  let cancelled = false;
+  const onCancel = (event: Event): void => {
+    const detail = (event as CustomEvent).detail as { runId?: string };
+    if (detail?.runId === runId) cancelled = true;
+  };
+  devEventBus.addEventListener("installCancelled", onCancel as EventListener);
+
+  operations.forEach((op, index) => {
+    window.setTimeout(() => {
+      if (cancelled) return;
+      const percent = (index + 1) / operations.length;
+      const stage = guessStageFromOp(op.Kind, op.Description);
+      devDispatch("installProgress", {
+        runId,
+        operationIndex: index + 1,
+        operationCount: operations.length,
+        stage,
+        message: op.Description,
+        percent,
+        currentDestination: op.DestinationPath
+      });
+    }, 400 * (index + 1));
+  });
+
+  window.setTimeout(() => {
+    if (cancelled) return;
+    devDispatch("installCompleted", {
+      runId,
+      result: {
+        Succeeded: true,
+        Message: plan.IsDryRun ? "干跑成功" : "安装成功(模拟)",
+        BackupDirectory: plan.BackupDirectory,
+        WrittenPaths: [],
+        Errors: [],
+        SkippedProtectedPaths: [],
+        FinalStage: "Completed",
+        FailedOperationIndex: -1
+      }
+    });
+    devEventBus.removeEventListener("installCancelled", onCancel as EventListener);
+  }, 400 * (operations.length + 1));
+}
+
+function guessStageFromOp(kind: string, description: string): string {
+  if (kind === "BackupExisting") return "Backup";
+  if (kind === "VerifyFile") return "Verify";
+  if (kind === "PrepareUnityBaseLibraries") return "PrepareUnityLibs";
+  if (kind === "CreateDirectory" || kind === "PreserveUserData") return "Preparing";
+  if (kind === "ExtractPackage") {
+    if (/bepinex/i.test(description)) return "ExtractFramework";
+    if (/llama/i.test(description)) return "ExtractLlamaCpp";
+    return "ExtractPlugin";
+  }
+  return "Preparing";
 }

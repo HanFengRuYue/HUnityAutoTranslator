@@ -19,6 +19,8 @@ import {
 } from "./state/storage";
 import {
   applyTheme,
+  bindInstallEvents,
+  loadEmbeddedBundleInfo,
   setTheme,
   toolboxStore
 } from "./state/toolboxStore";
@@ -100,6 +102,9 @@ onMounted(() => {
   }
 
   writeStoredTheme(toolboxStore.theme);
+
+  bindInstallEvents();
+  void loadEmbeddedBundleInfo();
 });
 </script>
 

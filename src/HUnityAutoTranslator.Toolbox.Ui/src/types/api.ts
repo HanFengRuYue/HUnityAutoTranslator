@@ -37,11 +37,33 @@ export interface GameLibraryEntry {
   Inspection: GameInspection | null;
 }
 
+export type InstallStage =
+  | "Preparing"
+  | "Backup"
+  | "ExtractFramework"
+  | "ExtractPlugin"
+  | "ExtractLlamaCpp"
+  | "Verify"
+  | "Completed"
+  | "Failed"
+  | "Cancelled"
+  | "Rollback"
+  | "PrepareUnityLibs";
+
+export type InstallOperationSourceKind = "None" | "EmbeddedAsset" | "LocalFile" | "Directory";
+
+export type BepInExHandling = "Auto" | "Always" | "Skip";
+
+export type BackupPolicy = "Auto" | "Always" | "Skip";
+
+export type EmbeddedAssetKind = "BepInExFramework" | "PluginPackage" | "LlamaCppBackend";
+
 export interface InstallOperation {
   Kind: string;
   SourcePath: string;
   DestinationPath: string;
   Description: string;
+  SourceKind?: InstallOperationSourceKind;
 }
 
 export interface InstallPlan {
@@ -52,6 +74,119 @@ export interface InstallPlan {
   ProtectedPaths: string[];
   Operations: InstallOperation[];
   BackupDirectory: string;
+  IsDryRun?: boolean;
+}
+
+export interface InstallResult {
+  Succeeded: boolean;
+  Message: string;
+  BackupDirectory: string;
+  WrittenPaths: string[];
+  Errors: string[];
+  SkippedProtectedPaths: string[] | null;
+  FinalStage: InstallStage;
+  FailedOperationIndex: number;
+}
+
+export interface RollbackResult {
+  Succeeded: boolean;
+  RestoredPaths: string[];
+  Errors: string[];
+}
+
+export interface EmbeddedAssetInfo {
+  Key: string;
+  Kind: EmbeddedAssetKind;
+  Runtime: string;
+  Backend: string;
+  Version: string;
+  Sha256: string;
+  SizeBytes: number;
+}
+
+export interface InstallProgressPayload {
+  type: "installProgress";
+  runId: string;
+  operationIndex: number;
+  operationCount: number;
+  stage: InstallStage;
+  message: string;
+  percent: number;
+  currentDestination: string | null;
+}
+
+export interface InstallCompletedPayload {
+  type: "installCompleted";
+  runId: string;
+  result: InstallResult;
+}
+
+export interface InstallFailedPayload {
+  type: "installFailed";
+  runId: string;
+  error: string;
+  stage: InstallStage;
+  operationIndex: number;
+  backupDirectory: string | null;
+  errors?: string[];
+}
+
+export interface InstallCancelledPayload {
+  type: "installCancelled";
+  runId: string;
+  operationIndex: number;
+  backupDirectory: string | null;
+}
+
+export type InstallRunStatus = "running" | "succeeded" | "failed" | "cancelled" | "rollback";
+
+export interface InstallRunErrorState {
+  message: string;
+  stage: InstallStage;
+  operationIndex: number;
+  backupDirectory: string | null;
+}
+
+export interface InstallRunState {
+  id: string;
+  plan: InstallPlan;
+  status: InstallRunStatus;
+  progress: {
+    operationIndex: number;
+    operationCount: number;
+    stage: InstallStage;
+    message: string;
+    percent: number;
+    currentDestination?: string | null;
+  };
+  perStepStatus: Array<"pending" | "running" | "done" | "failed" | "skipped">;
+  result: InstallResult | null;
+  error: InstallRunErrorState | null;
+  startedAt: string;
+}
+
+export interface CustomInstallOptions {
+  mode: InstallMode;
+  includeLlamaCppBackend: boolean;
+  llamaCppBackend: "Cuda13" | "Vulkan";
+  runtimeOverride: "" | "BepInEx5Mono" | "Mono" | "IL2CPP";
+  bepInExHandling: BepInExHandling;
+  backupPolicy: BackupPolicy;
+  customPluginDirectory: string;
+  customBackupDirectory: string;
+  customPluginZipPath: string;
+  customBepInExZipPath: string;
+  customLlamaCppZipPath: string;
+  customUnityLibraryZipPath: string;
+  unityVersionOverride: string;
+  dryRun: boolean;
+  forceReinstall: boolean;
+  skipPostInstallVerification: boolean;
+}
+
+export interface FilePickResult {
+  Status: string;
+  FilePath: string | null;
 }
 
 export interface DatabaseMaintenanceResult {

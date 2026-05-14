@@ -19,6 +19,7 @@ publish/
 /src/HUnityAutoTranslator.Toolbox.Ui/node_modules/
 /src/HUnityAutoTranslator.Toolbox.Ui/dist/
 /src/HUnityAutoTranslator.Toolbox.Ui/*.log
+/src/HUnityAutoTranslator.Toolbox/EmbeddedAssets/
 *.user
 *.suo
 *.tmp
