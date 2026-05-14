@@ -16,7 +16,7 @@ public sealed class RoundRobinCursor
         if (count == source.Count)
         {
             _nextIndex = 0;
-            return source.ToArray();
+            return source;
         }
 
         var start = _nextIndex % source.Count;

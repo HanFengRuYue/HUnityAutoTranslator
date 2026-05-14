@@ -58,6 +58,7 @@ public sealed record ControlPanelState(
     int MaxSourceTextLength,
     bool IgnoreInvisibleText,
     bool SkipNumericSymbolText,
+    bool PreTranslateInactiveText,
     bool EnableCacheLookup,
     bool EnableTranslationDebugLogs,
     bool EnableTranslationContext,

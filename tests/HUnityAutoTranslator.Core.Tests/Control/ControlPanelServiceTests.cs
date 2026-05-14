@@ -864,6 +864,21 @@ public sealed class ControlPanelServiceTests
     }
 
     [Fact]
+    public void UpdateConfig_round_trips_pre_translate_inactive_text()
+    {
+        var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");
+        var first = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+
+        first.GetState().PreTranslateInactiveText.Should().BeTrue();
+
+        first.UpdateConfig(new UpdateConfigRequest(PreTranslateInactiveText: false));
+        first.GetState().PreTranslateInactiveText.Should().BeFalse();
+
+        var reloaded = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
+        reloaded.GetState().PreTranslateInactiveText.Should().BeFalse();
+    }
+
+    [Fact]
     public void CreateDefault_loads_expanded_plugin_and_ai_settings()
     {
         var path = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString("N"), "com.hanfeng.hunityautotranslator.cfg");

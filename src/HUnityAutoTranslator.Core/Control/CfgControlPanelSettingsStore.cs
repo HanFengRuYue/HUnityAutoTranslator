@@ -90,6 +90,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             MaxSourceTextLength: ReadInt(values, ScanSection, "MaxSourceTextLength"),
             IgnoreInvisibleText: ReadBool(values, ScanSection, "IgnoreInvisibleText"),
             SkipNumericSymbolText: ReadBool(values, ScanSection, "SkipNumericSymbolText"),
+            PreTranslateInactiveText: ReadBool(values, ScanSection, "PreTranslateInactiveText"),
             EnableCacheLookup: ReadBool(values, CacheSection, "EnableCacheLookup"),
             EnableTranslationDebugLogs: ReadBool(values, CacheSection, "EnableTranslationDebugLogs"),
             EnableTranslationContext: ReadBool(values, CacheSection, "EnableTranslationContext"),
@@ -300,6 +301,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "单条源文本最大长度，超过会跳过。", "2000", "范围：20 到 10000。", "MaxSourceTextLength", Int(config.MaxSourceTextLength ?? defaults.MaxSourceTextLength));
         Option(builder, "是否忽略不可见文字。", "true", "true 或 false。", "IgnoreInvisibleText", Bool(config.IgnoreInvisibleText ?? defaults.IgnoreInvisibleText));
         Option(builder, "是否跳过纯数字或符号文本。", "true", "true 或 false。", "SkipNumericSymbolText", Bool(config.SkipNumericSymbolText ?? defaults.SkipNumericSymbolText));
+        Option(builder, "是否预翻译尚未激活的 UI 文本（设置菜单、暂停菜单等隐藏面板）。开启后会提前把隐藏面板里的文字送去翻译并缓存，打开面板时即时显示。", "true", "true 或 false。注意：会扫描场景里所有隐藏文本并消耗 API 额度，即使这些面板可能永远不会被打开（本地 llama.cpp 无此顾虑）。", "PreTranslateInactiveText", Bool(config.PreTranslateInactiveText ?? defaults.PreTranslateInactiveText));
         Option(builder, "是否扫描 Unity UGUI 文本。", "true", "true 或 false。", "EnableUgui", Bool(config.EnableUgui ?? defaults.EnableUgui));
         Option(builder, "是否扫描 TextMeshPro 文本。", "true", "true 或 false。", "EnableTmp", Bool(config.EnableTmp ?? defaults.EnableTmp));
         Option(builder, "是否处理 IMGUI 文本。", "true", "true 或 false。", "EnableImgui", Bool(config.EnableImgui ?? defaults.EnableImgui));

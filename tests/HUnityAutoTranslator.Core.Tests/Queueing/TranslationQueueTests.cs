@@ -122,6 +122,32 @@ public sealed class TranslationQueueTests
         suppressions.ShouldSkip(PendingRow("SFX Volume", context, retryLimitUtc.AddSeconds(-1))).Should().BeFalse();
     }
 
+    [Fact]
+    public void Prefetch_jobs_drain_after_normal_and_visible_jobs()
+    {
+        var queue = new TranslationJobQueue();
+        queue.Enqueue(TranslationJob.Create("prefetch", "Hidden panel", TranslationPriority.Prefetch));
+        queue.Enqueue(TranslationJob.Create("normal", "Some lore", TranslationPriority.Normal));
+        queue.Enqueue(TranslationJob.Create("visible", "Start", TranslationPriority.VisibleUi));
+
+        queue.TryDequeueBatch(10, 2000, out var batch).Should().BeTrue();
+
+        batch.Select(job => job.Id).Should().Equal("visible", "normal", "prefetch");
+    }
+
+    [Fact]
+    public void Visible_enqueue_upgrades_a_pending_prefetch_job()
+    {
+        var queue = new TranslationJobQueue();
+        var context = new TranslationCacheContext("Menu", "Canvas/Options/Title", "UnityEngine.UI.Text");
+        queue.Enqueue(TranslationJob.Create("prefetch", "Options", TranslationPriority.Prefetch, context));
+        queue.Enqueue(TranslationJob.Create("visible", "Options", TranslationPriority.VisibleUi, context));
+
+        queue.PendingCount.Should().Be(1);
+        queue.TryDequeueBatch(10, 2000, out var batch).Should().BeTrue();
+        batch[0].Priority.Should().Be(TranslationPriority.VisibleUi);
+    }
+
     private static TranslationCacheEntry PendingRow(
         string sourceText,
         TranslationCacheContext context,
