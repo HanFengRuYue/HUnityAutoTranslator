@@ -371,7 +371,8 @@ public sealed class ControlPanelServiceTests
                 ParallelSlots: 2,
                 BatchSize: 4096,
                 UBatchSize: 1024,
-                FlashAttentionMode: "on")));
+                FlashAttentionMode: "on",
+                CacheReuseTokens: 512)));
 
         var state = service.GetState();
         var config = service.GetConfig();
@@ -389,6 +390,7 @@ public sealed class ControlPanelServiceTests
         state.LlamaCpp.UBatchSize.Should().Be(1024);
         state.LlamaCpp.FlashAttentionMode.Should().Be("on");
         state.LlamaCpp.AutoStartOnStartup.Should().BeFalse();
+        state.LlamaCpp.CacheReuseTokens.Should().Be(512);
         state.EffectiveMaxConcurrentRequests.Should().Be(2);
         state.LlamaCppStatus.State.Should().Be("stopped");
         state.LlamaCppStatus.Port.Should().Be(0);
@@ -410,7 +412,8 @@ public sealed class ControlPanelServiceTests
                 ParallelSlots: 99,
                 BatchSize: 32,
                 UBatchSize: 99999,
-                FlashAttentionMode: "maybe")));
+                FlashAttentionMode: "maybe",
+                CacheReuseTokens: 99999)));
 
         var state = service.GetState();
 
@@ -422,6 +425,7 @@ public sealed class ControlPanelServiceTests
         state.LlamaCpp.UBatchSize.Should().Be(128);
         state.LlamaCpp.FlashAttentionMode.Should().Be("auto");
         state.LlamaCpp.AutoStartOnStartup.Should().BeFalse();
+        state.LlamaCpp.CacheReuseTokens.Should().Be(8192);
     }
 
     [Fact]
@@ -674,7 +678,7 @@ public sealed class ControlPanelServiceTests
             first.GetConfig().LlamaCpp,
             backend: "Vulkan",
             port: 51234,
-            release: "b8943",
+            release: "b9139",
             variant: "Vulkan",
             serverPath: @"D:\Game\BepInEx\plugins\HUnityAutoTranslator\llama.cpp\llama-server.exe"));
 
@@ -701,7 +705,7 @@ public sealed class ControlPanelServiceTests
             service.GetConfig().LlamaCpp,
             backend: "Vulkan",
             port: 51234,
-            release: "b8943",
+            release: "b9139",
             variant: "Vulkan",
             serverPath: @"D:\Game\BepInEx\plugins\HUnityAutoTranslator\llama.cpp\llama-server.exe"));
 
@@ -709,7 +713,7 @@ public sealed class ControlPanelServiceTests
 
         state.LlamaCppStatus.Port.Should().Be(51234);
         state.LlamaCppStatus.Installed.Should().BeTrue();
-        state.LlamaCppStatus.Release.Should().Be("b8943");
+        state.LlamaCppStatus.Release.Should().Be("b9139");
         state.LlamaCppStatus.Variant.Should().Be("Vulkan");
         service.GetConfig().Provider.BaseUrl.Should().Be("http://127.0.0.1:51234");
     }
@@ -724,7 +728,7 @@ public sealed class ControlPanelServiceTests
             first.GetConfig().LlamaCpp,
             backend: "Vulkan",
             port: 51234,
-            release: "b8943",
+            release: "b9139",
             variant: "Vulkan",
             serverPath: @"D:\Game\BepInEx\plugins\HUnityAutoTranslator\llama.cpp\llama-server.exe"));
 

@@ -753,6 +753,7 @@ public sealed class ControlPanelVueSourceTests
         apiTypesSource.Should().Contain("UBatchSize: number;");
         apiTypesSource.Should().Contain("FlashAttentionMode: string;");
         apiTypesSource.Should().Contain("AutoStartOnStartup: boolean;");
+        apiTypesSource.Should().Contain("CacheReuseTokens: number;");
         apiTypesSource.Should().Contain("export interface LlamaCppBenchmarkResult");
         apiTypesSource.Should().Contain("Installed: boolean");
         apiTypesSource.Should().Contain("Release: string | null");
@@ -764,6 +765,7 @@ public sealed class ControlPanelVueSourceTests
         aiPageSource.Should().Contain("id=\"llamaCppBatchSize\"");
         aiPageSource.Should().Contain("id=\"llamaCppUBatchSize\"");
         aiPageSource.Should().Contain("id=\"llamaCppFlashAttentionMode\"");
+        aiPageSource.Should().Contain("id=\"llamaCppCacheReuseTokens\"");
         aiPageSource.Should().Contain("id=\"startLlamaCpp\"");
         aiPageSource.Should().Contain("id=\"stopLlamaCpp\"");
         aiPageSource.Should().Contain("llamaCppIsActive");

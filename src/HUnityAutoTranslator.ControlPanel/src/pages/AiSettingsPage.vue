@@ -215,7 +215,8 @@ const form = reactive({
   LlamaCppBatchSize: 2048,
   LlamaCppUBatchSize: 512,
   LlamaCppFlashAttentionMode: "auto",
-  LlamaCppAutoStartOnStartup: false
+  LlamaCppAutoStartOnStartup: false,
+  LlamaCppCacheReuseTokens: 256
 });
 
 const profileForm = reactive({
@@ -244,7 +245,8 @@ const profileForm = reactive({
   LlamaCppBatchSize: 2048,
   LlamaCppUBatchSize: 512,
   LlamaCppFlashAttentionMode: "auto",
-  LlamaCppAutoStartOnStartup: false
+  LlamaCppAutoStartOnStartup: false,
+  LlamaCppCacheReuseTokens: 256
 });
 
 const textureImageProfileForm = reactive({
@@ -662,6 +664,7 @@ function applyState(state: ControlPanelState | null, force = false): void {
   form.LlamaCppUBatchSize = state.LlamaCpp?.UBatchSize ?? 512;
   form.LlamaCppFlashAttentionMode = state.LlamaCpp?.FlashAttentionMode ?? "auto";
   form.LlamaCppAutoStartOnStartup = state.LlamaCpp?.AutoStartOnStartup ?? false;
+  form.LlamaCppCacheReuseTokens = state.LlamaCpp?.CacheReuseTokens ?? 256;
   applyPromptTemplates(state.PromptTemplates, state.DefaultPromptTemplates);
   setDirtyForm(formKey, false);
 }
@@ -733,7 +736,8 @@ function buildLlamaCppConfig(): LlamaCppConfig {
     BatchSize: numberValue(form.LlamaCppBatchSize),
     UBatchSize: numberValue(form.LlamaCppUBatchSize),
     FlashAttentionMode: form.LlamaCppFlashAttentionMode,
-    AutoStartOnStartup: form.LlamaCppAutoStartOnStartup
+    AutoStartOnStartup: form.LlamaCppAutoStartOnStartup,
+    CacheReuseTokens: numberValue(form.LlamaCppCacheReuseTokens)
   };
 }
 
@@ -746,7 +750,8 @@ function buildProfileLlamaCppConfig(): LlamaCppConfig {
     BatchSize: numberValue(profileForm.LlamaCppBatchSize),
     UBatchSize: numberValue(profileForm.LlamaCppUBatchSize),
     FlashAttentionMode: profileForm.LlamaCppFlashAttentionMode,
-    AutoStartOnStartup: profileForm.LlamaCppAutoStartOnStartup
+    AutoStartOnStartup: profileForm.LlamaCppAutoStartOnStartup,
+    CacheReuseTokens: numberValue(profileForm.LlamaCppCacheReuseTokens)
   };
 }
 
@@ -784,7 +789,8 @@ function applyProfileLlamaCppConfig(config: LlamaCppConfig | null | undefined): 
     BatchSize: 2048,
     UBatchSize: 512,
     FlashAttentionMode: "auto",
-    AutoStartOnStartup: false
+    AutoStartOnStartup: false,
+    CacheReuseTokens: 256
   };
   profileForm.LlamaCppModelPath = defaults.ModelPath ?? "";
   profileForm.LlamaCppContextSize = defaults.ContextSize;
@@ -794,6 +800,7 @@ function applyProfileLlamaCppConfig(config: LlamaCppConfig | null | undefined): 
   profileForm.LlamaCppUBatchSize = defaults.UBatchSize;
   profileForm.LlamaCppFlashAttentionMode = defaults.FlashAttentionMode;
   profileForm.LlamaCppAutoStartOnStartup = defaults.AutoStartOnStartup;
+  profileForm.LlamaCppCacheReuseTokens = defaults.CacheReuseTokens ?? 256;
 }
 
 async function saveGlobalConfig(options: SaveBehavior = {}): Promise<void> {
@@ -1924,6 +1931,7 @@ watch(selectedProfileId, () => {
                   <option value="off">off</option>
                 </select>
               </label>
+              <label class="field"><span class="field-label" title="重复系统提示词的翻译会跳过 prefill。0 表示禁用；推荐 256。"><Zap class="field-label-icon" />Cache Reuse</span><input id="llamaCppCacheReuseTokens" v-model.number="profileForm.LlamaCppCacheReuseTokens" type="number" min="0" max="8192" step="64" @input="markProfileDirty"></label>
               <div class="actions inline-actions llama-run-actions">
                 <button id="runLlamaCppBenchmark" class="secondary" type="button" :disabled="llamaCppBenchmarkBusy || llamaCppBusy || profileBusy" @click="runLlamaCppBenchmark"><Gauge class="button-icon" />{{ llamaCppBenchmarkButtonText }}</button>
               </div>

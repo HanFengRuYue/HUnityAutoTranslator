@@ -96,6 +96,7 @@ public sealed class CfgControlPanelSettingsStoreTests
         cfg.Should().Contain("UBatchSize = 512");
         cfg.Should().Contain("FlashAttentionMode = auto");
         cfg.Should().Contain("AutoStartOnStartup = false");
+        cfg.Should().Contain("CacheReuseTokens = 256");
         cfg.Should().Contain("[质量检查]");
         cfg.Should().Contain("Mode = custom");
         cfg.Should().Contain("MaxRetryCount = 1");
@@ -210,6 +211,7 @@ public sealed class CfgControlPanelSettingsStoreTests
             UBatchSize = 99999
             FlashAttentionMode = maybe
             AutoStartOnStartup = true
+            CacheReuseTokens = 99999
             """);
 
         var service = ControlPanelService.CreateDefault(new CfgControlPanelSettingsStore(path));
@@ -273,6 +275,7 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.LlamaCpp.UBatchSize.Should().Be(128);
         config.LlamaCpp.FlashAttentionMode.Should().Be("auto");
         config.LlamaCpp.AutoStartOnStartup.Should().BeTrue();
+        config.LlamaCpp.CacheReuseTokens.Should().Be(8192);
     }
 
     [Fact]
@@ -296,6 +299,7 @@ public sealed class CfgControlPanelSettingsStoreTests
         config.LlamaCpp.UBatchSize.Should().Be(512);
         config.LlamaCpp.FlashAttentionMode.Should().Be("auto");
         config.LlamaCpp.AutoStartOnStartup.Should().BeFalse();
+        config.LlamaCpp.CacheReuseTokens.Should().Be(256);
     }
 
     [Fact]

@@ -1588,7 +1588,8 @@ public sealed class ControlPanelService
             batchSize,
             RuntimeConfigLimits.ClampLlamaCppUBatchSize(request.UBatchSize, batchSize),
             RuntimeConfigLimits.NormalizeLlamaCppFlashAttentionMode(request.FlashAttentionMode),
-            request.AutoStartOnStartup);
+            request.AutoStartOnStartup,
+            RuntimeConfigLimits.ClampLlamaCppCacheReuseTokens(request.CacheReuseTokens));
     }
 
     private TextureImageTranslationConfig BuildTextureImageTranslationConfig(TextureImageTranslationConfig? request)

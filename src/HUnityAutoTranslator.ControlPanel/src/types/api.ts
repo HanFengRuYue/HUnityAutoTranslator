@@ -184,6 +184,7 @@ export interface LlamaCppConfig {
   UBatchSize: number;
   FlashAttentionMode: string;
   AutoStartOnStartup: boolean;
+  CacheReuseTokens: number;
 }
 
 export interface TextureImageTranslationConfig {

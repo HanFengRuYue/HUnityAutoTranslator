@@ -156,7 +156,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
 
     private static LlamaCppConfig? BuildLlamaCppConfig(Dictionary<string, Dictionary<string, string>> values)
     {
-        var keys = new[] { "ModelPath", "ContextSize", "GpuLayers", "ParallelSlots", "BatchSize", "UBatchSize", "FlashAttentionMode", "AutoStartOnStartup" };
+        var keys = new[] { "ModelPath", "ContextSize", "GpuLayers", "ParallelSlots", "BatchSize", "UBatchSize", "FlashAttentionMode", "AutoStartOnStartup", "CacheReuseTokens" };
         if (!keys.Any(key => HasValue(values, LlamaCppSection, key)))
         {
             return null;
@@ -171,7 +171,8 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
             ReadInt(values, LlamaCppSection, "BatchSize") ?? defaults.BatchSize,
             ReadInt(values, LlamaCppSection, "UBatchSize") ?? defaults.UBatchSize,
             ReadString(values, LlamaCppSection, "FlashAttentionMode") ?? defaults.FlashAttentionMode,
-            ReadBool(values, LlamaCppSection, "AutoStartOnStartup") ?? defaults.AutoStartOnStartup);
+            ReadBool(values, LlamaCppSection, "AutoStartOnStartup") ?? defaults.AutoStartOnStartup,
+            ReadInt(values, LlamaCppSection, "CacheReuseTokens") ?? defaults.CacheReuseTokens);
     }
 
     private static PromptTemplateConfig? BuildPromptTemplates(Dictionary<string, Dictionary<string, string>> values)
@@ -361,6 +362,7 @@ public sealed class CfgControlPanelSettingsStore : IControlPanelSettingsStore
         Option(builder, "llama.cpp physical ubatch size。", "512", "范围：64 到 4096，且不超过 BatchSize。", "UBatchSize", Int(llamaCpp.UBatchSize));
         Option(builder, "llama.cpp Flash Attention 模式。", "auto", "可选：auto、on、off。", "FlashAttentionMode", Text(llamaCpp.FlashAttentionMode));
         Option(builder, "上次手动启动成功后，下次启动游戏时是否自动启动 llama.cpp。本项会由启动/停止按钮自动维护。", "false", "true 或 false。", "AutoStartOnStartup", Bool(llamaCpp.AutoStartOnStartup));
+        Option(builder, "llama.cpp 提示词缓存复用最小块大小（token）。0 表示禁用；≥1 启用 KV shifting 复用，重复系统提示词的翻译会跳过 prefill。", "256", "范围：0 到 8192。提高该值会减少误命中，但跳过 prefill 的概率也下降。", "CacheReuseTokens", Int(llamaCpp.CacheReuseTokens));
 
         if (!string.IsNullOrWhiteSpace(legacyProviderSectionText))
         {

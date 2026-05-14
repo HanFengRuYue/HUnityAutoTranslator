@@ -13,7 +13,8 @@ public static class LlamaCppServerCommandBuilder
         }
 
         var totalContextSize = Math.Max(1, config.ContextSize) * Math.Max(1, config.ParallelSlots);
-        return string.Join(" ", new[]
+        var cacheReuseTokens = RuntimeConfigLimits.ClampLlamaCppCacheReuseTokens(config.CacheReuseTokens);
+        var arguments = new List<string>
         {
             "--host",
             "127.0.0.1",
@@ -37,7 +38,15 @@ public static class LlamaCppServerCommandBuilder
             config.FlashAttentionMode,
             "--metrics",
             "--no-webui"
-        });
+        };
+
+        if (cacheReuseTokens > 0)
+        {
+            arguments.Add("--cache-reuse");
+            arguments.Add(cacheReuseTokens.ToString(CultureInfo.InvariantCulture));
+        }
+
+        return string.Join(" ", arguments);
     }
 
     private static string QuoteIfNeeded(string value)

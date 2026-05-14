@@ -194,7 +194,8 @@ public sealed record ProviderProfileDefinition(
             batchSize,
             RuntimeConfigLimits.ClampLlamaCppUBatchSize(current.UBatchSize, batchSize),
             RuntimeConfigLimits.NormalizeLlamaCppFlashAttentionMode(current.FlashAttentionMode),
-            current.AutoStartOnStartup);
+            current.AutoStartOnStartup,
+            RuntimeConfigLimits.ClampLlamaCppCacheReuseTokens(current.CacheReuseTokens));
     }
 
     private static int Clamp(int value, int min, int max)

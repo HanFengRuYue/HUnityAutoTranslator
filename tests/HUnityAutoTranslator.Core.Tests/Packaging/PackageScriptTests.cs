@@ -105,13 +105,13 @@ public sealed class PackageScriptTests
 
         script.Should().Contain("[ValidateSet(\"None\", \"Cuda13\", \"Vulkan\", \"All\")]");
         script.Should().Contain("[string]$LlamaCppVariant = \"All\"");
-        script.Should().Contain("$LlamaCppReleaseTag = \"b8943\"");
-        script.Should().Contain("llama-b8943-bin-win-cuda-13.1-x64.zip");
+        script.Should().Contain("$LlamaCppReleaseTag = \"b9139\"");
+        script.Should().Contain("llama-b9139-bin-win-cuda-13.1-x64.zip");
         script.Should().Contain("cudart-llama-bin-win-cuda-13.1-x64.zip");
-        script.Should().Contain("llama-b8943-bin-win-vulkan-x64.zip");
-        script.Should().Contain("b4a53f4fe822320357bc45b14d46bde1beadf6cc912a148d33b09b78482f20d7");
+        script.Should().Contain("llama-b9139-bin-win-vulkan-x64.zip");
+        script.Should().Contain("7b0a01faa98b4384d34555983c9c6f9ea0bdc05c1b83882e9057c819c86ba2cc");
         script.Should().Contain("f96935e7e385e3b2d0189239077c10fe8fd7e95690fea4afec455b1b6c7e3f18");
-        script.Should().Contain("cb7bf6f828afd15885f5a0d9e279f6d6a988662e6ca2296308b31818a91d1534");
+        script.Should().Contain("36100aa2a925b3f9452096f4b820aa43d57a35b37713fc300e15d96e589f3970");
         script.Should().Contain("HUnityAutoTranslator-$PackageVersion-llamacpp-cuda13.zip");
         script.Should().Contain("HUnityAutoTranslator-$PackageVersion-llamacpp-vulkan.zip");
         script.Should().Contain("function Build-LlamaCppPackage");

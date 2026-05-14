@@ -11,6 +11,9 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+Add-Type -AssemblyName System.Net.Http -ErrorAction SilentlyContinue
+
 $root = Resolve-Path -LiteralPath (Join-Path $PSScriptRoot "..")
 $project = Join-Path $root "src\HUnityAutoTranslator.Plugin\HUnityAutoTranslator.Plugin.csproj"
 $bepInEx5Project = Join-Path $root "src\HUnityAutoTranslator.Plugin.BepInEx5\HUnityAutoTranslator.Plugin.BepInEx5.csproj"
@@ -27,7 +30,7 @@ $zipPath = Join-Path $outputRoot "HUnityAutoTranslator-$PackageVersion.zip"
 $il2CppZipPath = Join-Path $outputRoot "HUnityAutoTranslator-$PackageVersion-il2cpp.zip"
 $controlPanelRoot = Join-Path $root "src\HUnityAutoTranslator.ControlPanel"
 $controlPanelBuildRoot = Join-Path $outputRoot ".control-panel-build"
-$LlamaCppReleaseTag = "b8943"
+$LlamaCppReleaseTag = "b9139"
 
 function Invoke-CheckedNative([string]$Command, [string[]]$Arguments) {
     & $Command @Arguments
@@ -195,6 +198,70 @@ function Build-ControlPanel([string]$ControlPanelRoot) {
     Write-ControlPanelHtml -InputHtml $inputHtml -OutputFile $outputFile
 }
 
+function Invoke-StreamingDownload([string]$Uri, [string]$OutFile) {
+    $maxAttempts = 3
+    $lastError = $null
+    $partialPath = "$OutFile.partial"
+
+    for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+        if (Test-Path -LiteralPath $partialPath) {
+            Remove-Item -LiteralPath $partialPath -Force
+        }
+
+        $handler = $null
+        $client = $null
+        $response = $null
+        $contentStream = $null
+        $fileStream = $null
+        try {
+            $handler = New-Object System.Net.Http.HttpClientHandler
+            $handler.AutomaticDecompression = [System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate
+            $client = New-Object System.Net.Http.HttpClient $handler
+            $client.Timeout = [System.TimeSpan]::FromMinutes(30)
+            $client.DefaultRequestHeaders.UserAgent.ParseAdd("HUnityAutoTranslator-Build/1.0") | Out-Null
+
+            $response = $client.GetAsync($Uri, [System.Net.Http.HttpCompletionOption]::ResponseHeadersRead).GetAwaiter().GetResult()
+            $response.EnsureSuccessStatusCode() | Out-Null
+
+            $contentStream = $response.Content.ReadAsStreamAsync().GetAwaiter().GetResult()
+            $fileStream = [System.IO.File]::Create($partialPath)
+            $contentStream.CopyTo($fileStream, 81920)
+            $fileStream.Flush()
+            $fileStream.Dispose()
+            $fileStream = $null
+
+            if (Test-Path -LiteralPath $OutFile) {
+                Remove-Item -LiteralPath $OutFile -Force
+            }
+            Move-Item -LiteralPath $partialPath -Destination $OutFile
+            return
+        }
+        catch {
+            $lastError = $_
+            if ($null -ne $fileStream) {
+                try { $fileStream.Dispose() } catch { }
+            }
+            if (Test-Path -LiteralPath $partialPath) {
+                try { Remove-Item -LiteralPath $partialPath -Force } catch { }
+            }
+            if ($attempt -lt $maxAttempts) {
+                $waitSeconds = [int][Math]::Min(30, [Math]::Pow(2, $attempt) * 2)
+                Write-Warning ("Download attempt {0}/{1} failed: {2}. Retrying in {3}s..." -f $attempt, $maxAttempts, $_.Exception.Message, $waitSeconds)
+                Start-Sleep -Seconds $waitSeconds
+            }
+        }
+        finally {
+            if ($null -ne $contentStream) { try { $contentStream.Dispose() } catch { } }
+            if ($null -ne $response) { try { $response.Dispose() } catch { } }
+            if ($null -ne $client) { try { $client.Dispose() } catch { } }
+            if ($null -ne $handler) { try { $handler.Dispose() } catch { } }
+        }
+    }
+
+    $errorMessage = if ($null -ne $lastError) { $lastError.Exception.Message } else { "unknown error" }
+    throw ("Failed to download {0} after {1} attempts. Last error: {2}" -f $Uri, $maxAttempts, $errorMessage)
+}
+
 function Get-CheckedAsset([string]$AssetName, [string]$Sha256) {
     $cacheRoot = Join-Path $outputRoot ".cache\llama.cpp\$LlamaCppReleaseTag"
     New-Item -ItemType Directory -Force -Path $cacheRoot | Out-Null
@@ -212,7 +279,7 @@ function Get-CheckedAsset([string]$AssetName, [string]$Sha256) {
 
     $assetUrl = "https://github.com/ggml-org/llama.cpp/releases/download/$LlamaCppReleaseTag/$AssetName"
     Write-Host "Downloading llama.cpp asset: $AssetName"
-    Invoke-WebRequest -Uri $assetUrl -OutFile $assetPath
+    Invoke-StreamingDownload -Uri $assetUrl -OutFile $assetPath
 
     $actualHash = (Get-FileHash -LiteralPath $assetPath -Algorithm SHA256).Hash.ToLowerInvariant()
     if ($actualHash -ne $expectedHash) {
@@ -237,14 +304,14 @@ function Add-LlamaCppBackend([string]$Variant, [string]$TargetRoot) {
     if ($Variant -eq "Cuda13") {
         $backend = "CUDA 13.1"
         $assets = @(
-            @{ Name = "llama-b8943-bin-win-cuda-13.1-x64.zip"; Sha256 = "b4a53f4fe822320357bc45b14d46bde1beadf6cc912a148d33b09b78482f20d7" },
+            @{ Name = "llama-b9139-bin-win-cuda-13.1-x64.zip"; Sha256 = "7b0a01faa98b4384d34555983c9c6f9ea0bdc05c1b83882e9057c819c86ba2cc" },
             @{ Name = "cudart-llama-bin-win-cuda-13.1-x64.zip"; Sha256 = "f96935e7e385e3b2d0189239077c10fe8fd7e95690fea4afec455b1b6c7e3f18" }
         )
     }
     elseif ($Variant -eq "Vulkan") {
         $backend = "Vulkan"
         $assets = @(
-            @{ Name = "llama-b8943-bin-win-vulkan-x64.zip"; Sha256 = "cb7bf6f828afd15885f5a0d9e279f6d6a988662e6ca2296308b31818a91d1534" }
+            @{ Name = "llama-b9139-bin-win-vulkan-x64.zip"; Sha256 = "36100aa2a925b3f9452096f4b820aa43d57a35b37713fc300e15d96e589f3970" }
         )
     }
     else {

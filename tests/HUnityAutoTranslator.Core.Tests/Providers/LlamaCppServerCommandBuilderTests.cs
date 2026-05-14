@@ -33,5 +33,38 @@ public sealed class LlamaCppServerCommandBuilderTests
         arguments.Should().Contain("-fa on");
         arguments.Should().Contain("--metrics");
         arguments.Should().Contain("--no-webui");
+        arguments.Should().Contain("--cache-reuse 256");
+    }
+
+    [Fact]
+    public void BuildArguments_omits_cache_reuse_when_disabled()
+    {
+        var config = new LlamaCppConfig(
+            ModelPath: @"D:\Models\game.gguf",
+            ContextSize: 4096,
+            GpuLayers: 80,
+            ParallelSlots: 1,
+            CacheReuseTokens: 0);
+        var profile = ProviderProfile.DefaultLlamaCpp();
+
+        var arguments = LlamaCppServerCommandBuilder.BuildArguments(config, profile, port: 51234);
+
+        arguments.Should().NotContain("--cache-reuse");
+    }
+
+    [Fact]
+    public void BuildArguments_clamps_cache_reuse_above_max()
+    {
+        var config = new LlamaCppConfig(
+            ModelPath: @"D:\Models\game.gguf",
+            ContextSize: 4096,
+            GpuLayers: 80,
+            ParallelSlots: 1,
+            CacheReuseTokens: 999999);
+        var profile = ProviderProfile.DefaultLlamaCpp();
+
+        var arguments = LlamaCppServerCommandBuilder.BuildArguments(config, profile, port: 51234);
+
+        arguments.Should().Contain("--cache-reuse 8192");
     }
 }

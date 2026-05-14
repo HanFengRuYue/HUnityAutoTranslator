@@ -12,6 +12,8 @@ public static class RuntimeConfigLimits
     public const int MaxLlamaCppBatchSize = 8192;
     public const int MinLlamaCppUBatchSize = 64;
     public const int MaxLlamaCppUBatchSize = 4096;
+    public const int MinLlamaCppCacheReuseTokens = 0;
+    public const int MaxLlamaCppCacheReuseTokens = 8192;
 
     public static int ClampOnlineConcurrentRequests(int value)
     {
@@ -36,6 +38,11 @@ public static class RuntimeConfigLimits
     public static int ClampLlamaCppUBatchSize(int value, int batchSize)
     {
         return Math.Min(batchSize, Clamp(value, MinLlamaCppUBatchSize, MaxLlamaCppUBatchSize));
+    }
+
+    public static int ClampLlamaCppCacheReuseTokens(int value)
+    {
+        return Clamp(value, MinLlamaCppCacheReuseTokens, MaxLlamaCppCacheReuseTokens);
     }
 
     public static string NormalizeLlamaCppFlashAttentionMode(string? value)

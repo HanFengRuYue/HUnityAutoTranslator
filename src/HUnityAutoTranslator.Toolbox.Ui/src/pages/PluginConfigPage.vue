@@ -143,7 +143,8 @@ const pluginForm = reactive({
     BatchSize: 2048,
     UBatchSize: 512,
     FlashAttentionMode: "auto",
-    AutoStartOnStartup: false
+    AutoStartOnStartup: false,
+    CacheReuseTokens: 256
   },
   TextureImageTranslation: {
     Enabled: false,
@@ -259,6 +260,7 @@ function applyPluginConfig(config: UpdateConfigRequest | null | undefined): void
   pluginForm.LlamaCpp.UBatchSize = llama?.UBatchSize ?? 512;
   pluginForm.LlamaCpp.FlashAttentionMode = llama?.FlashAttentionMode ?? "auto";
   pluginForm.LlamaCpp.AutoStartOnStartup = llama?.AutoStartOnStartup ?? false;
+  pluginForm.LlamaCpp.CacheReuseTokens = llama?.CacheReuseTokens ?? 256;
   pluginForm.TextureImageTranslation.Enabled = texture?.Enabled ?? false;
   pluginForm.TextureImageTranslation.BaseUrl = texture?.BaseUrl ?? "https://api.openai.com";
   pluginForm.TextureImageTranslation.EditEndpoint = texture?.EditEndpoint ?? "/v1/images/edits";
@@ -360,7 +362,8 @@ function readPluginForm(): UpdateConfigRequest {
       BatchSize: numberValue(pluginForm.LlamaCpp.BatchSize, 2048),
       UBatchSize: numberValue(pluginForm.LlamaCpp.UBatchSize, 512),
       FlashAttentionMode: pluginForm.LlamaCpp.FlashAttentionMode,
-      AutoStartOnStartup: pluginForm.LlamaCpp.AutoStartOnStartup
+      AutoStartOnStartup: pluginForm.LlamaCpp.AutoStartOnStartup,
+      CacheReuseTokens: numberValue(pluginForm.LlamaCpp.CacheReuseTokens, 256)
     },
     TextureImageTranslation: texture
   };
@@ -744,6 +747,7 @@ onMounted(() => {
             <label class="field"><span>Batch Size</span><input v-model.number="pluginForm.LlamaCpp.BatchSize" type="number" min="1"></label>
             <label class="field"><span>UBatch Size</span><input v-model.number="pluginForm.LlamaCpp.UBatchSize" type="number" min="1"></label>
             <label class="field"><span>Flash Attention</span><select v-model="pluginForm.LlamaCpp.FlashAttentionMode"><option value="auto">auto</option><option value="on">on</option><option value="off">off</option></select></label>
+            <label class="field" title="重复系统提示词的翻译会跳过 prefill。0 表示禁用；推荐 256。"><span>Cache Reuse</span><input v-model.number="pluginForm.LlamaCpp.CacheReuseTokens" type="number" min="0" max="8192" step="64"></label>
           </div>
         </SectionPanel>
 

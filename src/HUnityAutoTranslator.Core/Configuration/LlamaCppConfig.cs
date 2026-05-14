@@ -8,7 +8,8 @@ public sealed record LlamaCppConfig(
     int BatchSize = 2048,
     int UBatchSize = 512,
     string FlashAttentionMode = "auto",
-    bool AutoStartOnStartup = false)
+    bool AutoStartOnStartup = false,
+    int CacheReuseTokens = 256)
 {
     public static LlamaCppConfig Default()
     {
@@ -20,6 +21,7 @@ public sealed record LlamaCppConfig(
             BatchSize: 2048,
             UBatchSize: 512,
             FlashAttentionMode: "auto",
-            AutoStartOnStartup: false);
+            AutoStartOnStartup: false,
+            CacheReuseTokens: 256);
     }
 }
