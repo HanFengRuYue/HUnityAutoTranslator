@@ -15,15 +15,16 @@ export const visibleColumnStorageKey = "hunity.glossary.visibleColumns";
 export const columnOrderStorageKey = "hunity.glossary.columnOrder";
 export const columnFilterStorageKey = "hunity.glossary.columnFilters";
 export const columnWidthStorageKey = "hunity.glossary.columnWidths";
+export const minColumnWidth = 96;
 
 export const defaultGlossaryColumns: GlossaryTableColumn[] = [
-  { key: "Enabled", label: "启用", sort: "enabled", editable: true, width: 120, align: "center", editor: "checkbox" },
+  { key: "Enabled", label: "启用", sort: "enabled", editable: true, width: 130, align: "center", editor: "checkbox" },
   { key: "SourceTerm", label: "原术语", sort: "source_term", editable: true, width: 220, editor: "text" },
   { key: "TargetTerm", label: "指定译名", sort: "target_term", editable: true, width: 220, editor: "text" },
   { key: "TargetLanguage", label: "目标语言", sort: "target_language", editable: true, width: 150, editor: "language" },
   { key: "Note", label: "备注", sort: "note", editable: true, width: 190, editor: "text" },
-  { key: "Source", label: "来源", sort: "source", editable: false, width: 120, align: "center" },
-  { key: "UsageCount", label: "使用", sort: "usage_count", editable: false, width: 120, align: "center" },
+  { key: "Source", label: "来源", sort: "source", editable: false, width: 130, align: "center" },
+  { key: "UsageCount", label: "使用", sort: "usage_count", editable: false, width: 130, align: "center" },
   { key: "CreatedUtc", label: "创建", sort: "created_utc", editable: false, width: 180 },
   { key: "UpdatedUtc", label: "更新", sort: "updated_utc", editable: false, width: 180, align: "center" }
 ];
@@ -70,7 +71,7 @@ export function loadGlossaryColumnWidths(): Record<string, number> {
     const widths = { ...fallback };
     for (const [key, value] of Object.entries(parsed)) {
       if (knownKeys.has(key) && typeof value === "number" && Number.isFinite(value) && value > 0) {
-        widths[key] = value;
+        widths[key] = Math.max(minColumnWidth, value);
       }
     }
     return widths;

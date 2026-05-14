@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref, watch } from "vue";
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from "vue";
 import {
   CheckCircle2,
   ChevronLeft,
@@ -62,6 +62,7 @@ const currentPage = ref(1);
 const selectedHashes = ref(new Set<string>());
 const textureCompareDialogOpen = ref(false);
 const textureCompareItem = ref<TextureCatalogItem | null>(null);
+const contextMenu = reactive({ open: false, x: 0, y: 0, hash: "" });
 let scanPollTimer: number | null = null;
 
 const items = computed(() => catalog.value?.Items ?? []);
@@ -395,8 +396,10 @@ async function analyzeTextTextures(): Promise<void> {
   }
 }
 
-async function markSelectedTextStatus(status: "ConfirmedText" | "NoText" | "NeedsManualReview" | "Candidate"): Promise<void> {
-  const hashes = selectedSourceHashes();
+async function markTextStatus(
+  status: "ConfirmedText" | "NoText" | "NeedsManualReview" | "Candidate",
+  hashes: string[] = selectedSourceHashes()
+): Promise<void> {
   if (!hashes.length) {
     showToast("请先选择贴图。", "warn");
     return;
@@ -419,8 +422,7 @@ async function markSelectedTextStatus(status: "ConfirmedText" | "NoText" | "Need
   }
 }
 
-async function translateSelectedTextures(): Promise<void> {
-  const hashes = selectedSourceHashes();
+async function translateTextures(hashes: string[] = selectedSourceHashes()): Promise<void> {
   if (!hashes.length) {
     showToast("请先选择要翻译的贴图。", "warn");
     return;
@@ -431,7 +433,7 @@ async function translateSelectedTextures(): Promise<void> {
   try {
     const result = await api<TextureImageTranslateResult>("/api/textures/translate-text", {
       method: "POST",
-      body: { SourceHashes: hashes, Force: false }
+      body: { SourceHashes: hashes, Force: true }
     });
     operationErrors.value = [...result.Errors];
     await loadCatalog();
@@ -440,6 +442,45 @@ async function translateSelectedTextures(): Promise<void> {
     showToast(error instanceof Error ? error.message : "贴图翻译生成失败。", "error");
   } finally {
     textBusy.value = false;
+  }
+}
+
+function contextTargetHashes(): string[] {
+  if (contextMenu.hash && selectedHashes.value.size > 0 && selectedHashes.value.has(contextMenu.hash)) {
+    return Array.from(selectedHashes.value);
+  }
+
+  return contextMenu.hash ? [contextMenu.hash] : [];
+}
+
+function showTextureContextMenu(event: MouseEvent, item: TextureCatalogItem): void {
+  event.preventDefault();
+  contextMenu.hash = item.SourceHash;
+  contextMenu.x = Math.min(event.clientX, window.innerWidth - 220);
+  contextMenu.y = Math.min(event.clientY, window.innerHeight - 200);
+  contextMenu.open = true;
+}
+
+function hideContextMenu(): void {
+  contextMenu.open = false;
+}
+
+async function markContextTextStatus(status: "ConfirmedText" | "NoText"): Promise<void> {
+  const hashes = contextTargetHashes();
+  hideContextMenu();
+  await markTextStatus(status, hashes);
+}
+
+async function translateContextTextures(): Promise<void> {
+  const hashes = contextTargetHashes();
+  hideContextMenu();
+  await translateTextures(hashes);
+}
+
+function handleDocumentClick(event: MouseEvent): void {
+  const target = event.target as HTMLElement | null;
+  if (!target?.closest("#textureContextMenu")) {
+    hideContextMenu();
   }
 }
 
@@ -462,9 +503,13 @@ watch(currentPage, () => {
 
 onMounted(() => {
   void loadCatalog();
+  document.addEventListener("click", handleDocumentClick);
 });
 
-onUnmounted(clearScanPoll);
+onUnmounted(() => {
+  clearScanPoll();
+  document.removeEventListener("click", handleDocumentClick);
+});
 </script>
 
 <template>
@@ -513,15 +558,7 @@ onUnmounted(clearScanPoll);
           <SearchCheck class="button-icon" />
           {{ textBusy ? "处理中..." : "检测文字贴图" }}
         </button>
-        <button id="confirmTextureText" class="secondary" type="button" :disabled="textBusy || selectedCount === 0" @click="markSelectedTextStatus('ConfirmedText')">
-          <CheckCircle2 class="button-icon" />
-          确认为有文字
-        </button>
-        <button id="markTextureNoText" class="secondary" type="button" :disabled="textBusy || selectedCount === 0" @click="markSelectedTextStatus('NoText')">
-          <XCircle class="button-icon" />
-          标记无文字
-        </button>
-        <button id="translateTextureText" class="secondary" type="button" :disabled="textBusy || selectedCount === 0" @click="translateSelectedTextures">
+        <button id="translateTextureText" class="secondary" type="button" :disabled="textBusy || selectedCount === 0" @click="translateTextures()">
           <Languages class="button-icon" />
           翻译所选
         </button>
@@ -579,7 +616,7 @@ onUnmounted(clearScanPoll);
         <p>{{ catalogLoading ? "正在加载贴图目录。" : "当前没有贴图记录。" }}</p>
       </div>
       <div v-else-if="viewMode === 'gallery'" class="texture-gallery">
-        <article v-for="item in items" :key="item.SourceHash" class="texture-card" :class="{ overridden: item.HasOverride, selected: isTextureSelected(item) }">
+        <article v-for="item in items" :key="item.SourceHash" class="texture-card" :class="{ overridden: item.HasOverride, selected: isTextureSelected(item) }" @contextmenu="showTextureContextMenu($event, item)">
           <label class="texture-select-check">
             <input type="checkbox" :checked="isTextureSelected(item)" @change="toggleTextureSelectionFromEvent(item, $event)">
             选择
@@ -598,7 +635,7 @@ onUnmounted(clearScanPoll);
         </article>
       </div>
       <div v-else class="texture-list">
-        <article v-for="item in items" :key="item.SourceHash" class="texture-item" :class="{ overridden: item.HasOverride, selected: isTextureSelected(item) }">
+        <article v-for="item in items" :key="item.SourceHash" class="texture-item" :class="{ overridden: item.HasOverride, selected: isTextureSelected(item) }" @contextmenu="showTextureContextMenu($event, item)">
           <label class="texture-row-check">
             <input type="checkbox" :checked="isTextureSelected(item)" @change="toggleTextureSelectionFromEvent(item, $event)">
           </label>
@@ -661,6 +698,18 @@ onUnmounted(clearScanPoll);
           <span>{{ textureCompareItem.OverrideUpdatedUtc ? formatDateTime(textureCompareItem.OverrideUpdatedUtc) : "未覆盖" }}</span>
         </div>
       </div>
+    </div>
+
+    <div
+      class="context-menu"
+      id="textureContextMenu"
+      :class="{ open: contextMenu.open }"
+      :style="{ left: `${contextMenu.x}px`, top: `${contextMenu.y}px` }"
+      @click.stop
+    >
+      <button type="button" @click="markContextTextStatus('ConfirmedText')"><CheckCircle2 class="button-icon" />确认为有文字</button>
+      <button type="button" @click="markContextTextStatus('NoText')"><XCircle class="button-icon" />标记无文字</button>
+      <button type="button" @click="translateContextTextures"><Languages class="button-icon" />直接翻译</button>
     </div>
   </section>
 </template>

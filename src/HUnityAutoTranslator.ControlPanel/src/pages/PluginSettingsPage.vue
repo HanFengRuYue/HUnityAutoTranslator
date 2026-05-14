@@ -342,10 +342,34 @@ watch(() => controlPanelStore.state, (state) => applyState(state), { immediate: 
           <label class="check help-target" data-help="采集 IMGUI 绘制的文本，通常用于调试窗口或旧式插件界面。"><input id="enableImgui" v-model="form.EnableImgui" type="checkbox">采集 IMGUI</label>
         </div>
         <div class="form-grid four">
-          <label class="field help-target" data-help="控制插件多久扫描一次 Unity 文本，数值越小越及时但更耗性能。"><span class="field-label"><Timer class="field-label-icon" />扫描间隔 (毫秒)</span><input id="scanIntervalMilliseconds" v-model.number="form.ScanIntervalMilliseconds" type="number" min="100"></label>
-          <label class="field help-target" data-help="限制单次扫描最多处理多少个文本目标，降低它可减少单次卡顿。"><span class="field-label"><ScanLine class="field-label-icon" />每次扫描上限</span><input id="maxScanTargetsPerTick" v-model.number="form.MaxScanTargetsPerTick" type="number" min="1"></label>
-          <label class="field help-target" data-help="限制每帧最多把多少条译文写回游戏界面，降低它可减少瞬时压力。"><span class="field-label"><Pencil class="field-label-icon" />每帧写回上限</span><input id="maxWritebacksPerFrame" v-model.number="form.MaxWritebacksPerFrame" type="number" min="1"></label>
-          <label class="field help-target" data-help="超过这个长度的原文不会进入翻译队列，用来跳过异常长文本或日志。"><span class="field-label"><Maximize2 class="field-label-icon" />原文长度上限</span><input id="maxSourceTextLength" v-model.number="form.MaxSourceTextLength" type="number" min="1"></label>
+          <label class="field range-field help-target" data-help="控制插件多久扫描一次 Unity 文本，数值越小越及时但更耗性能。">
+            <span class="field-label"><Timer class="field-label-icon" />扫描间隔 (毫秒)</span>
+            <span class="range-row">
+              <input v-model.number="form.ScanIntervalMilliseconds" type="range" min="20" max="1000" step="10">
+              <input id="scanIntervalMilliseconds" v-model.number="form.ScanIntervalMilliseconds" class="range-value" type="number" min="20" max="1000">
+            </span>
+          </label>
+          <label class="field range-field help-target" data-help="限制单次扫描最多处理多少个文本目标，降低它可减少单次卡顿。">
+            <span class="field-label"><ScanLine class="field-label-icon" />每次扫描上限</span>
+            <span class="range-row">
+              <input v-model.number="form.MaxScanTargetsPerTick" type="range" min="16" max="2048" step="16">
+              <input id="maxScanTargetsPerTick" v-model.number="form.MaxScanTargetsPerTick" class="range-value" type="number" min="16" max="2048">
+            </span>
+          </label>
+          <label class="field range-field help-target" data-help="限制每帧最多把多少条译文写回游戏界面，降低它可减少瞬时压力。">
+            <span class="field-label"><Pencil class="field-label-icon" />每帧写回上限</span>
+            <span class="range-row">
+              <input v-model.number="form.MaxWritebacksPerFrame" type="range" min="4" max="256" step="4">
+              <input id="maxWritebacksPerFrame" v-model.number="form.MaxWritebacksPerFrame" class="range-value" type="number" min="4" max="256">
+            </span>
+          </label>
+          <label class="field range-field help-target" data-help="超过这个长度的原文不会进入翻译队列，用来跳过异常长文本或日志。">
+            <span class="field-label"><Maximize2 class="field-label-icon" />原文长度上限</span>
+            <span class="range-row">
+              <input v-model.number="form.MaxSourceTextLength" type="range" min="100" max="8000" step="100">
+              <input id="maxSourceTextLength" v-model.number="form.MaxSourceTextLength" class="range-value" type="number" min="100" max="8000">
+            </span>
+          </label>
         </div>
       </SectionPanel>
 

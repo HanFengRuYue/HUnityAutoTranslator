@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, reactive, ref } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from "vue";
 import type { Component } from "vue";
 import {
   ChevronsUpDown,
@@ -35,6 +35,7 @@ import type {
   TranslationHighlightResult
 } from "../types/api";
 import { formatFullDateTime } from "../utils/format";
+import { placePopover } from "../utils/popover";
 import {
   cellValue,
   defaultColumns,
@@ -43,6 +44,7 @@ import {
   loadColumnOrder,
   loadColumnWidths,
   loadVisibleColumns,
+  minColumnWidth,
   persistColumnFilters,
   rowKey,
   saveColumnOrder,
@@ -85,10 +87,16 @@ const filterMenu = reactive({
   column: "",
   x: 0,
   y: 0,
+  placed: false,
   optionSearch: "",
   options: [] as TranslationCacheFilterOption[],
   draft: [] as string[]
 });
+const columnMenu = reactive({ x: 0, y: 0, placed: false });
+const exportMenu = reactive({ x: 0, y: 0, placed: false });
+let filterMenuAnchor: HTMLElement | null = null;
+let columnMenuAnchor: HTMLElement | null = null;
+let exportMenuAnchor: HTMLElement | null = null;
 const fontEditor = reactive({
   open: false,
   rowIndex: -1,
@@ -265,7 +273,7 @@ function columnWidth(column: TableColumn): number {
 }
 
 function clampColumnWidth(width: number): number {
-  return Math.max(72, Math.min(640, width));
+  return Math.max(minColumnWidth, Math.min(640, width));
 }
 
 function startColumnResize(event: PointerEvent, column: TableColumn): void {
@@ -703,35 +711,91 @@ async function loadColumnFilterOptions(column: string, optionSearch = ""): Promi
   filterMenu.options = page.Items;
 }
 
-function positionFilterMenu(anchor: HTMLElement): void {
-  const rect = anchor.getBoundingClientRect();
-  const margin = 12;
-  const menuWidth = Math.min(320, window.innerWidth - margin * 2);
-  const menuHeight = Math.min(360, window.innerHeight - margin * 2);
-  const preferredLeft = rect.right - menuWidth;
-  const preferredTop = rect.bottom + 8;
-  const fallbackTop = rect.top - menuHeight - 8;
+async function refreshFilterOptions(): Promise<void> {
+  await loadColumnFilterOptions(filterMenu.column, filterMenu.optionSearch);
+  await nextTick();
+  positionFilterMenu();
+}
 
-  filterMenu.x = Math.max(margin, Math.min(preferredLeft, window.innerWidth - menuWidth - margin));
-  filterMenu.y = preferredTop + menuHeight <= window.innerHeight - margin
-    ? Math.max(margin, preferredTop)
-    : Math.max(margin, fallbackTop);
+function positionFilterMenu(): void {
+  if (!filterMenuAnchor) {
+    return;
+  }
+
+  const menu = document.getElementById("columnFilterMenu");
+  const { x, y } = placePopover(filterMenuAnchor, menu);
+  filterMenu.x = x;
+  filterMenu.y = y;
+  filterMenu.placed = true;
 }
 
 async function openColumnFilterMenu(column: TableColumn, event: MouseEvent): Promise<void> {
-  const anchor = event.currentTarget as HTMLElement | null;
-  if (anchor) {
-    positionFilterMenu(anchor);
-  }
+  filterMenuAnchor = event.currentTarget as HTMLElement | null;
   filterMenu.open = true;
+  filterMenu.placed = false;
   filterMenu.column = column.sort;
   filterMenu.optionSearch = "";
   filterMenu.draft = [...(columnFilters[column.sort] ?? [])];
+  await nextTick();
+  positionFilterMenu();
   await loadColumnFilterOptions(column.sort);
+  await nextTick();
+  positionFilterMenu();
 }
 
 function hideColumnFilterMenu(): void {
   filterMenu.open = false;
+  filterMenu.placed = false;
+}
+
+function positionColumnMenu(): void {
+  if (!columnMenuAnchor) {
+    return;
+  }
+
+  const menu = document.getElementById("columnChooser");
+  const { x, y } = placePopover(columnMenuAnchor, menu);
+  columnMenu.x = x;
+  columnMenu.y = y;
+  columnMenu.placed = true;
+}
+
+async function toggleColumnMenu(event: MouseEvent): Promise<void> {
+  if (columnMenuOpen.value) {
+    columnMenuOpen.value = false;
+    return;
+  }
+
+  columnMenuAnchor = event.currentTarget as HTMLElement | null;
+  columnMenuOpen.value = true;
+  columnMenu.placed = false;
+  await nextTick();
+  positionColumnMenu();
+}
+
+function positionExportMenu(): void {
+  if (!exportMenuAnchor) {
+    return;
+  }
+
+  const menu = document.getElementById("exportMenu");
+  const { x, y } = placePopover(exportMenuAnchor, menu);
+  exportMenu.x = x;
+  exportMenu.y = y;
+  exportMenu.placed = true;
+}
+
+async function toggleExportMenu(event: MouseEvent): Promise<void> {
+  if (exportMenuOpen.value) {
+    exportMenuOpen.value = false;
+    return;
+  }
+
+  exportMenuAnchor = event.currentTarget as HTMLElement | null;
+  exportMenuOpen.value = true;
+  exportMenu.placed = false;
+  await nextTick();
+  positionExportMenu();
 }
 
 function toggleFilterValue(value: string, checked: boolean): void {
@@ -833,6 +897,14 @@ function handleDocumentClick(event: MouseEvent): void {
   if (!target?.closest("#columnFilterMenu") && !target?.closest(".header-filter")) {
     hideColumnFilterMenu();
   }
+
+  if (!target?.closest("#columnChooser") && !target?.closest("#columnMenuButton")) {
+    columnMenuOpen.value = false;
+  }
+
+  if (!target?.closest("#exportMenu") && !target?.closest("#exportRows")) {
+    exportMenuOpen.value = false;
+  }
 }
 
 onMounted(() => {
@@ -866,35 +938,51 @@ onBeforeUnmount(() => {
         </label>
         <div class="editor-actions">
           <div class="column-control">
-            <button id="columnMenuButton" class="secondary" type="button" aria-controls="columnChooser" :aria-expanded="columnMenuOpen" @click="columnMenuOpen = !columnMenuOpen"><Columns3 class="button-icon" />列显示</button>
-            <div class="column-chooser" id="columnChooser" :class="{ open: columnMenuOpen }">
-              <div class="column-chooser-head">
-                <span>列显示</span>
-                <button id="showAllColumns" type="button" @click="showAllColumns">全部显示</button>
-              </div>
-              <div class="column-chooser-list">
-                <div v-for="column in orderedColumns" :key="column.key" class="column-choice" :data-column-key="column.key">
-                  <label class="check column-choice-label">
-                    <input type="checkbox" :checked="visibleKeys.includes(column.key)" @change="toggleColumn(column.key, ($event.target as HTMLInputElement).checked)">
-                    <span>{{ column.label }}</span>
-                  </label>
-                  <span class="column-move-buttons">
-                    <button type="button" data-column-move="up" @click="moveColumn(column.key, -1)">↑</button>
-                    <button type="button" data-column-move="down" @click="moveColumn(column.key, 1)">↓</button>
-                  </span>
+            <button id="columnMenuButton" class="secondary" type="button" aria-controls="columnChooser" :aria-expanded="columnMenuOpen" @click="toggleColumnMenu"><Columns3 class="button-icon" />列显示</button>
+            <Teleport to="body">
+              <div
+                class="column-chooser"
+                id="columnChooser"
+                :class="{ open: columnMenuOpen }"
+                :style="{ left: `${columnMenu.x}px`, top: `${columnMenu.y}px`, visibility: columnMenu.placed ? 'visible' : 'hidden' }"
+              >
+                <div class="column-chooser-head">
+                  <span>列显示</span>
+                  <button id="showAllColumns" type="button" @click="showAllColumns">全部显示</button>
+                </div>
+                <div class="column-chooser-list">
+                  <div v-for="column in orderedColumns" :key="column.key" class="column-choice" :data-column-key="column.key">
+                    <label class="check column-choice-label">
+                      <input type="checkbox" :checked="visibleKeys.includes(column.key)" @change="toggleColumn(column.key, ($event.target as HTMLInputElement).checked)">
+                      <span>{{ column.label }}</span>
+                    </label>
+                    <span class="column-move-buttons">
+                      <button type="button" data-column-move="up" @click="moveColumn(column.key, -1)">↑</button>
+                      <button type="button" data-column-move="down" @click="moveColumn(column.key, 1)">↓</button>
+                    </span>
+                  </div>
                 </div>
               </div>
-            </div>
+            </Teleport>
           </div>
           <button id="clearTableFilters" class="secondary" type="button" :class="{ 'filter-active': hasColumnFilters }" @click="clearAllColumnFilters"><FilterX class="button-icon" />清空筛选</button>
           <input id="importFile" ref="importFile" class="hidden-file-input" type="file" accept=".json,.csv,text/csv,application/json" @change="importRows">
           <button id="importRows" class="secondary file-action-button" type="button" @click="openImportPicker"><Upload class="button-icon" />导入</button>
           <div class="export-control">
-            <button id="exportRows" class="secondary file-action-button" type="button" aria-controls="exportMenu" :aria-expanded="exportMenuOpen" @click="exportMenuOpen = !exportMenuOpen"><Download class="button-icon" />导出</button>
-            <div class="export-menu" id="exportMenu" :class="{ open: exportMenuOpen }" role="menu" aria-label="导出格式">
-              <button type="button" role="menuitem" data-export-format="json" @click="exportRows('json')">JSON 文件</button>
-              <button type="button" role="menuitem" data-export-format="csv" @click="exportRows('csv')">CSV 文件</button>
-            </div>
+            <button id="exportRows" class="secondary file-action-button" type="button" aria-controls="exportMenu" :aria-expanded="exportMenuOpen" @click="toggleExportMenu"><Download class="button-icon" />导出</button>
+            <Teleport to="body">
+              <div
+                class="export-menu"
+                id="exportMenu"
+                :class="{ open: exportMenuOpen }"
+                :style="{ left: `${exportMenu.x}px`, top: `${exportMenu.y}px`, visibility: exportMenu.placed ? 'visible' : 'hidden' }"
+                role="menu"
+                aria-label="导出格式"
+              >
+                <button type="button" role="menuitem" data-export-format="json" @click="exportRows('json')">JSON 文件</button>
+                <button type="button" role="menuitem" data-export-format="csv" @click="exportRows('csv')">CSV 文件</button>
+              </div>
+            </Teleport>
           </div>
         </div>
       </div>
@@ -1011,12 +1099,12 @@ onBeforeUnmount(() => {
       class="column-filter-menu"
       id="columnFilterMenu"
       :class="{ open: filterMenu.open }"
-      :style="{ left: `${filterMenu.x}px`, top: `${filterMenu.y}px` }"
+      :style="{ left: `${filterMenu.x}px`, top: `${filterMenu.y}px`, visibility: filterMenu.placed ? 'visible' : 'hidden' }"
       role="dialog"
       aria-label="列筛选"
       @click.stop
     >
-      <input id="columnFilterSearch" v-model="filterMenu.optionSearch" placeholder="搜索筛选值" @input="loadColumnFilterOptions(filterMenu.column, filterMenu.optionSearch)">
+      <input id="columnFilterSearch" v-model="filterMenu.optionSearch" placeholder="搜索筛选值" @input="refreshFilterOptions">
       <div class="filter-option-list">
         <label v-for="option in filterMenu.options" :key="filterValueKey(option.Value)" class="filter-option-row">
           <input type="checkbox" :checked="filterMenu.draft.includes(filterValueKey(option.Value))" @change="toggleFilterValue(filterValueKey(option.Value), ($event.target as HTMLInputElement).checked)">
