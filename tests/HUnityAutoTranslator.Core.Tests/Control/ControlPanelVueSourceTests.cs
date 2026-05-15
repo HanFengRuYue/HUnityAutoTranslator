@@ -336,11 +336,17 @@ public sealed class ControlPanelVueSourceTests
     public void Vue_status_metric_help_tooltips_stack_above_neighboring_cards()
     {
         var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+        var metricCardSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "components", "MetricCard.vue"));
         var hoverBlock = System.Text.RegularExpressions.Regex.Match(cssSource, @"\.metric:hover,\s*\.metric:focus-visible\s*\{[^}]*\}", System.Text.RegularExpressions.RegexOptions.Singleline);
 
         hoverBlock.Success.Should().BeTrue();
         hoverBlock.Value.Should().Contain("z-index: 35;");
-        cssSource.Should().Contain(".metric[data-help]::after");
+        // The CSS-::after metric tooltip was replaced by the teleported TooltipHost: the metric
+        // still carries the help text via [data-help], and .app-tooltip renders it above neighbours.
+        metricCardSource.Should().Contain(":data-help=\"help\"");
+        CssBlock(cssSource, @"\.app-tooltip")
+            .Should().Contain("position: fixed;")
+            .And.Contain("z-index: 95;");
     }
 
     [Fact]
@@ -350,11 +356,17 @@ public sealed class ControlPanelVueSourceTests
         var pluginPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "PluginSettingsPage.vue"));
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
         var glossaryPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "GlossaryPage.vue"));
+        var appSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "App.vue"));
+        var tooltipHostSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "components", "TooltipHost.vue"));
 
-        cssSource.Should().Contain(".help-target[data-help]::after");
-        cssSource.Should().Contain(".help-target:hover::after");
-        cssSource.Should().Contain(".help-target:focus-within::after");
-        cssSource.Should().Contain(".help-target:hover");
+        // The per-element CSS-::after tooltip was replaced by a single shared, app-wide TooltipHost:
+        // it is mounted once in App.vue and renders the .app-tooltip element for any [data-help] target
+        // on hover/focus, so every settings page reuses the same tooltip surface.
+        appSource.Should().Contain("<TooltipHost />");
+        tooltipHostSource.Should().Contain("closest<HTMLElement>(\"[data-help]\")");
+        tooltipHostSource.Should().Contain("class=\"app-tooltip\"");
+        tooltipHostSource.Should().Contain("getAttribute(\"data-help\")");
+        cssSource.Should().Contain(".app-tooltip");
 
         pluginPageSource.Should().Contain("class=\"check help-target\"");
         pluginPageSource.Should().Contain("暂停采集、翻译和写回，已保存的配置和缓存不会被删除。");
@@ -463,8 +475,10 @@ public sealed class ControlPanelVueSourceTests
         CssBlock(cssSource, @"\.llama-run-row").Should().Contain("repeat(auto-fit, minmax(min(150px, 100%), 1fr))");
         CssBlock(cssSource, @"\.editor-tools").Should().Contain("repeat(auto-fit, minmax(min(260px, 100%), 1fr))");
 
-        CssBlock(cssSource, @"\.metric\[data-help\]::after,\s*\.help-target\[data-help\]::after")
-            .Should().Contain("width: min(360px, 100%);").And.NotContain("width: max-content;");
+        // The CSS-::after tooltip became the teleported .app-tooltip element; it stays width-capped
+        // (max-width: 360px) instead of growing to max-content and overflowing the viewport.
+        CssBlock(cssSource, @"\.app-tooltip")
+            .Should().Contain("max-width: 360px;").And.NotContain("width: max-content;");
     }
 
     [Fact]
@@ -971,6 +985,7 @@ public sealed class ControlPanelVueSourceTests
     {
         var aiPageSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "pages", "AiSettingsPage.vue"));
         var cssSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "styles", "app.css"));
+        var tooltipHostSource = File.ReadAllText(FindRepositoryFile("src", "HUnityAutoTranslator.ControlPanel", "src", "components", "TooltipHost.vue"));
 
         aiPageSource.Should().Contain("服务商配置");
         aiPageSource.Should().Contain("配置编辑器");
@@ -984,14 +999,17 @@ public sealed class ControlPanelVueSourceTests
             .Should().Contain("width: min(1120px, 100%);")
             .And.Contain("overflow-x: clip;")
             .And.Contain("overflow-y: auto;");
-        CssBlock(cssSource, @"\.provider-editor-dialog\s+\.field\.help-target\[data-help\]::after,\s*\.provider-editor-dialog\s+\.llama-model-row\.help-target\[data-help\]::after")
-            .Should().Contain("position: absolute;")
-            .And.Contain("z-index: 90;");
-        CssBlock(cssSource, @"\.provider-editor-dialog\s+\.field\.help-target\[data-help\]::after,\s*\.provider-editor-dialog\s+\.llama-model-row\.help-target\[data-help\]::after")
-            .Should().NotContain("position: static;")
-            .And.NotContain("max-height: 0;");
-        cssSource.Should().Contain(".provider-editor-dialog .field.help-target[data-help]:hover::after");
-        cssSource.Should().Contain(".provider-editor-dialog .llama-model-row.help-target[data-help]:focus-within::after");
+        // The provider editor's help fields still carry data-help, but the dialog-specific
+        // ::after tooltip rules were dropped: TooltipHost teleports the tooltip to <body> so it
+        // escapes the dialog's clipped overflow, and .app-tooltip (position: fixed; z-index: 95)
+        // sits above the editor backdrop (z-index: 77) without per-dialog positioning hacks.
+        aiPageSource.Should().Contain("class=\"field help-target\"");
+        aiPageSource.Should().Contain(":data-help=\"field.help\"");
+        tooltipHostSource.Should().Contain("<Teleport to=\"body\">");
+        CssBlock(cssSource, @"\.app-tooltip")
+            .Should().Contain("position: fixed;")
+            .And.Contain("z-index: 95;");
+        CssBlock(cssSource, @"\.provider-editor-backdrop").Should().Contain("z-index: 77;");
     }
 
     [Fact]
@@ -1039,7 +1057,12 @@ public sealed class ControlPanelVueSourceTests
         glossaryPageSource.Should().Contain("id=\"glossaryNewRow\"");
         glossaryPageSource.Should().Contain("v-if=\"showInlineTermEditor\"");
         glossaryPageSource.Should().Contain("class=\"compact-check cell-check\"");
-        glossaryPageSource.Should().Contain("id=\"saveGlossaryInlineRow\"");
+        // The per-row save/clear buttons were folded into the shared top "保存修改" button:
+        // saveRows() picks up the inline new row via readInlineTerm() and POSTs it to /api/glossary.
+        glossaryPageSource.Should().Contain("id=\"saveGlossaryRows\"");
+        glossaryPageSource.Should().Contain("showInlineTermEditor.value ? readInlineTerm()");
+        glossaryPageSource.Should().Contain("await postJson<GlossaryTermPage>(\"/api/glossary\", inlinePayload)");
+        glossaryPageSource.Should().NotContain("id=\"saveGlossaryInlineRow\"");
         glossaryPageSource.Should().NotContain("clearGlossaryForm");
         glossaryPageSource.Should().NotContain("title=\"新增或更新术语\"");
         glossaryPageSource.Should().Contain("/api/glossary");
@@ -1058,8 +1081,10 @@ public sealed class ControlPanelVueSourceTests
         newRowBlock.Success.Should().BeTrue("the glossary add editor should stay inside the table body");
         newRowBlock.Value.Should().Contain("td v-for=\"column in visibleColumns\"");
         newRowBlock.Value.Should().Contain("inlineTermCellClass(column)");
-        newRowBlock.Value.Should().Contain("id=\"saveGlossaryInlineRow\"");
-        newRowBlock.Value.Should().Contain("class=\"glossary-action-cell\"");
+        // The in-row save button was removed (saving folded into the shared top "保存修改" button),
+        // so the new row keeps an empty trailing action cell that mirrors the data rows' column layout.
+        newRowBlock.Value.Should().Contain("<td class=\"glossary-action-cell\"></td>");
+        newRowBlock.Value.Should().NotContain("id=\"saveGlossaryInlineRow\"");
         newRowBlock.Value.Should().NotContain(":colspan=");
         glossaryPageSource.Should().Contain("id=\"glossaryActionHead\"");
         glossaryPageSource.Should().Contain("class=\"glossary-action-col\"");
@@ -1462,8 +1487,11 @@ public sealed class ControlPanelVueSourceTests
         texturePageSource.Should().Contain("/api/textures/translate-text");
         texturePageSource.Should().Contain("id=\"textureTextStatusFilter\"");
         texturePageSource.Should().Contain("id=\"detectTextureText\"");
-        texturePageSource.Should().Contain("id=\"confirmTextureText\"");
-        texturePageSource.Should().Contain("id=\"markTextureNoText\"");
+        // The standalone confirm / mark-no-text buttons moved into the texture right-click context
+        // menu; markContextTextStatus posts ConfirmedText / NoText through /api/textures/text-status.
+        texturePageSource.Should().Contain("id=\"textureContextMenu\"");
+        texturePageSource.Should().Contain("markContextTextStatus('ConfirmedText')");
+        texturePageSource.Should().Contain("markContextTextStatus('NoText')");
         texturePageSource.Should().Contain("id=\"translateTextureText\"");
         texturePageSource.Should().Contain("textureTextStatusLabel(item)");
         texturePageSource.Should().Contain("toggleTextureSelectionFromEvent");

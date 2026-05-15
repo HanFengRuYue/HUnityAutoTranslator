@@ -114,7 +114,10 @@ public static class OpenAICompatibleRequestOptions
         var extra = JObject.Parse(normalized);
         foreach (var property in extra.Properties())
         {
-            if (!body.ContainsKey(property.Name))
+            // JObject.ContainsKey(string) only exists since Newtonsoft.Json 11.0; some
+            // Unity Mono games (e.g. Unity 2019.4) ship an older bundled copy that wins
+            // assembly resolution. Property(name) has been available far longer.
+            if (body.Property(property.Name) == null)
             {
                 body[property.Name] = property.Value.DeepClone();
             }

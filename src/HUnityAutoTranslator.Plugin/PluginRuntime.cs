@@ -32,6 +32,7 @@ internal sealed class PluginRuntime : IDisposable
     private const int TextHookQueueMaxItemsPerTick = 64;
     private const int TextHookQueueMaxMillisecondsPerTick = 2;
     private const float FastStaticTextRetrySeconds = 0.1f;
+    private const float AutomaticSelfCheckDelaySeconds = 10f;
 
     private readonly ManualLogSource _logger;
     private readonly string? _pluginDirectory;
@@ -69,6 +70,9 @@ internal sealed class PluginRuntime : IDisposable
     private bool _openedControlPanel;
     private bool _hotkeyTickFailureLogged;
     private bool _pendingAutomaticSelfCheck;
+    private float _automaticSelfCheckEarliestTime = -1f;
+    private bool _sceneStateInitialized;
+    private string _lastActiveSceneName = string.Empty;
 
     public PluginRuntime(ManualLogSource logger, string? pluginDirectory = null)
     {
@@ -160,7 +164,6 @@ internal sealed class PluginRuntime : IDisposable
             });
             _textChangeHook?.Start();
             _captureCoordinator.Start();
-            SceneManager.sceneLoaded += OnSceneLoadedForPrefetch;
             _workerHost = new TranslationWorkerHost(_controlPanel, _queue, _dispatcher, _cache, _glossary, _metrics, _logger, _httpTransport, _llamaCppServer);
             _workerHost.Start();
             _selfCheck = new SelfCheckService(
@@ -361,7 +364,6 @@ internal sealed class PluginRuntime : IDisposable
 
     public void Dispose()
     {
-        SceneManager.sceneLoaded -= OnSceneLoadedForPrefetch;
         _textChangeHook?.Dispose();
         _captureCoordinator?.Dispose();
         _workerHost?.Dispose();
@@ -387,6 +389,7 @@ internal sealed class PluginRuntime : IDisposable
         StartPendingAutomaticSelfCheck();
         TryTickHotkeys(config);
         DrainTextChangeQueue();
+        PollSceneChanges();
         var scanned = false;
         if (_captureCoordinator != null && Time.unscaledTime >= _nextScanTime)
         {
@@ -481,6 +484,22 @@ internal sealed class PluginRuntime : IDisposable
             return;
         }
 
+        // Defer the automatic self-check until the game has had time to settle.
+        // Firing it one tick after startup means slow-loading games are often still
+        // mid scene-load, saturating the Unity main thread; the self-check's
+        // main-thread probes then time out and report false "main thread timeout"
+        // warnings. Waiting a few seconds lets those probes run against an idle frame.
+        if (_automaticSelfCheckEarliestTime < 0f)
+        {
+            _automaticSelfCheckEarliestTime = Time.unscaledTime + AutomaticSelfCheckDelaySeconds;
+            return;
+        }
+
+        if (Time.unscaledTime < _automaticSelfCheckEarliestTime)
+        {
+            return;
+        }
+
         _pendingAutomaticSelfCheck = false;
         _selfCheck.StartAutomaticAsync();
     }
@@ -560,9 +579,47 @@ internal sealed class PluginRuntime : IDisposable
         _highlighter?.OnGUI();
     }
 
-    private void OnSceneLoadedForPrefetch(Scene scene, LoadSceneMode mode)
+    // Detect scene changes by polling the active scene name instead of subscribing
+    // to SceneManager.sceneLoaded. The event is UnityAction<Scene, LoadSceneMode>,
+    // and constructing that generic delegate throws MissingMethodException on
+    // IL2CPP games where Il2CppInterop never generated the UnityAction`2 proxy.
+    // Only Scene.name is used here: it is the one Scene member proven to resolve
+    // on every targeted runtime (Unity 2019.4 / 2021.3 / 2022.3 IL2CPP / Unity 6).
+    // Scene.handle is internal on newer Unity runtimes and throws
+    // MissingMethodException there. A one-tick detection delay — and missing a
+    // same-name additive load — is harmless: the periodic scanner is the baseline.
+    private void PollSceneChanges()
+    {
+        string activeSceneName;
+        try
+        {
+            activeSceneName = SceneManager.GetActiveScene().name ?? string.Empty;
+        }
+        catch
+        {
+            return;
+        }
+
+        if (!_sceneStateInitialized)
+        {
+            _sceneStateInitialized = true;
+            _lastActiveSceneName = activeSceneName;
+            return;
+        }
+
+        if (activeSceneName == _lastActiveSceneName)
+        {
+            return;
+        }
+
+        _lastActiveSceneName = activeSceneName;
+        OnSceneChanged();
+    }
+
+    private void OnSceneChanged()
     {
         _inactivePrefetchScanner?.RequestDeepScan();
+        RequestGlobalTextScan();
     }
 
     private void RunTextChangeSuppressed(Action action)

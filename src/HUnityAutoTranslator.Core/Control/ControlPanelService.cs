@@ -7,7 +7,7 @@ namespace HUnityAutoTranslator.Core.Control;
 public sealed class ControlPanelService
 {
     private static readonly TimeSpan ProviderCooldownDuration = TimeSpan.FromMinutes(2);
-    private const string DefaultPluginVersion = "0.1.1";
+    private const string DefaultPluginVersion = "0.2.0";
     private const string MissingBepInExVersion = "未检测到";
     private const string ProjectAuthor = "HanFengRuYue";
     private const string ProjectRepositoryUrl = "https://github.com/HanFengRuYue/HUnityAutoTranslator";

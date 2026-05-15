@@ -29,7 +29,9 @@ public sealed class BoundedRuntimeLoopSourceTests
         uguiSource.Should().Contain("public bool UsesGlobalObjectScan => true;");
         uguiSource.Should().Contain("maxTargetsOverride ?? configuredMaxTargets");
         uguiSource.Should().Contain("_scanCursor.TakeWindow(objects, maxTargets)");
-        uguiSource.Should().Contain("UnityObjectFinder.FindObjects(_textType)");
+        // UguiTextScanner scans multiple legacy UI text kinds (UnityEngine.UI.Text + NGUI UILabel),
+        // so it iterates resolved kinds rather than a single _textType field.
+        uguiSource.Should().Contain("UnityObjectFinder.FindObjects(kind.Type)");
         uguiSource.Should().NotContain("for (var i = 0; i < count; i++)");
         uguiSource.Should().NotContain("FindObjectsOfType(_textType)");
 

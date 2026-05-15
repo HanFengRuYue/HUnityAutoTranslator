@@ -7,7 +7,6 @@ using HUnityAutoTranslator.Core.Pipeline;
 using HUnityAutoTranslator.Core.Runtime;
 using HUnityAutoTranslator.Plugin.Unity;
 using UnityEngine;
-using UnityEngine.SceneManagement;
 
 namespace HUnityAutoTranslator.Plugin.Capture;
 
@@ -36,7 +35,6 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
     private int _suppressDepth;
     private bool _enabled;
     private bool _warned;
-    private bool _sceneLoadedHooked;
 
     public UnityTextChangeHookInstaller(
         TextPipeline pipeline,
@@ -68,7 +66,6 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
             _enabled = patched > 0;
             if (_enabled)
             {
-                HookSceneLoaded();
                 _logger.LogInfo($"UGUI/TMP 即时文本变化捕获已启用，已安装 {patched} 个入口。");
             }
             else
@@ -212,22 +209,6 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
 
     private bool IsSuppressed => _suppressDepth > 0;
 
-    private void HookSceneLoaded()
-    {
-        if (_sceneLoadedHooked)
-        {
-            return;
-        }
-
-        SceneManager.sceneLoaded += OnSceneLoaded;
-        _sceneLoadedHooked = true;
-    }
-
-    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
-    {
-        _requestGlobalTextScan();
-    }
-
     private static bool TryGetChangedText(object[] args, out string? changedText)
     {
         changedText = null;
@@ -297,12 +278,6 @@ internal sealed class UnityTextChangeHookInstaller : IDisposable
 
     public void Dispose()
     {
-        if (_sceneLoadedHooked)
-        {
-            SceneManager.sceneLoaded -= OnSceneLoaded;
-            _sceneLoadedHooked = false;
-        }
-
         _harmony?.UnpatchSelf();
         if (ReferenceEquals(_instance, this))
         {

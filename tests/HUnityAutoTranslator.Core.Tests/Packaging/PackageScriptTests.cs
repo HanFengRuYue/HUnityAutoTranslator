@@ -23,7 +23,7 @@ public sealed class PackageScriptTests
     {
         var script = File.ReadAllText(Path.Combine(FindRepositoryRoot(), "build", "package.ps1"));
 
-        script.Should().Contain("[string]$PackageVersion = \"0.1.1\"");
+        script.Should().Contain("[string]$PackageVersion = \"0.2.0\"");
         script.Should().Contain("$outputRoot = Resolve-Path -LiteralPath $PSScriptRoot");
         script.Should().Contain("$packageRoot = Join-Path $outputRoot \"HUnityAutoTranslator\"");
         script.Should().Contain("$bepInEx5PackageRoot = Join-Path $outputRoot \"HUnityAutoTranslator-bepinex5\"");

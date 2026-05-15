@@ -30,15 +30,66 @@ internal static class UnityObjectFinder
     {
 #if HUNITY_IL2CPP
         var closed = GetClosedMethod(ClosedFindObjectsMethods, FindObjectsOfTypeGeneric, type);
-        if (closed == null)
+        var fast = closed == null ? Array.Empty<UnityEngine.Object>() : ToObjectArray(closed.Invoke(null, null));
+#else
+        var fast = UnityEngine.Object.FindObjectsOfType(type);
+#endif
+        if (fast.Length > 0)
         {
-            return Array.Empty<UnityEngine.Object>();
+            return fast;
         }
 
-        return ToObjectArray(closed.Invoke(null, null));
-#else
-        return UnityEngine.Object.FindObjectsOfType(type);
-#endif
+        // FindObjectsOfType returns nothing on some Unity Mono runtimes (observed on
+        // Unity 2019.4) even when active components of the type exist in the scene.
+        // FindObjectsOfTypeAll resolves them reliably across runtimes; filter it down
+        // to active real scene instances so this matches FindObjectsOfType semantics.
+        return FilterActiveSceneComponents(FindAllObjects(type));
+    }
+
+    private static UnityEngine.Object[] FilterActiveSceneComponents(UnityEngine.Object[] candidates)
+    {
+        if (candidates.Length == 0)
+        {
+            return candidates;
+        }
+
+        var result = new List<UnityEngine.Object>(candidates.Length);
+        foreach (var candidate in candidates)
+        {
+            if (candidate is not Component component || component == null)
+            {
+                continue;
+            }
+
+            var gameObject = component.gameObject;
+            if (gameObject == null)
+            {
+                continue;
+            }
+
+            // Engine-internal objects returned by FindObjectsOfTypeAll.
+            if ((gameObject.hideFlags & (HideFlags.HideAndDontSave | HideFlags.DontSaveInBuild | HideFlags.DontSaveInEditor)) != 0)
+            {
+                continue;
+            }
+
+            // Prefab/asset objects loaded in memory have an invalid scene; real scene
+            // instances (including DontDestroyOnLoad) have a valid one.
+            if (!gameObject.scene.IsValid())
+            {
+                continue;
+            }
+
+            // Inactive scene objects are covered separately by InactiveTextPrefetchScanner.
+            if (!gameObject.activeInHierarchy)
+            {
+                continue;
+            }
+
+            result.Add(candidate);
+        }
+
+        return result.Count == 0 ? Array.Empty<UnityEngine.Object>() : result.ToArray();
     }
 
     // Unlike FindObjects, this also returns inactive scene objects (used to pre-translate

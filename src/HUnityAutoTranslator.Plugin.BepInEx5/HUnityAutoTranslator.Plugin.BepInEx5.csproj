@@ -7,10 +7,10 @@
     <TargetFramework>net462</TargetFramework>
     <AssemblyName>HUnityAutoTranslator.Plugin.BepInEx5</AssemblyName>
     <Product>HUnityAutoTranslator</Product>
-    <Version>0.1.1</Version>
+    <Version>0.2.0</Version>
     <BepInExPluginGuid>com.hanfeng.hunityautotranslator</BepInExPluginGuid>
     <BepInExPluginName>HUnityAutoTranslator</BepInExPluginName>
-    <BepInExPluginVersion>0.1.1</BepInExPluginVersion>
+    <BepInExPluginVersion>0.2.0</BepInExPluginVersion>
     <NoWarn>$(NoWarn);BepInEx002</NoWarn>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <LangVersion>latest</LangVersion>
